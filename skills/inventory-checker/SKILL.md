@@ -92,7 +92,6 @@ Organize the results into clear sections:
 
 **MCP Servers** - Categorize by status AND source:
 - Split into **Local** (added via `claude mcp add`, run on your machine) and **Cloud** (connected via claude.ai/settings/connectors, prefixed with `claude.ai` in the list, run on Anthropic's servers)
-- As of March 2026, not all claude.ai connectors bridge into Claude Code — e.g. GitHub and Google Drive on claude.ai are Cowork-only and do NOT appear in `claude mcp list`
 - Within each group, categorize by status:
   - ✅ Working & Connected
   - ⚠️ Needs Authentication
