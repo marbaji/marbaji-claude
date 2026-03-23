@@ -81,23 +81,29 @@ pip3 list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(pip3 l
 brew list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(brew list 2>/dev/null | wc -l | tr -d ' ')"
 ```
 
-### Step 7: Check Key CLI Tools
+### Step 7: Check CLI Tools in PATH
 
-Instead of checking a hardcoded list, derive CLI tools from what's actually installed. Run this to find all globally-installed binaries that are in PATH:
+Discover all CLI tools dynamically — don't use a hardcoded list.
 
 ```bash
-# Get bin names from npm global packages
+# 1. Binaries from npm global packages
 npm list -g --depth=0 --parseable 2>/dev/null | tail -n +2 | while read pkg; do
   ls "$pkg/bin" 2>/dev/null
 done | sort -u
 
-# Also check these core tools that don't come from package managers
-for cmd in python3 node npm npx git gh claude obsidian; do
+# 2. Binaries from pip3 (scripts installed by Python packages)
+pip3 show -f anthropic claude-agent-sdk mcp gspread firecrawl 2>/dev/null | grep -A999 "^Files:" | grep "bin/" | sed 's|.*/bin/||' | sort -u
+
+# 3. Key Homebrew binaries (non-library packages)
+brew list --formula -1 2>/dev/null | xargs -I{} sh -c 'brew list --formula {} 2>/dev/null | grep "/bin/" | head -1' | sed 's|.*/||' | sort -u | head -20
+
+# 4. Verify all discovered tools + system essentials are accessible
+for cmd in $(cat /tmp/discovered_tools.txt 2>/dev/null) python3 node git gh claude obsidian; do
   which "$cmd" 2>/dev/null
-done
+done | sort -u
 ```
 
-This way new tools (like `gws` from `@googleworkspace/cli`) are automatically picked up without needing to update the skill.
+This picks up tools from all package managers automatically. No hardcoded lists to maintain.
 
 ### Step 8: Format the Output
 
