@@ -90,7 +90,9 @@ ls ~/.claude/plugins/marketplaces/ 2>/dev/null | sort
 ls ~/.claude/plugins/cache/ 2>/dev/null | sort
 ```
 
-Compare these against the output of `claude plugin marketplace list`. Any directory that exists on disk but is NOT in the active list is a stale cache. Flag these for cleanup.
+Compare these against the output of `claude plugin marketplace list`:
+- Any directory in `marketplaces/` or `cache/` that is NOT in the active marketplace list is a **stale cache**. Flag these for cleanup.
+- **Not all marketplaces have a separate cache directory.** Some marketplaces store their plugin data directly in the `marketplaces/` directory (with a nested plugin folder inside) and never create a `cache/` entry. A marketplace appearing in `marketplaces/` but missing from `cache/` is **normal** — do NOT flag this as an issue. Only flag directories that exist on disk but are absent from the active `claude plugin marketplace list` output.
 
 ### Step 3: List All Available Skills (grouped by marketplace)
 ```bash
@@ -201,7 +203,7 @@ Rules for the MCP tables:
 - Exclude built-in platform servers (Claude Preview, Claude in Chrome, Scheduled Tasks, MCP Registry) from tables — mention in a footnote if desired
 - Add a "Purpose" description for each server based on its tool names
 
-**Plugin Marketplaces** - List with source information. Flag any stale caches found in Step 2b.
+**Plugin Marketplaces** - List with source information. Flag any truly stale caches found in Step 2b (directories not in the active list). Do NOT flag marketplaces that simply lack a `cache/` entry — this is normal for marketplaces that store plugins directly in `marketplaces/`.
 
 **Skills Available** - Display grouped by marketplace as returned by the command. Show the marketplace name as the section header with skill count, then list skills under it.
 
@@ -225,7 +227,7 @@ Rules for the MCP tables:
 
 **Issues Found** - List any problems detected:
 - Failed MCP connections
-- Stale marketplace caches
+- Stale marketplace caches (directories on disk NOT in the active marketplace list — not simply missing from `cache/`)
 - Cloud+local duplicates (informational, not an error)
 - Missing expected tools
 
