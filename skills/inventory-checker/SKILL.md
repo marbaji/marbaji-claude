@@ -25,23 +25,22 @@ When the user asks about their installed components, setup, or configuration, ru
 
 ### Step 1: List MCP Servers
 
-Run both commands — `claude mcp list` may not show cloud connectors in all environments (e.g. Claude Desktop's Code tab doesn't surface them). The second command catches what the first misses.
-
+**Step 1a — Local MCP servers:**
 ```bash
 claude mcp list
 ```
 
-Then also check which cloud connectors are actually available in this session by looking at tool prefixes. This works in both CLI and Desktop:
+**Step 1b — Cloud connectors (claude.ai):**
 
-```bash
-# List available MCP tool prefixes to detect cloud connectors
-# Look at the system-reminder in context for tools starting with mcp__claude_ai_
-# Each unique mcp__claude_ai_<ServiceName>__ prefix = one cloud connector
+`claude mcp list` may not show cloud connectors in all environments (e.g. Claude Desktop with "Load tools when needed" enabled). To detect them reliably, use the **ToolSearch** tool which can find deferred/lazy-loaded tools:
+
+```
+ToolSearch(query="+mcp__claude_ai", max_results=50)
 ```
 
-To do this: scan the available tools in your current context for any that start with `mcp__claude_ai_`. Extract the unique service names (e.g. `mcp__claude_ai_Slack__` → Slack). These are cloud connectors that are active in this session, even if `claude mcp list` didn't show them.
+This returns all cloud connector tools even when they haven't been loaded yet. Extract the unique service names from the results — each `mcp__claude_ai_<ServiceName>__` prefix is one cloud connector (e.g. `mcp__claude_ai_Slack__channels_list` → **Slack**).
 
-**Combine both sources.** If `claude mcp list` shows `claude.ai Slack` AND you see `mcp__claude_ai_Slack__` tools, that's one server (not two). If `claude mcp list` misses it but the tools exist, it's still connected.
+**Combine both sources.** Deduplicate: if `claude mcp list` shows `claude.ai Slack` AND ToolSearch finds `mcp__claude_ai_Slack__` tools, that's one server. If `claude mcp list` misses it but ToolSearch finds it, it's still connected — just not surfaced by the CLI in this environment.
 
 ### Step 2: List Plugin Marketplaces
 
