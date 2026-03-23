@@ -25,22 +25,24 @@ When the user asks about their installed components, setup, or configuration, ru
 
 ### Step 1: List MCP Servers
 
+You MUST run BOTH of these. Do not skip Step 1b — `claude mcp list` alone misses cloud connectors in most environments.
+
 **Step 1a — Local MCP servers:**
 ```bash
 claude mcp list
 ```
 
-**Step 1b — Cloud connectors (claude.ai):**
+**Step 1b — Cloud connectors (REQUIRED, run this even if Step 1a looks complete):**
 
-`claude mcp list` may not show cloud connectors in all environments (e.g. Claude Desktop with "Load tools when needed" enabled). To detect them reliably, use the **ToolSearch** tool which can find deferred/lazy-loaded tools:
+Call the ToolSearch tool right now with this exact invocation:
 
 ```
 ToolSearch(query="+mcp__claude_ai", max_results=50)
 ```
 
-This returns all cloud connector tools even when they haven't been loaded yet. Extract the unique service names from the results — each `mcp__claude_ai_<ServiceName>__` prefix is one cloud connector (e.g. `mcp__claude_ai_Slack__channels_list` → **Slack**).
+This is NOT optional. Cloud connectors (Slack, Gmail, Notion, HubSpot, etc.) are invisible to `claude mcp list` in Claude Desktop. ToolSearch is the only reliable way to detect them. Extract the unique service names from the results — each `mcp__claude_ai_<ServiceName>__` prefix is one cloud connector (e.g. `mcp__claude_ai_Slack__channels_list` → **Slack**).
 
-**Combine both sources.** Deduplicate: if `claude mcp list` shows `claude.ai Slack` AND ToolSearch finds `mcp__claude_ai_Slack__` tools, that's one server. If `claude mcp list` misses it but ToolSearch finds it, it's still connected — just not surfaced by the CLI in this environment.
+**Combine both sources.** Deduplicate: if `claude mcp list` shows `claude.ai Slack` AND ToolSearch finds `mcp__claude_ai_Slack__` tools, that's one server (not two). The total MCP count = unique servers from both sources combined.
 
 ### Step 2: List Plugin Marketplaces
 
