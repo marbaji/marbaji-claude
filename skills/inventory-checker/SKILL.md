@@ -25,24 +25,52 @@ When the user asks about their installed components, setup, or configuration, ru
 
 ### Step 1: List MCP Servers
 
-You MUST run BOTH of these. Do not skip Step 1b — `claude mcp list` alone misses cloud connectors in most environments.
+You MUST do BOTH Step 1a and Step 1b. `claude mcp list` alone misses cloud connectors — especially in Claude Code Desktop.
 
-**Step 1a — Local MCP servers:**
+**Step 1a — Local/configured MCP servers:**
 ```bash
 claude mcp list
 ```
 
-**Step 1b — Cloud connectors (REQUIRED, run this even if Step 1a looks complete):**
+**Step 1b — Cloud connectors (REQUIRED, do NOT skip):**
 
-Call the ToolSearch tool right now with this exact invocation:
+Cloud connectors from claude.ai/settings/connectors are injected into the runtime tool registry but are often invisible to `claude mcp list` in Claude Code Desktop. They appear as **deferred tools** listed in `<system-reminder>` messages at the top of the conversation.
 
+To detect them:
+
+1. Look at the deferred tools list in the system-reminder messages in your conversation context
+2. Extract all tool names that start with `mcp__`
+3. Group by server prefix — the segment between the first and second `__` (e.g., `mcp__33d58cf5-37c2-447c-b3de-20aa72bdad7e__gmail_search_messages` → server ID is `33d58cf5-37c2-447c-b3de-20aa72bdad7e`)
+4. **UUID-prefixed servers** (e.g., `mcp__33d58cf5-...`) are cloud connectors NOT shown by `claude mcp list`
+5. **Named servers** (e.g., `mcp__slack__`, `mcp__github__`) are local MCP servers already covered by Step 1a
+
+To identify which service each UUID-prefixed server represents, look at its tool names:
+
+| Tool name patterns | Service |
+|--------------------|---------|
+| `gmail_*` | Gmail |
+| `gcal_*` | Google Calendar |
+| `google_drive_*` | Google Drive |
+| `notion-*`, `notion_*` | Notion |
+| `get_crm_objects`, `search_crm_objects`, `get_properties` | HubSpot CRM |
+| `search_contacts`, `get_conversation`, `list_articles` | Intercom |
+| `ramp_*`, `load_spend_*`, `load_cards`, `load_users` | Ramp |
+| `execute_workflow`, `search_workflows`, `publish_workflow` | n8n Workflows |
+| `generate-design`, `export-design`, `search-designs` | Canva |
+| `list_files`, `read_file`, `run_query` (when UUID-prefixed) | Google Sheets |
+
+You can also confirm via ToolSearch if needed:
 ```
-ToolSearch(query="+mcp__claude_ai", max_results=50)
+ToolSearch(query="+mcp__ gmail", max_results=5)
 ```
 
-This is NOT optional. Cloud connectors (Slack, Gmail, Notion, HubSpot, etc.) are invisible to `claude mcp list` in Claude Desktop. ToolSearch is the only reliable way to detect them. Extract the unique service names from the results — each `mcp__claude_ai_<ServiceName>__` prefix is one cloud connector (e.g. `mcp__claude_ai_Slack__channels_list` → **Slack**).
+**Combine both sources.** Deduplicate: if `claude mcp list` shows `slack` AND the deferred tools list has `mcp__slack__*` tools, that's one server, not two. The total MCP count = unique servers from both sources combined.
 
-**Combine both sources.** Deduplicate: if `claude mcp list` shows `claude.ai Slack` AND ToolSearch finds `mcp__claude_ai_Slack__` tools, that's one server (not two). The total MCP count = unique servers from both sources combined.
+**Exclude built-in platform servers** from the count — these are part of Claude Code itself, not user-configured. Mention them in a footnote but don't include in MCP totals:
+- `mcp__Claude_Preview__*` — Claude Preview
+- `mcp__Claude_in_Chrome__*` — Claude in Chrome
+- `mcp__scheduled-tasks__*` — Scheduled Tasks
+- `mcp__mcp-registry__*` — MCP Registry
 
 ### Step 2: List Plugin Marketplaces
 
@@ -133,7 +161,7 @@ This picks up tools like `gws`, `firecrawl`, `npx` automatically from npm. No ha
 Organize the results into clear sections:
 
 **MCP Servers** - Categorize by status AND source:
-- Split into **Local** (added via `claude mcp add`, run on your machine) and **Cloud** (connected via claude.ai/settings/connectors, prefixed with `claude.ai` in the list or detected via `mcp__claude_ai_*` tool prefixes)
+- Split into **Local** (added via `claude mcp add`, run on your machine) and **Cloud** (connected via claude.ai/settings/connectors, detected as UUID-prefixed servers in the deferred tools list)
 - Identify **duplicates** where the same service has both a cloud connector and a local MCP (e.g. Atlassian, Supernova). Note this — it's not a problem, the local one works alongside the cloud one.
 - Within each group, categorize by status:
   - ✅ Working & Connected
@@ -181,7 +209,7 @@ User requests that trigger this skill:
 ## Guidelines
 
 - Always show connection status for MCP servers
-- Detect cloud connectors via BOTH `claude mcp list` AND available tool prefixes
+- Detect cloud connectors via BOTH `claude mcp list` AND UUID-prefixed deferred tools in system-reminder context
 - Group similar items together for clarity
 - Use emoji indicators for status (✅ ⚠️ ❌)
 - Categorize Python packages by their purpose (AI/ML, document processing, web, utilities)
