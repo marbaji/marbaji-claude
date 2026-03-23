@@ -1,0 +1,22 @@
+{
+  "name": "marbaji-claude",
+  "owner": {
+    "name": "Mohannad Arbaji",
+    "email": "marbaji@gmail.com"
+  },
+  "metadata": {
+    "description": "Mo's personal Claude Code skills — inventory checker and Obsidian session memory",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "marbaji-claude",
+      "source": "./",
+      "description": "Mo's personal Claude Code skills — inventory checker for setup auditing and mos-obsidian-memory for project-first session context.",
+      "skills": [
+        "./skills/inventory-checker",
+        "./skills/mos-obsidian-memory"
+      ]
+    }
+  ]
+}
