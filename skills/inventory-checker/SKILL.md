@@ -51,7 +51,7 @@ for line in sys.stdin:
     if m:
         groups[m.group(1)].add(m.group(2))
         continue
-    m = re.search(r'plugins/marketplaces/([^/]+)/skills/([^/]+)/SKILL\.md', p)
+    m = re.search(r'plugins/marketplaces/([^/]+)/.+/([^/]+)/SKILL\.md', p)
     if m:
         groups[m.group(1)].add(m.group(2))
         continue
@@ -73,12 +73,12 @@ npm list -g --depth=0 2>/dev/null
 
 ### Step 5: List Python Packages
 ```bash
-pip3 list 2>/dev/null | head -30
+pip3 list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(pip3 list 2>/dev/null | tail -n +3 | wc -l | tr -d ' ')"
 ```
 
 ### Step 6: List Homebrew Packages
 ```bash
-brew list 2>/dev/null | head -30
+brew list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(brew list 2>/dev/null | wc -l | tr -d ' ')"
 ```
 
 ### Step 7: Check Key CLI Tools

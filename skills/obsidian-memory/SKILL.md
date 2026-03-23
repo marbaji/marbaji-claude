@@ -1,11 +1,20 @@
 ---
-name: mos-obsidian-memory
+name: obsidian-memory
 description: Manage persistent memory and context for Claude Code sessions using Obsidian. Load context at session start, save sessions automatically, search past work, and maintain evolving knowledge graph.
 ---
 
 # Obsidian Memory Management
 
 This skill provides persistent memory and context management for Claude Code using Obsidian.
+
+---
+
+> **COMMON MISTAKES — Read before using this skill**
+>
+> 1. **`obsidian update` does not exist.** There is no update command. To overwrite an existing file, use the **Write tool** targeting the full filesystem path (e.g. `~/Documents/<VAULT_NAME>/Context/current-focus.md`). Using `obsidian update` will fail silently or error out.
+> 2. **New file vs. overwrite** — Use `obsidian create` only for files that do not exist yet. For files that already exist, use the Write tool. See the "File Write Decision Tree" section below.
+> 3. **Vault path resolution** — The `obsidian` CLI commands use the vault *name* (e.g. `vault="Claude Code Obsidian"`). The Write tool needs the full *filesystem path* (e.g. `~/Documents/Claude Code Obsidian/Context/current-focus.md`). These are different. See "Vault Location" below.
+> 4. **Never skip the session-end approval step.** Writing project docs with wrong categories (ChalkTalk vs Personal) is a high-consequence error. Always present the summary and wait for user confirmation before writing anything.
 
 ---
 
@@ -109,6 +118,16 @@ Setup is complete. Continue with normal session start.
 
 Read from `~/.claude/obsidian-vault-name`. Use this value as `<VAULT_NAME>` in all commands below.
 
+**Resolving the full filesystem path** (needed for the Write tool):
+```
+Vault filesystem path = ~/Documents/<VAULT_NAME>/
+```
+Example: if `<VAULT_NAME>` is `Claude Code Obsidian`, then:
+- `Context/current-focus.md` in obsidian commands = `~/Documents/Claude Code Obsidian/Context/current-focus.md` as a filesystem path
+- `Work/Chalktalk/Projects/renewal-cards.md` = `~/Documents/Claude Code Obsidian/Work/Chalktalk/Projects/renewal-cards.md`
+
+Use obsidian CLI commands with `vault="<VAULT_NAME>"` for read/create/append. Use the Write tool with the full filesystem path for overwrites.
+
 ---
 
 ## Vault Structure
@@ -139,6 +158,21 @@ Technical/
 Templates/
   project.md, session-log.md, etc.
 ```
+
+---
+
+## File Write Decision Tree
+
+Before writing to any file, follow this decision tree:
+
+| Scenario | Tool to Use | Example |
+|---|---|---|
+| **New file** (does not exist yet) | `obsidian create` | `obsidian create path="Work/Chalktalk/Projects/new-project.md" content="..." vault="<VAULT_NAME>"` |
+| **Overwrite existing file** | **Write tool** (full filesystem path) | Write tool targeting `~/Documents/<VAULT_NAME>/Context/current-focus.md` |
+| **Append to existing file** | `obsidian append` | `obsidian append file="Technical/Learnings/lessons-learned" content="..." vault="<VAULT_NAME>"` |
+| **Update frontmatter property** | `obsidian property:set` | `obsidian property:set file="..." property="status" value="complete" vault="<VAULT_NAME>"` |
+
+> **WARNING:** `obsidian update` does not exist. Never use it. If you need to change an existing file's content, read it first, then use the Write tool to overwrite it at the full filesystem path.
 
 ---
 
@@ -210,6 +244,8 @@ Look at what was worked on during the session. For each distinct project touched
 **Default category is ChalkTalk** (`Work/Chalktalk/Projects`). Only use `Personal/Projects` for clearly personal work (InBloom, side projects, non-ChalkTalk).
 
 #### Step 2: Present summary for approval
+
+> **MANDATORY STEP — NEVER SKIP.** Writing project docs under the wrong category (e.g. putting a personal project in ChalkTalk, or vice versa) is a high-consequence error that corrupts the knowledge graph. Always present the summary below and wait for explicit user approval before writing anything.
 
 Before writing anything, present a summary to the user:
 
