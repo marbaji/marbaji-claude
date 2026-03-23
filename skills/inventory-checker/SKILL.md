@@ -10,30 +10,58 @@ This skill provides a comprehensive overview of all installed Claude Code compon
 ## What This Skill Does
 
 When triggered, this skill will:
-1. List all MCP servers with their connection status
-2. Show configured plugin marketplaces
+1. List all MCP servers with their connection status (local AND cloud)
+2. Show configured plugin marketplaces (and flag stale caches)
 3. Display all available skills from installed marketplaces
 4. List global npm packages
 5. List Python packages (pip3)
 6. List Homebrew packages
-7. Check key CLI tools in PATH
-8. Provide summary statistics
+7. Discover all CLI tools in PATH dynamically
+8. Provide summary statistics and flag issues
 
 ## Instructions
 
 When the user asks about their installed components, setup, or configuration, run the following commands to generate a complete inventory:
 
 ### Step 1: List MCP Servers
+
+Run both commands — `claude mcp list` may not show cloud connectors in all environments (e.g. Claude Desktop's Code tab doesn't surface them). The second command catches what the first misses.
+
 ```bash
 claude mcp list
 ```
 
-This shows all MCP servers with their status (connected, needs authentication, or failed).
+Then also check which cloud connectors are actually available in this session by looking at tool prefixes. This works in both CLI and Desktop:
+
+```bash
+# List available MCP tool prefixes to detect cloud connectors
+# Look at the system-reminder in context for tools starting with mcp__claude_ai_
+# Each unique mcp__claude_ai_<ServiceName>__ prefix = one cloud connector
+```
+
+To do this: scan the available tools in your current context for any that start with `mcp__claude_ai_`. Extract the unique service names (e.g. `mcp__claude_ai_Slack__` → Slack). These are cloud connectors that are active in this session, even if `claude mcp list` didn't show them.
+
+**Combine both sources.** If `claude mcp list` shows `claude.ai Slack` AND you see `mcp__claude_ai_Slack__` tools, that's one server (not two). If `claude mcp list` misses it but the tools exist, it's still connected.
 
 ### Step 2: List Plugin Marketplaces
+
 ```bash
 claude plugin marketplace list
 ```
+
+### Step 2b: Detect Stale Marketplace Caches
+
+Check for marketplace directories on disk that are no longer in the active marketplace list:
+
+```bash
+# List marketplace dirs on disk
+ls ~/.claude/plugins/marketplaces/ 2>/dev/null | sort
+
+# List cache dirs on disk
+ls ~/.claude/plugins/cache/ 2>/dev/null | sort
+```
+
+Compare these against the output of `claude plugin marketplace list`. Any directory that exists on disk but is NOT in the active list is a stale cache. Flag these for cleanup.
 
 ### Step 3: List All Available Skills (grouped by marketplace)
 ```bash
@@ -81,9 +109,9 @@ pip3 list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(pip3 l
 brew list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(brew list 2>/dev/null | wc -l | tr -d ' ')"
 ```
 
-### Step 7: Check CLI Tools in PATH
+### Step 7: Discover CLI Tools in PATH
 
-Discover all CLI tools dynamically — don't use a hardcoded list.
+Discover all CLI tools dynamically from package managers — don't use a hardcoded list.
 
 ```bash
 # 1. Binaries from npm global packages
@@ -91,32 +119,27 @@ npm list -g --depth=0 --parseable 2>/dev/null | tail -n +2 | while read pkg; do
   ls "$pkg/bin" 2>/dev/null
 done | sort -u
 
-# 2. Binaries from pip3 (scripts installed by Python packages)
-pip3 show -f anthropic claude-agent-sdk mcp gspread firecrawl 2>/dev/null | grep -A999 "^Files:" | grep "bin/" | sed 's|.*/bin/||' | sort -u
-
-# 3. Key Homebrew binaries (non-library packages)
-brew list --formula -1 2>/dev/null | xargs -I{} sh -c 'brew list --formula {} 2>/dev/null | grep "/bin/" | head -1' | sed 's|.*/||' | sort -u | head -20
-
-# 4. Verify all discovered tools + system essentials are accessible
-for cmd in $(cat /tmp/discovered_tools.txt 2>/dev/null) python3 node git gh claude obsidian; do
+# 2. Verify system essentials that don't come from package managers
+for cmd in python3 node git gh claude obsidian; do
   which "$cmd" 2>/dev/null
-done | sort -u
+done
 ```
 
-This picks up tools from all package managers automatically. No hardcoded lists to maintain.
+This picks up tools like `gws`, `firecrawl`, `npx` automatically from npm. No hardcoded lists to maintain.
 
 ### Step 8: Format the Output
 
 Organize the results into clear sections:
 
 **MCP Servers** - Categorize by status AND source:
-- Split into **Local** (added via `claude mcp add`, run on your machine) and **Cloud** (connected via claude.ai/settings/connectors, prefixed with `claude.ai` in the list, run on Anthropic's servers)
+- Split into **Local** (added via `claude mcp add`, run on your machine) and **Cloud** (connected via claude.ai/settings/connectors, prefixed with `claude.ai` in the list or detected via `mcp__claude_ai_*` tool prefixes)
+- Identify **duplicates** where the same service has both a cloud connector and a local MCP (e.g. Atlassian, Supernova). Note this — it's not a problem, the local one works alongside the cloud one.
 - Within each group, categorize by status:
   - ✅ Working & Connected
   - ⚠️ Needs Authentication
   - ❌ Connection Failed
 
-**Plugin Marketplaces** - List with source information
+**Plugin Marketplaces** - List with source information. Flag any stale caches found in Step 2b.
 
 **Skills Available** - Display grouped by marketplace as returned by the command. Show the marketplace name as the section header with skill count, then list skills under it.
 
@@ -134,9 +157,15 @@ Organize the results into clear sections:
 - System Libraries
 - Utilities
 
-**Key CLI Tools in PATH** - Verify essential tools are accessible
+**CLI Tools in PATH** - All discovered tools with their full paths
 
 **Summary Stats** - Count of each category
+
+**Issues Found** - List any problems detected:
+- Failed MCP connections
+- Stale marketplace caches
+- Cloud+local duplicates (informational, not an error)
+- Missing expected tools
 
 ## Examples
 
@@ -151,13 +180,15 @@ User requests that trigger this skill:
 ## Guidelines
 
 - Always show connection status for MCP servers
+- Detect cloud connectors via BOTH `claude mcp list` AND available tool prefixes
 - Group similar items together for clarity
 - Use emoji indicators for status (✅ ⚠️ ❌)
 - Categorize Python packages by their purpose (AI/ML, document processing, web, utilities)
 - Group Homebrew packages by type (dev tools, media, system libraries)
 - Show versions where available for npm and Python packages
-- Verify that key CLI tools are in PATH and accessible
+- Discover CLI tools dynamically from package managers — never hardcode a list
 - Provide counts/statistics at the end for all categories
+- Flag stale caches, failed connections, and duplicates in an Issues section
 - If a command fails, note it and continue with other checks
 - Offer to help fix issues if any are found
 - Run all checks in parallel where possible for efficiency
