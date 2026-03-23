@@ -12,10 +12,10 @@
     {
       "name": "marbaji-claude",
       "source": "./",
-      "description": "Mo's personal Claude Code skills — inventory checker for setup auditing and mos-obsidian-memory for project-first session context.",
+      "description": "Mo's personal Claude Code skills — inventory checker for setup auditing and obsidian-memory for project-first session context.",
       "skills": [
         "./skills/inventory-checker",
-        "./skills/mos-obsidian-memory"
+        "./skills/obsidian-memory"
       ]
     }
   ]
