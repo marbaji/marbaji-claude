@@ -160,49 +160,42 @@ This picks up tools like `gws`, `firecrawl`, `npx` automatically from npm. No ha
 
 Organize the results into clear sections:
 
-**MCP Servers** — Use ASCII box-drawing tables (not markdown tables or bullet lists). Split into two tables:
+**MCP Servers** — Use standard markdown tables. Split into two sections:
 
 1. **Local servers** — added via `claude mcp add`, run on user's machine
 2. **Cloud — claude.ai connectors** — detected as UUID-prefixed servers in the deferred tools list
 
 Each table has three columns: Server, Purpose, Status.
 
-Use box-drawing characters: `┌ ─ ┬ ┐ │ ├ ┼ ┤ └ ┴ ┘`
-
 Example format:
-```
-MCP Servers (N total — X connected, Y failed)
 
-  Local (N servers)
+```markdown
+### MCP Servers (N total — X connected, Y failed)
 
-  ┌──────────────────────────────┬─────────────────────────────┬──────────────┐
-  │            Server            │           Purpose           │    Status    │
-  ├──────────────────────────────┼─────────────────────────────┼──────────────┤
-  │ slack                        │ Team messaging (local)      │ ✅ Connected │
-  ├──────────────────────────────┼─────────────────────────────┼──────────────┤
-  │ github                       │ Repos, PRs, issues          │ ✅ Connected │
-  └──────────────────────────────┴─────────────────────────────┴──────────────┘
+**Local (N servers)**
 
-  Cloud — claude.ai connectors (N servers)
+| Server | Purpose | Status |
+|---|---|---|
+| slack | Team messaging | ✅ Connected |
+| github | Repos, PRs, issues | ✅ Connected |
 
-  ┌───────────────────────────┬─────────────────────┬──────────────┐
-  │          Server           │       Purpose       │    Status    │
-  ├───────────────────────────┼─────────────────────┼──────────────┤
-  │ claude.ai Gmail           │ Email               │ ✅ Connected │
-  ├───────────────────────────┼─────────────────────┼──────────────┤
-  │ claude.ai Google Calendar │ Calendar            │ ✅ Connected │
-  └───────────────────────────┴─────────────────────┴──────────────┘
+**Cloud — claude.ai connectors (N servers)**
 
-  ▎ Duplicates (cloud + local): Atlassian — both work alongside each other, not a problem.
-  ▎ Failover: claude.ai Slack failed, but local slack MCP is connected as fallback.
+| Server | Purpose | Status |
+|---|---|---|
+| claude.ai Gmail | Email read/draft | ✅ Connected |
+| claude.ai Google Calendar | Calendar & scheduling | ✅ Connected |
+
+> Built-in platform servers excluded: Claude Preview, Claude in Chrome, Scheduled Tasks, MCP Registry
+> Duplicates (cloud + local): Atlassian — both work alongside each other, not a problem.
+> Failover: claude.ai Slack failed, but local slack MCP is connected as fallback.
 ```
 
 Rules for the MCP tables:
 - Prefix cloud connector names with `claude.ai` (e.g., `claude.ai Gmail`, `claude.ai Notion`)
-- Center-align the header row text, left-align data rows
 - Use status emoji: ✅ Connected, ⚠️ Needs Auth, ❌ Failed
 - Add a summary header line: `MCP Servers (N total — X connected, Y failed)`
-- After both tables, add `▎` prefixed notes for:
+- After both tables, add blockquote (`>`) notes for:
   - **Duplicates**: services that appear in both local and cloud (informational, not an error)
   - **Failover**: if a cloud connector failed but the local version works, call it out
 - Exclude built-in platform servers (Claude Preview, Claude in Chrome, Scheduled Tasks, MCP Registry) from tables — mention in a footnote if desired
@@ -248,7 +241,7 @@ User requests that trigger this skill:
 
 ## Guidelines
 
-- Always render MCP servers in ASCII box-drawing tables (┌─┬─┐ style), never markdown tables or bullet lists
+- Always render MCP servers in standard markdown tables with Server/Purpose/Status columns
 - Split MCP into two tables: Local servers and Cloud connectors (prefix cloud names with `claude.ai`)
 - Detect cloud connectors via BOTH `claude mcp list` AND UUID-prefixed deferred tools in system-reminder context
 - Group similar items together for clarity
