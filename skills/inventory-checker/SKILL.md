@@ -82,9 +82,22 @@ brew list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(brew l
 ```
 
 ### Step 7: Check Key CLI Tools
+
+Instead of checking a hardcoded list, derive CLI tools from what's actually installed. Run this to find all globally-installed binaries that are in PATH:
+
 ```bash
-which firecrawl notebooklm python3 node npm npx git gh claude 2>/dev/null
+# Get bin names from npm global packages
+npm list -g --depth=0 --parseable 2>/dev/null | tail -n +2 | while read pkg; do
+  ls "$pkg/bin" 2>/dev/null
+done | sort -u
+
+# Also check these core tools that don't come from package managers
+for cmd in python3 node npm npx git gh claude obsidian; do
+  which "$cmd" 2>/dev/null
+done
 ```
+
+This way new tools (like `gws` from `@googleworkspace/cli`) are automatically picked up without needing to update the skill.
 
 ### Step 8: Format the Output
 
