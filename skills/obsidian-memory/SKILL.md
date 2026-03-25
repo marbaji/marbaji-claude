@@ -138,7 +138,7 @@ Context/
   current-focus.md         — Active/ongoing/complete projects with wikilinks
   preferences.md           — Working style preferences
   work-context.md          — Domain knowledge
-  Mo's Project Backlog.md  — Manually maintained by user. Read-only for Claude.
+  Project Backlog.md  — Manually maintained by user. Read-only for Claude.
 
 Work/Chalktalk/Projects/
   project-name.md          — One file per ChalkTalk work project
@@ -200,9 +200,9 @@ Before writing to any file, follow this decision tree:
    obsidian read file="Context/preferences" vault="<VAULT_NAME>"
    ```
 
-4. Check Mo's Project Backlog for any relevant context
+4. Check Project Backlog for any relevant context
    ```bash
-   obsidian read file="Context/Mo's Project Backlog" vault="<VAULT_NAME>"
+   obsidian read file="Context/Project Backlog" vault="<VAULT_NAME>"
    ```
    This file is **manually maintained by the user**. Read it for context but never modify it.
 
@@ -222,7 +222,7 @@ Before writing to any file, follow this decision tree:
 1. current-focus.md (what user is working on)
 2. Active project docs (deep context on each)
 3. preferences.md (how user likes to work)
-4. Mo's Project Backlog (read-only, for awareness)
+4. Project Backlog (read-only, for awareness)
 5. Recent sessions (continuity)
 6. Other context files as needed (about-me, work-context)
 
@@ -333,7 +333,7 @@ What we set out to do and what we accomplished (2-4 sentences).
 - [[Personal/Projects/InBloom/overview|InBloom]] — what was done
 
 ## What We Did
-Detailed walkthrough of the work in the order it happened. Include:
+Walkthrough of the work in the order it happened. Include:
 - Problems encountered and how they were solved
 - Commands run and their results (when notable)
 - Code changes — what was changed, where, and why
@@ -472,9 +472,9 @@ Use in frontmatter `status` field:
 
 ---
 
-## Mo's Project Backlog
+## Project Backlog
 
-The file `Context/Mo's Project Backlog.md` is **manually maintained by the user**. It contains:
+The file `Context/Project Backlog.md` is **manually maintained by the user**. It contains:
 - Prioritized list of projects Mo wants to work on
 - Tool references and tips
 - Backlog of content/tooling projects to pull from
@@ -493,7 +493,7 @@ The file `Context/Mo's Project Backlog.md` is **manually maintained by the user*
 - Load context at session start (don't ask)
 - Update project docs at session end (with approval)
 - Present project summary with categories before writing
-- Write full session logs that capture what happened
+- Write session logs that capture what happened
 - Update current-focus when projects change status
 
 ### Ask First
@@ -551,4 +551,4 @@ rm ~/.claude/obsidian-vault-name
 
 ---
 
-**Remember**: Project docs are the source of truth for project state. Session logs are full records of what happened on a given date. Current-focus is the dashboard. This skill should work INVISIBLY in the background — the user shouldn't have to think about memory management.
+**Remember**: Project docs are the source of truth for project state. Session logs are records of what happened on a given date. Current-focus is the dashboard. This skill should work INVISIBLY in the background — the user shouldn't have to think about memory management.
