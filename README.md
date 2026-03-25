@@ -7,6 +7,9 @@ Personal Claude Code skills marketplace.
 ### /obsidian-memory
 Project-first session memory using Obsidian. At session start, loads project context and current focus. During sessions, proactively saves after milestones. At session end, updates project docs and writes session logs. Presents a summary with categories for approval before writing.
 
+### /technical-handoff-writer
+Structures exploratory technical work (SQL, data analysis, algorithm validation) into an engineering handoff. Outputs two files: a curated handoff document and a companion development timeline (via claude-mem's `timeline-report`). Requires [claude-mem](https://github.com/thedotmack/claude-mem) for timeline generation.
+
 ### /inventory-checker
 Displays a complete inventory of all installed Claude Code components — MCP servers (local and cloud, with status), plugin marketplaces, available skills (grouped by marketplace), npm/Python/Homebrew packages, and CLI tools.
 
@@ -94,4 +97,16 @@ Runs a worker service that automatically captures every tool call as an observat
 ```bash
 claude plugin marketplace add marbaji-claude --source github --repo marbaji/marbaji-claude
 claude plugin enable marbaji-claude@marbaji-claude
+```
+
+### Recommended: Install claude-mem
+
+[claude-mem](https://github.com/thedotmack/claude-mem) is a separate plugin that provides automatic observation capture, cross-session search, and timeline reports. It's recommended for two reasons:
+
+1. **Memory architecture** — claude-mem is the safety net and deep-recall layer in the three-layer memory system described above. obsidian-memory handles curated saves; claude-mem catches everything else automatically via hooks.
+2. **technical-handoff-writer** — The `/technical-handoff-writer` skill generates a companion timeline report using claude-mem's `timeline-report`. Without claude-mem installed, only the handoff document is produced.
+
+```bash
+claude plugin marketplace add thedotmack/claude-mem
+claude plugin enable claude-mem@claude-mem
 ```

@@ -5,17 +5,18 @@
     "email": "marbaji@gmail.com"
   },
   "metadata": {
-    "description": "Mo's personal Claude Code skills — inventory checker and Obsidian session memory",
+    "description": "Personal Claude Code skills — inventory checker, Obsidian session memory, and technical handoff writer",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "marbaji-claude",
       "source": "./",
-      "description": "Mo's personal Claude Code skills — inventory checker for setup auditing and obsidian-memory for project-first session context.",
+      "description": "Personal Claude Code skills — inventory checker, obsidian-memory, and technical handoff writer.",
       "skills": [
         "./skills/inventory-checker",
-        "./skills/obsidian-memory"
+        "./skills/obsidian-memory",
+        "./skills/technical-handoff-writer"
       ]
     }
   ]
