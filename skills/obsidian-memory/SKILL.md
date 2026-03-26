@@ -138,7 +138,7 @@ Context/
   current-focus.md         — Active/ongoing/complete projects with wikilinks
   preferences.md           — Working style preferences
   work-context.md          — Domain knowledge
-  Project Backlog.md  — Manually maintained by user. Read-only for Claude.
+  Project Backlog.md       — Manually maintained by user. Read-only for Claude.
 
 Work/Chalktalk/Projects/
   project-name.md          — One file per ChalkTalk work project
@@ -149,7 +149,7 @@ Personal/Projects/
     (other docs as needed)
 
 Sessions/YYYY-MM/
-  YYYY-MM-DD-topic.md      — Full session logs with wikilinks to projects
+  YYYY-MM-DD-topic.md      — Session logs (lightweight, link to projects)
 
 Technical/
   Learnings/               — Technical notes and lessons
@@ -231,7 +231,7 @@ Before writing to any file, follow this decision tree:
 ### 2. Session End — Update Projects, Then Log (Automatic)
 **When to use**: When user says "done", "exit", "that's all", or similar session-ending phrases
 
-**This is the most important function.** The primary outputs of session-end are updated project docs, current-focus, AND a full session log.
+**This is the most important function.** The primary output of session-end is updated project docs and current-focus — NOT the session log. The session log is a lightweight byproduct.
 
 #### Step 1: Identify projects touched
 
@@ -305,18 +305,18 @@ Read current-focus.md, then rewrite it to reflect reality:
 
 Write the updated file directly (the `obsidian update` command doesn't exist — use the Write tool on the vault path).
 
-#### Step 5: Write session log
+#### Step 5: Write session log (lightweight)
 
-Create a full session log that captures everything that happened:
+Create a lean session log that links to the project docs rather than duplicating content:
 
 ```bash
 obsidian create \
   path="Sessions/$(date +%Y-%m)/$(date +%Y-%m-%d)-<session-topic>.md" \
-  content="<session-log>" \
+  content="<lean-session-log>" \
   vault="<VAULT_NAME>"
 ```
 
-**Session log format:**
+**Session log format** (keep it short):
 ```markdown
 ---
 date: YYYY-MM-DD
@@ -325,37 +325,22 @@ tags: [session, work/chalktalk]
 
 # Session: <Topic>
 
-## Summary
-What we set out to do and what we accomplished (2-4 sentences).
-
 ## Projects Touched
-- [[Work/Chalktalk/Projects/project-name|Project Name]] — what was done
-- [[Personal/Projects/InBloom/overview|InBloom]] — what was done
-
-## What We Did
-Walkthrough of the work in the order it happened. Include:
-- Problems encountered and how they were solved
-- Commands run and their results (when notable)
-- Code changes — what was changed, where, and why
-- API calls, data pulled, queries written
-- Debugging steps and root causes found
+- [[Work/Chalktalk/Projects/project-name|Project Name]] — what was done (1-2 sentences)
+- [[Personal/Projects/InBloom/overview|InBloom]] — what was done (1-2 sentences)
 
 ## Key Decisions
 - Decision 1: reasoning
 - Decision 2: reasoning
 
 ## Learnings
-- Technical insights, gotchas, or surprises
-- Things that didn't work and why
-- Useful patterns or approaches discovered
+- Anything surprising or non-obvious
 
 ## Files Created/Modified
 - path/to/file — what changed
-
-## Next Steps
-- What's left to do
-- Open questions or blockers
 ```
+
+The session log is for "what happened on this date" — the project doc is the source of truth for project state.
 
 #### Step 6: Confirm to user
 
@@ -475,15 +460,16 @@ Use in frontmatter `status` field:
 ## Project Backlog
 
 The file `Context/Project Backlog.md` is **manually maintained by the user**. It contains:
-- Prioritized list of projects Mo wants to work on
+- Prioritized list of projects the user wants to work on
 - Tool references and tips
 - Backlog of content/tooling projects to pull from
 
 **Rules**:
 - **Read** it at session start for awareness of priorities
-- **Never modify** it — Mo updates this himself
+- **Never modify** it — the user updates this themselves
 - **Reference** it when suggesting what to work on next
 - If a backlog item gets started, create a proper project doc in `Work/Chalktalk/Projects/` — don't modify the backlog
+- **Cross-reference** when creating new project docs: check if the project maps to a backlog item. If it does, note the backlog reference in the project doc's Overview section (e.g., "This project addresses backlog item #1: '...'"). This links project docs back to the user's original priorities.
 
 ---
 
@@ -493,7 +479,7 @@ The file `Context/Project Backlog.md` is **manually maintained by the user**. It
 - Load context at session start (don't ask)
 - Update project docs at session end (with approval)
 - Present project summary with categories before writing
-- Write session logs that capture what happened
+- Keep session logs lean — link to project docs
 - Update current-focus when projects change status
 
 ### Ask First
@@ -551,4 +537,4 @@ rm ~/.claude/obsidian-vault-name
 
 ---
 
-**Remember**: Project docs are the source of truth for project state. Session logs are records of what happened on a given date. Current-focus is the dashboard. This skill should work INVISIBLY in the background — the user shouldn't have to think about memory management.
+**Remember**: Project docs are the source of truth. Session logs are lightweight records of what happened on a given date. Current-focus is the dashboard. This skill should work INVISIBLY in the background — the user shouldn't have to think about memory management.
