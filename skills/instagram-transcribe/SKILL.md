@@ -18,11 +18,11 @@ Transcribes audio from Instagram Reels (or any yt-dlp-supported URL) using yt-dl
 
 All transcriptions are saved to:
 ```
-/Users/mohannadarbaji/Desktop/Claude Code/Skills/instagram-transcribe/Instragram Transcriptions/<reel-id>/
+/Users/mohannadarbaji/Desktop/Claude Code/Instragram Transcriptions/<descriptive-folder-name>/
   transcript.md   — URL, full transcript, and summary in one file
 ```
 
-The subfolder name should be the reel ID extracted from the URL (e.g. `DVtxgZODjSF`).
+The subfolder name should be a short, descriptive title derived from the summary (e.g. `Amdahls Law - AI Moats Shift`). Use title case, keep it under ~60 chars, no special characters besides hyphens and spaces.
 
 ## Instructions
 
@@ -32,26 +32,31 @@ which yt-dlp && which whisper && which ffmpeg
 ```
 If any are missing, install them before proceeding.
 
-### Step 2 — Extract reel ID and set up output folder
-Extract the reel ID from the URL (the segment after `/reel/`), then create the output folder:
+### Step 2 — Download audio and transcribe
 ```bash
-REEL_ID="<id-from-url>"
-OUTPUT_DIR="/Users/mohannadarbaji/Desktop/Claude Code/Skills/instagram-transcribe/Instragram Transcriptions/$REEL_ID"
-mkdir -p "$OUTPUT_DIR"
-```
-
-### Step 3 — Download audio and transcribe
-```bash
+rm -f /tmp/reel.mp3 /tmp/reel.txt
 yt-dlp "INSTAGRAM_URL" --cookies-from-browser chrome -x --audio-format mp3 -o /tmp/reel.mp3 && whisper /tmp/reel.mp3 --model small --language en --output_format txt --output_dir /tmp
 ```
 
-### Step 4 — Read transcript and create transcript.md
-Read the transcript from `/tmp/reel.txt`, then create a single `transcript.md` file:
+### Step 3 — Read transcript, generate summary, and save
+Read the transcript from `/tmp/reel.txt`, then:
 
+1. Write a 2-3 sentence summary
+2. Derive a short descriptive folder name from the summary (title case, under ~60 chars, no special chars besides hyphens and spaces)
+3. Create the output folder and save `transcript.md`:
+
+```bash
+FOLDER_NAME="<Descriptive Title From Summary>"
+OUTPUT_DIR="/Users/mohannadarbaji/Desktop/Claude Code/Instragram Transcriptions/$FOLDER_NAME"
+mkdir -p "$OUTPUT_DIR"
 ```
-# Reel: <reel-id>
 
-**URL**: <original-instagram-url>
+Format for `transcript.md`:
+```
+# <Descriptive Title>
+
+**URL**: <original-url>
+**Reel ID**: <reel-id>
 
 ## Transcript
 <full transcript text>
@@ -60,9 +65,7 @@ Read the transcript from `/tmp/reel.txt`, then create a single `transcript.md` f
 <2-3 sentence summary of the reel content>
 ```
 
-Save it to `"$OUTPUT_DIR/transcript.md"`.
-
-Then present the transcript and summary to the user.
+Save it to `"$OUTPUT_DIR/transcript.md"`, then present the transcript and summary to the user.
 
 ## Notes
 
