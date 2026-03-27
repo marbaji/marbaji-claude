@@ -26,7 +26,7 @@ Displays a complete inventory of all installed Claude Code components — MCP se
 ### /instagram-transcribe
 Transcribes Instagram Reels (or any yt-dlp-supported URL) using yt-dlp and Whisper locally. Downloads audio, transcribes, generates a summary, and saves to a descriptive folder.
 
-## How obsidian-memory Fits Into the Memory Architecture
+## Three-Layer Memory Architecture: How `/obsidian-memory`, `claude-mem`, and Claude's Native Memory Create Persistent Context Across Sessions
 
 This skill is one layer of a three-layer memory system for Claude Code. Each layer solves a distinct problem:
 
