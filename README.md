@@ -2,6 +2,16 @@
 
 Personal Claude Code skills marketplace.
 
+## Install
+
+```bash
+claude plugin marketplace add marbaji-claude --source github --repo marbaji/marbaji-claude
+claude plugin enable marbaji-claude@marbaji-claude
+
+claude plugin marketplace add thedotmack/claude-mem
+claude plugin enable claude-mem@claude-mem
+```
+
 ## Skills
 
 ### /obsidian-memory
@@ -12,6 +22,9 @@ Structures exploratory technical work (SQL, data analysis, algorithm validation)
 
 ### /inventory-checker
 Displays a complete inventory of all installed Claude Code components — MCP servers (local and cloud, with status), plugin marketplaces, available skills (grouped by marketplace), npm/Python/Homebrew packages, and CLI tools.
+
+### /instagram-transcribe
+Transcribes Instagram Reels (or any yt-dlp-supported URL) using yt-dlp and Whisper locally. Downloads audio, transcribes, generates a summary, and saves to a descriptive folder.
 
 ## How obsidian-memory Fits Into the Memory Architecture
 
@@ -33,7 +46,7 @@ Writes to an Obsidian vault — a local folder of markdown files you can open an
 
 Runs a worker service that automatically captures every tool call as an observation in a SQLite database via PostToolUse hooks. Provides `mem-search` for deep cross-session recall and `timeline-report` for generating comprehensive project history deliverables.
 
-**Why it exists:** (1) Safety net — if obsidian-memory's save is skipped (crash, timeout, closed tab), claude-mem captured everything via hooks. (2) Some use cases require granular, queryable history rather than obsidian's curated summaries. (3) Timeline reports pair with `/technical-handoff-writer` to produce development history deliverables for handoffs between teams.
+**Why it exists:** Incredibly more thorough. You don't need this extreme level of detail in your Obsidian file. But some use cases require granular, queryable history rather than Obsidian's curated summaries. For example, `/technical-handoff-writer` is designed to produce development history deliverables for handoffs between teams. It doesn't tap into Obsidian only — it taps into claude-mem for a token-intensive query to create an entire archaeological narrative summary with details of what happened across sessions.
 
 ### How They Work Together
 
@@ -91,22 +104,3 @@ Runs a worker service that automatically captures every tool call as an observat
 **obsidian-memory** = daily driver (context, visibility, trust)
 **claude-mem** = safety net + power tool (capture, recall, deliverables)
 **Claude Native Memory** = foundation (lightweight continuity, self-maintaining)
-
-## Install
-
-```bash
-claude plugin marketplace add marbaji-claude --source github --repo marbaji/marbaji-claude
-claude plugin enable marbaji-claude@marbaji-claude
-```
-
-### Recommended: Install claude-mem
-
-[claude-mem](https://github.com/thedotmack/claude-mem) is a separate plugin that provides automatic observation capture, cross-session search, and timeline reports. It's recommended for two reasons:
-
-1. **Memory architecture** — claude-mem is the safety net and deep-recall layer in the three-layer memory system described above. obsidian-memory handles curated saves; claude-mem catches everything else automatically via hooks.
-2. **technical-handoff-writer** — The `/technical-handoff-writer` skill generates a companion timeline report using claude-mem's `timeline-report`. Without claude-mem installed, only the handoff document is produced.
-
-```bash
-claude plugin marketplace add thedotmack/claude-mem
-claude plugin enable claude-mem@claude-mem
-```
