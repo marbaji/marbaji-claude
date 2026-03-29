@@ -125,10 +125,13 @@ Produce this table, with one row per unique skill name across all locations:
 
 **Expected healthy state:** GitHub = ✅, Clone = ✅ dir, Desktop = ✅ symlink, ~/.claude/skills = ✅ symlink. Any deviation is flagged as an issue.
 
+**Scope:** This inventory only tracks skills from our two repos (`ChalkTalk/claude` and `marbaji/marbaji-claude`). Third-party skills (superpowers, code-review, document-skills, excalidraw-diagram, etc.) are managed by their own marketplace plugins and are out of scope — ignore them.
+
 **Grouping:** Group rows by origin repo:
 1. **ChalkTalk skills** — any skill that exists in `ChalkTalk/claude`
 2. **Personal skills** — any skill that exists in `marbaji/marbaji-claude`
-3. **Untracked** — skills in `~/.claude/skills/` or Desktop that aren't in either repo
+
+When classifying entries in `~/.claude/skills/` and Desktop, skip any entry whose symlink target points outside our two marketplace clones, or any standalone directory that doesn't match a skill name in either repo.
 
 ### Step 5: Flag issues
 
@@ -138,7 +141,6 @@ After the table, list any problems found:
 - **Missing from Desktop** — in Clone but no Desktop entry
 - **Missing from ~/.claude/skills** — in Clone but Claude Code can't load it
 - **Standalone copies (`dir`)** — directories in Desktop or ~/.claude/skills that should be symlinks. These won't auto-update when you `git pull` the clone.
-- **Untracked skills** — in ~/.claude/skills or Desktop but not in any Clone/GitHub repo
 - **Clone behind GitHub** — `git fetch --dry-run` showed pending changes
 
 ### Step 6: Offer fixes
