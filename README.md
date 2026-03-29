@@ -26,6 +26,9 @@ Displays a complete inventory of all installed Claude Code components — MCP se
 ### /instagram-transcribe
 Transcribes Instagram Reels (or any yt-dlp-supported URL) using yt-dlp and Whisper locally. Downloads audio, transcribes, generates a summary, and saves to a descriptive folder.
 
+### /skill-inventory-checker
+Compares all skills across GitHub repos (`ChalkTalk/claude`, `marbaji/marbaji-claude`), Desktop folders, and `~/.claude/skills/`. Detects broken symlinks, missing skills, standalone copies that should be symlinks, and untracked skills. Offers concrete fix commands.
+
 ## Three-Layer Memory Architecture: How `/obsidian-memory`, `claude-mem`, and Claude's Native Memory Create Persistent Context Across Sessions
 
 This skill is one layer of a three-layer memory system for Claude Code. Each layer solves a distinct problem:
