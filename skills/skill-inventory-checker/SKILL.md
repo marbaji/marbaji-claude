@@ -47,11 +47,13 @@ A dash (`—`) means the skill isn't present in that location (which may be fine
 ├── cache/                      ← snapshots Claude Code reads
 │   ├── chalktalk/chalktalk/1.0.0/skills/
 │   ├── marbaji-claude/marbaji-claude/{hash}/skills/
+│   ├── private-claude/private-claude/{hash}/skills/
 │   ├── claude-plugins-official/superpowers/{version}/skills/
 │   └── ...
 └── marketplaces/               ← live git clones (actual files)
     ├── chalktalk/skills/skills/
     ├── marbaji-claude/skills/
+    ├── private-claude/skills/
     └── ...
 ```
 
@@ -65,6 +67,7 @@ A dash (`—`) means the skill isn't present in that location (which may be fine
 |---|---|---|
 | `ChalkTalk/claude` | `~/.claude/plugins/marketplaces/chalktalk` | `skills/skills/` |
 | `marbaji/marbaji-claude` | `~/.claude/plugins/marketplaces/marbaji-claude` | `skills/` |
+| `marbaji/private-claude` | `~/.claude/plugins/marketplaces/private-claude` | `skills/` |
 
 ### Desktop Folders
 
@@ -72,6 +75,7 @@ A dash (`—`) means the skill isn't present in that location (which may be fine
 |---|---|
 | `~/Desktop/Claude Code/Skills/chalktalk/` | Symlinks → chalktalk marketplace clone |
 | `~/Desktop/Claude Code/Skills/marbaji/` | Symlinks → marbaji marketplace clone |
+| `~/Desktop/Claude Code/Skills/private/` | Symlinks → private-claude marketplace clone |
 
 ### ~/.claude/skills/ (Claude Code runtime)
 
@@ -94,6 +98,10 @@ echo "=== ChalkTalk/claude clone ===" && ls "$CHALKTALK_CLONE" 2>/dev/null
 MARBAJI_CLONE="$HOME/.claude/plugins/marketplaces/marbaji-claude/skills"
 echo "=== marbaji/marbaji-claude clone ===" && ls "$MARBAJI_CLONE" 2>/dev/null
 
+# Marketplace clone: marbaji/private-claude
+PRIVATE_CLONE="$HOME/.claude/plugins/marketplaces/private-claude/skills"
+echo "=== marbaji/private-claude clone ===" && ls "$PRIVATE_CLONE" 2>/dev/null
+
 # Desktop/chalktalk
 DESK_CT="$HOME/Desktop/Claude Code/Skills/chalktalk"
 echo "=== Desktop/chalktalk ===" && ls "$DESK_CT" 2>/dev/null
@@ -101,6 +109,10 @@ echo "=== Desktop/chalktalk ===" && ls "$DESK_CT" 2>/dev/null
 # Desktop/marbaji
 DESK_MA="$HOME/Desktop/Claude Code/Skills/marbaji"
 echo "=== Desktop/marbaji ===" && ls "$DESK_MA" 2>/dev/null
+
+# Desktop/private
+DESK_PR="$HOME/Desktop/Claude Code/Skills/private"
+echo "=== Desktop/private ===" && ls "$DESK_PR" 2>/dev/null
 
 # ~/.claude/skills
 echo "=== ~/.claude/skills ===" && ls ~/.claude/skills/ 2>/dev/null
@@ -113,6 +125,7 @@ For each marketplace clone, check if it's up to date with GitHub:
 ```bash
 cd ~/.claude/plugins/marketplaces/chalktalk && git fetch --dry-run 2>&1
 cd ~/.claude/plugins/marketplaces/marbaji-claude && git fetch --dry-run 2>&1
+cd ~/.claude/plugins/marketplaces/private-claude && git fetch --dry-run 2>&1
 ```
 
 If `git fetch --dry-run` shows output, the clone is behind GitHub.
@@ -127,6 +140,7 @@ Compare the plugin cache (what Claude Code actually reads) against the marketpla
 |---|---|---|
 | `chalktalk@chalktalk` | `~/.claude/plugins/cache/chalktalk/chalktalk/1.0.0/skills/` | `~/.claude/plugins/marketplaces/chalktalk/skills/skills/` |
 | `marbaji-claude@marbaji-claude` | `~/.claude/plugins/cache/marbaji-claude/marbaji-claude/*/skills/` | `~/.claude/plugins/marketplaces/marbaji-claude/skills/` |
+| `private-claude@private-claude` | `~/.claude/plugins/cache/private-claude/private-claude/*/skills/` | `~/.claude/plugins/marketplaces/private-claude/skills/` |
 
 **Note:** Third-party plugins (superpowers, code-review, document-skills, obsidian, etc.) are out of scope — their caches are managed by `claude plugin update`.
 
@@ -139,7 +153,8 @@ INSTALLED="$HOME/.claude/plugins/installed_plugins.json"
 # For each of our plugins, compare cached SHA vs marketplace HEAD
 for repo_info in \
   "chalktalk@chalktalk|$HOME/.claude/plugins/marketplaces/chalktalk" \
-  "marbaji-claude@marbaji-claude|$HOME/.claude/plugins/marketplaces/marbaji-claude"; do
+  "marbaji-claude@marbaji-claude|$HOME/.claude/plugins/marketplaces/marbaji-claude" \
+  "private-claude@private-claude|$HOME/.claude/plugins/marketplaces/private-claude"; do
 
   key="${repo_info%%|*}"
   clone_path="${repo_info##*|}"
@@ -180,6 +195,12 @@ echo "=== marbaji-claude cache vs source ==="
 CACHE_MA=$(find "$HOME/.claude/plugins/cache/marbaji-claude" -maxdepth 3 -name "skills" -type d 2>/dev/null | head -1)
 SOURCE_MA="$HOME/.claude/plugins/marketplaces/marbaji-claude/skills"
 diff <(ls "$CACHE_MA" 2>/dev/null | sort) <(ls "$SOURCE_MA" 2>/dev/null | sort)
+
+# private-claude (cache path uses a hash — find it)
+echo "=== private-claude cache vs source ==="
+CACHE_PR=$(find "$HOME/.claude/plugins/cache/private-claude" -maxdepth 3 -name "skills" -type d 2>/dev/null | head -1)
+SOURCE_PR="$HOME/.claude/plugins/marketplaces/private-claude/skills"
+diff <(ls "$CACHE_PR" 2>/dev/null | sort) <(ls "$SOURCE_PR" 2>/dev/null | sort)
 ```
 
 If `diff` produces output, the cache is out of sync. Lines starting with `<` are in cache but not source (deleted/renamed skills). Lines starting with `>` are in source but not cache (new skills).
@@ -240,13 +261,14 @@ Produce this table, with one row per unique skill name across all locations:
 
 **Expected healthy state:** GitHub = ✅, Clone = ✅ dir, Cache = ✅ cached, Desktop = ✅ symlink, ~/.claude/skills = ✅ symlink. Any deviation is flagged as an issue.
 
-**Scope:** This inventory only tracks skills from our two repos (`ChalkTalk/claude` and `marbaji/marbaji-claude`). Third-party skills (superpowers, code-review, document-skills, excalidraw-diagram, etc.) are managed by their own marketplace plugins and are out of scope — ignore them.
+**Scope:** This inventory only tracks skills from our three repos (`ChalkTalk/claude`, `marbaji/marbaji-claude`, and `marbaji/private-claude`). Third-party skills (superpowers, code-review, document-skills, etc.) are managed by their own marketplace plugins and are out of scope — ignore them.
 
 **Grouping:** Group rows by origin repo:
 1. **ChalkTalk skills** — any skill that exists in `ChalkTalk/claude`
-2. **Personal skills** — any skill that exists in `marbaji/marbaji-claude`
+2. **Personal skills (public)** — any skill that exists in `marbaji/marbaji-claude`
+3. **Private skills** — any skill that exists in `marbaji/private-claude`
 
-When classifying entries in `~/.claude/skills/` and Desktop, skip any entry whose symlink target points outside our two marketplace clones, or any standalone directory that doesn't match a skill name in either repo.
+When classifying entries in `~/.claude/skills/` and Desktop, skip any entry whose symlink target points outside our three marketplace clones, or any standalone directory that doesn't match a skill name in any of the three repos.
 
 ### Step 5: Flag issues
 
@@ -276,6 +298,11 @@ For each issue found, offer a concrete fix command:
   CACHE_MA=$(find ~/.claude/plugins/cache/marbaji-claude -maxdepth 2 -type d -name "skills" | head -1 | sed 's|/skills$||')
   rm -rf "$CACHE_MA/skills/"
   cp -r ~/.claude/plugins/marketplaces/marbaji-claude/skills/ "$CACHE_MA/skills/"
+
+  # For private-claude (find the cache hash first):
+  CACHE_PR=$(find ~/.claude/plugins/cache/private-claude -maxdepth 2 -type d -name "skills" | head -1 | sed 's|/skills$||')
+  rm -rf "$CACHE_PR/skills/"
+  cp -r ~/.claude/plugins/marketplaces/private-claude/skills/ "$CACHE_PR/skills/"
   ```
   Then update `installed_plugins.json` with the current HEAD SHA:
   ```bash
