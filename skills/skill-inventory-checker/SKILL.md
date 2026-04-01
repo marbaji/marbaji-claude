@@ -23,8 +23,21 @@ Desktop/     ~/.claude/   Plugin cache (~/.claude/plugins/cache/)
 - **GitHub** — the remote repo on github.com. The canonical version.
 - **Marketplace clone** — the local `git clone` managed by `claude plugin enable`. This is where the actual files live on disk. Everything else should be a symlink pointing here.
 - **Plugin cache** — a snapshot of skills copied into `~/.claude/plugins/cache/` at install time. **This is what Claude Code reads to populate the `/skill` list.** It does NOT auto-update when you push to GitHub or edit the marketplace clone. Cache staleness is the #1 cause of skills "disappearing" or running outdated versions.
-- **Desktop/Skills/** — organized workspace for browsing/editing. Should be symlinks into the marketplace clone.
+- **Desktop/Skills/** — organized workspace for browsing/editing. Should be symlinks into the marketplace clone. Also serves as a convenience layer so all skills are visible in the project folder, making them easy to read and edit without navigating to the marketplace clone paths.
 - **~/.claude/skills/** — additional skill loading path. Should be symlinks into the marketplace clone.
+
+## Output Column Definitions
+
+The comparison table has four columns. Here's what each one means:
+
+| Column | What it represents | Healthy state |
+|---|---|---|
+| **Clone** | The local git clone of the marketplace repo (e.g., `~/.claude/plugins/marketplaces/chalktalk/`). This is the source of truth on disk — where you edit skill files and push changes to GitHub. | `✅ dir` |
+| **Cache** | Claude Code's internal plugin cache at `~/.claude/plugins/cache/`. When you install a marketplace plugin, Claude Code copies skills here for fast loading. **This is what Claude Code actually reads to populate the `/skill` list.** It does NOT auto-update when you push to GitHub or edit the marketplace clone. | `✅ cached` |
+| **Desktop** | The current project directory (`~/Desktop/Claude Code/Skills/`). These are symlinks pointing back to the clone directory. Makes skills available in the project context and keeps them visible in the project folder for easy reading and editing. | `✅ symlink` |
+| **~/.claude/skills** | The global user-level skills directory. Skills placed here are available in every project regardless of working directory. An alternative to per-project Desktop symlinks for skills you want everywhere. | `✅ symlink` |
+
+A dash (`—`) means the skill isn't present in that location (which may be fine — not every skill needs to be in every location).
 
 ### Cache Architecture
 
