@@ -83,7 +83,7 @@ What happens next: [what you'll do with the result]
 
 ## Output
 
-Two files, saved in the project directory and linked from Obsidian:
+Three files, saved in the project directory and linked from Obsidian:
 
 ### File 1: Handoff Document
 **File:** `handoff_[project_name]_[date].md`
@@ -109,7 +109,74 @@ Generated via `/claude-mem:timeline-report`. This is a comprehensive narrative o
 
 **When to generate:** After writing the handoff document, invoke the `timeline-report` skill targeting the relevant project. This runs automatically as part of the handoff workflow — do not skip it.
 
-**Why both files:** The handoff doc says "here's what we found and what we need." The timeline says "here's how we got here." Together, they give the engineer everything they need to trust the work and understand the context behind it.
+### File 3: Agent Context Document
+**File:** `agent-context_[project_name]_[date].md`
+
+This is the file the engineer loads into their Claude session (via `cat` in the prompt, CLAUDE.md include, or pasting) so the receiving agent has full project knowledge without re-discovery. It bridges the gap between "here's what to do" (File 1) and "here's everything the agent needs to know to do it well."
+
+**When to generate:** After Files 1 and 2 are written. Synthesize from all three sources: the handoff doc, the timeline, and the conversation context.
+
+**Structure:**
+
+```markdown
+# Agent Context: [Project]
+*Generated [Date] — load this into your Claude session before starting work*
+
+## Project Telos
+What this project exists to achieve and why it matters. One paragraph max.
+
+## Current State
+What has been built, validated, or proven so far. Reference specific files and
+their purposes. Only include what EXISTS — verified file paths and function names.
+
+## Key Decisions and Rationale
+Decisions made during exploration, with WHY. Format:
+- **Decision:** [what was chosen]
+  **Why:** [the reason — constraint, data finding, or stakeholder input]
+  **Alternative considered:** [what was rejected and why]
+
+## Evidence vs. Assumptions
+Separate clearly. The receiving agent must know what's proven vs. what's believed.
+
+| # | Claim | Status | Evidence/Source |
+|---|---|---|---|
+| 1 | [claim] | Verified / Assumed / Partially verified | [file, query, or test that proves it] |
+
+## Known Risks
+Ranked by impact. Include what would go wrong and how to detect it.
+
+| Risk | Impact | Likelihood | Detection |
+|---|---|---|---|
+| [risk] | High/Med/Low | High/Med/Low | [how the agent would notice] |
+
+## Domain Knowledge
+Non-obvious business rules, data quirks, or domain context the agent won't find
+in the code. Things that took the PM time to learn and would take the agent time
+to re-derive.
+
+## File Map
+Every file the agent needs to know about, with one-line purpose.
+- `path/to/file.py` — [what it does]
+- `path/to/query.sql` — [what it queries]
+
+## Reproduction Quick-Start
+Copy-paste block to verify the environment works before starting real work.
+(Duplicated from handoff doc for self-containedness.)
+
+## The Task
+What the engineer's Claude session should accomplish, stated as a clear directive.
+Include success criteria and out-of-scope boundaries.
+```
+
+**Quality rules for File 3:**
+- Every file path must be verified to exist at generation time
+- Every function/flag name must be grep-confirmed
+- No narrative filler — this is a reference doc, not a story
+- Domain knowledge section must contain at least 2 non-obvious items
+- Evidence table must have at least 3 entries
+- The task section must match the bounded ask from File 1
+
+**Why three files:** The handoff doc says "here's what we found and what we need" (human-readable). The timeline says "here's how we got here" (narrative context). The agent context doc says "here's everything you need to start working" (machine-optimized). The engineer reads File 1, skims File 2 if curious, and loads File 3 into Claude.
 
 ## Quality Checklist
 
@@ -119,9 +186,15 @@ Generated via `/claude-mem:timeline-report`. This is a comprehensive narrative o
 - [ ] Bounded ask is single, specific, time-estimable
 - [ ] Body is under 500 words
 - [ ] Engineer does NOT need to trust any math to fulfill the ask
+- [ ] Agent context doc has verified file paths (all exist)
+- [ ] Agent context doc has at least 3 evidence-vs-assumption entries
+- [ ] Agent context doc has at least 2 non-obvious domain knowledge items
+- [ ] Agent context doc task matches the bounded ask
 
 ---
 
 ## Reference
 
-Worked example: [`reference/irt-elo-handoff-example.md`](reference/irt-elo-handoff-example.md)
+Worked examples:
+- Handoff doc: [`reference/irt-elo-handoff-example.md`](reference/irt-elo-handoff-example.md)
+- Agent context doc: [`reference/irt-elo-agent-context-example.md`](reference/irt-elo-agent-context-example.md)
