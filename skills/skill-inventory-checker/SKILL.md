@@ -59,6 +59,10 @@ A `❌ broken` means the symlink target was moved or deleted. A `❌ missing` me
 
 ## Instructions
 
+### Step 0: Print the explainer
+
+Before any tables, print the "How Skills Work" section above verbatim — the diagram with real paths, the repo table, and the "What the Table Should Look Like" example. The user needs this context to understand what the columns mean. Do not skip this.
+
 ### Step 1: Discover skills in each location
 
 ```bash
