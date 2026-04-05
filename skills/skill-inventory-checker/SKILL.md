@@ -13,7 +13,7 @@ There are two kinds of skills: **yours** and **third-party**.
 
 ### Your Skills
 
-Your skills live in GitHub repos. `claude plugin enable` clones them to your Mac. You symlink from `~/.claude/skills/` into those clones. Claude Code reads `~/.claude/skills/` to populate the `/skill` list. When you edit a skill, you're editing the git repo through the symlink. When you `git pull`, symlinks auto-reflect the changes.
+Your skills live in GitHub repos. `claude plugin enable` clones them to your Mac. You then create symlinks (shortcuts that point to the real files — like an alias in Finder, but for the terminal) from `~/.claude/skills/` into those clones. Claude Code reads `~/.claude/skills/` to populate the `/skill` list. When you edit a skill through the symlink, you're editing the git repo directly. When you `git pull`, symlinks auto-reflect the changes.
 
 Here's an example with one skill, showing the real paths:
 
@@ -42,18 +42,6 @@ External skills (from other repos like `chalktalk-react-40`) also get symlinks i
 ### Third-Party Skills
 
 Third-party skills are managed by `claude plugin update`. They live in `~/.claude/plugins/cache/` and you don't edit them. They're listed at the bottom of the inventory output for reference.
-
-### What the Table Should Look Like
-
-After running this checker, you should see every skill with `✅ symlink` in the `~/.claude/skills` column. That's the healthy state. The Clone column confirms the source files exist. GitHub confirms the remote is reachable.
-
-| Skill | GitHub | Clone | ~/.claude/skills |
-|---|---|---|---|
-| renewal-storytelling | ✅ | ✅ dir | ✅ symlink |
-| obsidian-memory | ✅ | ✅ dir | ✅ symlink |
-| atlassian-jira | — | ✅ dir | ✅ symlink |
-
-A `❌ broken` means the symlink target was moved or deleted. A `❌ missing` means the skill exists in the clone but has no symlink. A `dir` (not symlink) means it's a standalone copy that won't auto-update on `git pull`.
 
 ---
 
