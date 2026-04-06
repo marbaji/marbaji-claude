@@ -31,21 +31,7 @@ Compares all skills across GitHub repos (`ChalkTalk/claude`, `marbaji/marbaji-cl
 
 ## Hooks
 
-Claude Code hooks (PreToolUse, PostToolUse, etc.) that enforce personal conventions. These are reference copies — the `chalktalk-setup` skill installs them to `~/.claude/hooks/` during environment setup.
-
-| Hook | Event | Matcher | What it does |
-|------|-------|---------|-------------|
-| `check-spec-plan-prefix.sh` | PreToolUse | Write | Blocks writes of spec/plan documents missing `spec_`/`plan_` filename prefix. Detects specs by `/specs/` path or `-design.md` suffix, plans by `/plans/` path or `-plan.md` suffix. |
-
-### Install manually
-
-```bash
-mkdir -p ~/.claude/hooks
-cp hooks/check-spec-plan-prefix.sh ~/.claude/hooks/
-chmod +x ~/.claude/hooks/check-spec-plan-prefix.sh
-```
-
-Then add the hook to `~/.claude/settings.json` under `hooks.PreToolUse` (see the `chalktalk-setup` skill for the exact JSON).
+> **Canonical source:** Hooks are now maintained in [ChalkTalk/claude](https://github.com/ChalkTalk/claude) at `skills/references/hooks/`. The copies in this repo's `hooks/` directory are historical — the `chalktalk-setup` skill installs from the ChalkTalk repo.
 
 ## Three-Layer Memory Architecture: How `/obsidian-memory`, `claude-mem`, and Claude's Native Memory Create Persistent Context Across Sessions
 
