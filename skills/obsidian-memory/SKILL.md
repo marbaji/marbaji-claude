@@ -33,84 +33,7 @@ cat ~/.claude/obsidian-vault-name 2>/dev/null
 
 ## Installation Flow (First-Time Only)
 
-Print the following message in the terminal so the user understands what's happening and why:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Setting up Obsidian Memory for Claude Code
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Why Obsidian?
-  Claude Code has no memory between sessions by default.
-  Every conversation starts from scratch — no context
-  about you, your projects, or past decisions.
-
-  Obsidian acts as Claude's persistent brain. At the
-  start of each session Claude reads your vault to know
-  what you're working on. At the end it saves a session
-  log so future sessions pick up where you left off.
-
-  Your notes stay on your machine. No vendor lock-in.
-  No tokens consumed storing them in the cloud.
-
-  Step 1: Install Obsidian (if you haven't already)
-  → https://obsidian.md  (free download)
-
-  Step 2: Open Obsidian and create a new vault.
-  Choose a folder on your machine — for example:
-    ~/Documents/Claude Code Obsidian
-    ~/Desktop/Claude Code Obsidian
-    ~/vaults/my-brain
-
-  The folder name becomes your vault name.
-
-  Step 3: Come back here and tell me the full path
-  to your vault folder (e.g. /Users/yourname/Documents/Claude Code Obsidian)
-  and I'll finish the setup automatically.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-Wait for the user to provide their vault path.
-
-Once they provide the path:
-
-1. **Extract the vault name** (last component of the path):
-   ```bash
-   VAULT_PATH="/Users/yourname/Documents/Claude Code Obsidian"
-   VAULT_NAME=$(basename "$VAULT_PATH")
-   echo "$VAULT_NAME"  # e.g. "Claude Code Obsidian"
-   ```
-
-2. **Save the vault name** so future sessions don't need setup:
-   ```bash
-   echo "Claude Code Obsidian" > ~/.claude/obsidian-vault-name
-   ```
-
-3. **Create the folder structure** the skill expects:
-   ```bash
-   VAULT="$VAULT_PATH"
-   mkdir -p "$VAULT/Sessions/$(date +%Y-%m)"
-   mkdir -p "$VAULT/Work/Chalktalk/Projects"
-   mkdir -p "$VAULT/Personal/Projects"
-   mkdir -p "$VAULT/Technical/Learnings"
-   mkdir -p "$VAULT/Context"
-   touch "$VAULT/Context/current-focus.md"
-   touch "$VAULT/Context/preferences.md"
-   touch "$VAULT/Context/about-me.md"
-   touch "$VAULT/Context/work-context.md"
-   ```
-
-4. Print confirmation:
-   ```
-   ✅ Obsidian Memory configured.
-      Vault: <VAULT_NAME>
-      Folder structure created.
-
-   Claude will now load context from your vault at the
-   start of each session and save session logs at the end.
-   ```
-
-Setup is complete. Continue with normal session start.
+Read and follow `reference/installation-flow.md` in this skill's directory. It contains the full setup wizard (vault creation, folder scaffolding, confirmation).
 
 ---
 
@@ -224,33 +147,7 @@ Before writing to any file, follow this decision tree:
    ```bash
    obsidian search query="vault-lint-report" vault="<VAULT_NAME>" | head -1
    ```
-   If no report exists or the most recent is 7+ days old, run the lint:
-
-   **Checks and actions:**
-
-   - **Abandoned projects** (auto-fix): Projects listed as Active or Backlogged in current-focus but no session log touching them in 14+ days. **Action: move them to the "Abandoned" section in current-focus.md** with day count appended to the heading (e.g., `— 45 days since last session`). **Preserve the description text** underneath each heading — copy it as-is from wherever the project was (Active, Backlogged, etc.). Never delete descriptions when moving projects. The Abandoned section sits between Complete and Priorities, with this descriptor at the top:
-     > This is not a bad thing — it's a sign of good prioritization. You can't solve everything. This list is a point of pride as long as you're moving the most important things toward the finish line. These are projects you explored, learned from, and chose not to continue investing in right now.
-
-   - **Broken wikilinks**: current-focus references a project doc path that doesn't exist in the vault. If none found, report one sentence: "All N wikilinks in current-focus.md resolved. No broken links." Don't elaborate.
-
-   - **Status drift** (auto-fix): Project doc frontmatter `status` field disagrees with its section in current-focus (e.g., doc says `active` but current-focus lists it under Complete). **Action: update the frontmatter** to match current-focus (e.g., set `status: complete` and add `completed: YYYY-MM-DD`). **Report format:** show a table with **only the rows that have problems**. Do not list projects where status matches — that's noise.
-
-   - **Orphan project docs**: Files in `Work/` or `Personal/` not referenced from current-focus. If orphans have a fixable action (e.g., sub-project docs that should be noted in current-focus, or supporting docs under a parent that needs a navigability link), show a table with the orphan and the suggested fix. If all orphans are legitimate supporting files that need no action, or no orphans exist, use a one-sentence summary like broken wikilinks (e.g., "No true orphans. 5 Datadog RUM supporting docs belong to the RUM Frustration UX Fixes parent.").
-
-   - **Stale Next Steps**: A project doc's Next Steps section is identical to what it was 3+ sessions ago, or is missing entirely. **Skip this check for projects in the Abandoned section** — they're intentionally shelved. For all other projects: **auto-create** a reasonable Next Steps section based on the project doc's content (recent work, status, key findings). If the project is too ambiguous to derive next steps, **ask the user in the terminal** what the next steps should be. Never leave unacted instructions in the report — either fix it or ask.
-
-   - **Empty sections**: Project docs with blank Overview, Key Findings, or Next Steps. **Skip this check for Abandoned projects.** For active/backlogged/ongoing projects: auto-create the section with reasonable content if possible, or ask the user.
-
-   **Output:** Save report to `Context/vault-lint-report.md` (overwrite each time). Present a compact summary to the user during session start.
-
-   **Auto-fix vs report:** The lint auto-fixes: abandoned projects (moves to Abandoned section preserving descriptions), status drift (updates frontmatter), and stale/empty sections (creates reasonable content or asks user). Broken wikilinks and orphan docs are reported — with actionable commands only when there's a fixable action.
-
-   **Report formatting rules:**
-   - Each section that found zero issues: one-sentence summary, no table, no elaboration
-   - Each section that auto-fixed issues: state what was auto-fixed with a one-liner per item
-   - Each section with issues needing user action: show a table or list of items with clear actions
-   - Never show "OK" rows in tables — only rows with problems
-   - End the report with a tally: "Auto-fixed N items. M items need manual action."
+   If no report exists or the most recent is 7+ days old: read `reference/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 6 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections), which ones auto-fix, and the report formatting rules.
 
 **Do NOT ask permission** — just do this automatically at session start.
 
@@ -483,58 +380,7 @@ Read then update the relevant context file. Note: `obsidian update` does not exi
 ### 9. Source Logging — Capture URLs with Context
 **When to use**: During any save ritual (session end, "log progress," mid-session save) when URLs were shared in the conversation.
 
-**What to do**:
-
-1. Identify all URLs shared during the session (or since last save)
-2. For each URL, create a source file in the vault:
-
-   ```bash
-   obsidian create \
-     path="Sources/YYYY-MM-DD-descriptive-name.md" \
-     content="<source-doc>" \
-     vault="<VAULT_NAME>"
-   ```
-
-   **Source file format:**
-   ```markdown
-   ---
-   date: YYYY-MM-DD
-   url: <original-url>
-   type: <article|github-gist|video|documentation|social-post|tool>
-   tags: [relevant, tags]
-   ---
-
-   # Descriptive Title
-
-   ## Summary
-   Objective description of what the source says. 2-4 sentences.
-
-   ## Takeaways
-   Personal learnings and insights extracted from this source.
-   What's useful for our work? What changes how we think?
-   - Takeaway 1
-   - Takeaway 2
-
-   ## Context
-   Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
-   Brief note on how/why this source came up.
-   ```
-
-3. In the session log, add a "Sources" section listing the URLs captured:
-   ```markdown
-   ## Sources Captured
-   - [[Sources/YYYY-MM-DD-descriptive-name|Title]] — why it was relevant
-   ```
-
-**Two-layer source system:**
-- **Sources/** is the raw citation library. One file per URL. Grows automatically.
-- **Aggregated project pages** (e.g., `Work/Chalktalk/Knowledge/skill-architecture-sources.md`) are curated per-project views that roll up relevant sources with analysis. These are what the user reads.
-
-Sources/ is the raw layer feeding the aggregated pages. When multiple sources relate to a project, roll them up into the appropriate aggregated page if one exists.
-
-**Where aggregated pages live:** Curated multi-source knowledge pages go under `Work/Chalktalk/Knowledge/` (for work topics) or `Personal/Knowledge/` (for personal topics). These are knowledge artifacts — distinct from project docs (which track work) and session logs (which track what happened). Example: `Work/Chalktalk/Knowledge/skill-architecture-sources.md` aggregates 5+ sources about agent architecture into one reference page.
-
-**Naming:** Use a short descriptive name derived from the content (like the Instagram transcription skill does). Title case, under ~60 chars, hyphens for spaces in the filename.
+If URLs were shared, read `reference/source-logging-rules.md` in this skill's directory and follow it. It defines the source file format, two-layer source system (raw Sources/ → aggregated Knowledge/ pages), and naming conventions.
 
 ---
 
