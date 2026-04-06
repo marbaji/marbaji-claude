@@ -148,6 +148,9 @@ Personal/Projects/
     overview.md            — Main project doc
     (other docs as needed)
 
+Sources/
+  YYYY-MM-DD-description.md  — URL source files with summary + takeaways
+
 Sessions/YYYY-MM/
   YYYY-MM-DD-topic.md      — Session logs with wikilinks to projects
 
@@ -215,6 +218,28 @@ Before writing to any file, follow this decision tree:
    - Active projects and their current state
    - Any pending next steps from project docs
    - Current priorities
+
+7. Run vault health check (every 7 days)
+   Check if it's been 7+ days since last lint by looking for the most recent lint report:
+   ```bash
+   obsidian search query="vault-lint-report" vault="<VAULT_NAME>" | head -1
+   ```
+   If no report exists or the most recent is 7+ days old, run the lint:
+
+   **Checks:**
+   - **Abandoned projects**: Active in current-focus but no session log touching them in 14+ days. List with day count.
+   - **Broken wikilinks**: current-focus references a project doc path that doesn't exist in the vault.
+   - **Status drift**: Project doc frontmatter `status` field disagrees with its section in current-focus (e.g., doc says `active` but current-focus lists it under Complete).
+   - **Orphan project docs**: Files in `Work/` or `Personal/` not referenced from current-focus.
+   - **Stale Next Steps**: A project doc's Next Steps section is identical to what it was 3+ sessions ago.
+   - **Empty sections**: Project docs with blank Overview, Key Findings, or Next Steps.
+
+   **Output:** Save report to `Context/vault-lint-report.md` (overwrite each time). Present a brief summary to the user during session start.
+
+   **Framing:** The "Abandoned" section should have this descriptor at the top:
+   > This is not a bad thing — it's a sign of good prioritization. You can't solve everything. This list is a point of pride as long as you're moving the most important things toward the finish line. These are projects you explored, learned from, and chose not to continue investing in right now.
+
+   The lint produces a report only — it does NOT modify project docs or current-focus.
 
 **Do NOT ask permission** — just do this automatically at session start.
 
@@ -352,10 +377,15 @@ Walkthrough of the work in the order it happened. Include:
 ## Files Created/Modified
 - path/to/file — what changed
 
+## Sources Captured
+- [[Sources/YYYY-MM-DD-name|Title]] — why it was relevant
+
 ## Next Steps
 - What's left to do
 - Open questions or blockers
 ```
+
+**Note:** Source logging (Core Function #9) runs during this step and any other save ritual (mid-session save, "log progress"). Whenever URLs were shared, create source files and include the Sources Captured section in the session log.
 
 #### Step 6: Confirm to user
 
@@ -438,6 +468,60 @@ obsidian task file="<file>" line=<line-number> toggle vault="<VAULT_NAME>"
 **When to use**: User's role, focus, or preferences change
 
 Read then update the relevant context file. Note: `obsidian update` does not exist. To overwrite a file, use the Write tool targeting the vault path directly.
+
+### 9. Source Logging — Capture URLs with Context
+**When to use**: During any save ritual (session end, "log progress," mid-session save) when URLs were shared in the conversation.
+
+**What to do**:
+
+1. Identify all URLs shared during the session (or since last save)
+2. For each URL, create a source file in the vault:
+
+   ```bash
+   obsidian create \
+     path="Sources/YYYY-MM-DD-descriptive-name.md" \
+     content="<source-doc>" \
+     vault="<VAULT_NAME>"
+   ```
+
+   **Source file format:**
+   ```markdown
+   ---
+   date: YYYY-MM-DD
+   url: <original-url>
+   type: <article|github-gist|video|documentation|social-post|tool>
+   tags: [relevant, tags]
+   ---
+
+   # Descriptive Title
+
+   ## Summary
+   Objective description of what the source says. 2-4 sentences.
+
+   ## Takeaways
+   Personal learnings and insights extracted from this source.
+   What's useful for our work? What changes how we think?
+   - Takeaway 1
+   - Takeaway 2
+
+   ## Context
+   Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
+   Brief note on how/why this source came up.
+   ```
+
+3. In the session log, add a "Sources" section listing the URLs captured:
+   ```markdown
+   ## Sources Captured
+   - [[Sources/YYYY-MM-DD-descriptive-name|Title]] — why it was relevant
+   ```
+
+**Two-layer source system:**
+- **Sources/** is the raw citation library. One file per URL. Grows automatically.
+- **Aggregated project pages** (e.g., `Work/Chalktalk/Knowledge/skill-architecture-sources.md`) are curated per-project views that roll up relevant sources with analysis. These are what the user reads.
+
+Sources/ is the raw layer feeding the aggregated pages. When multiple sources relate to a project, roll them up into the appropriate aggregated page if one exists.
+
+**Naming:** Use a short descriptive name derived from the content (like the Instagram transcription skill does). Title case, under ~60 chars, hyphens for spaces in the filename.
 
 ---
 

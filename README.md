@@ -15,7 +15,7 @@ claude plugin enable claude-mem@claude-mem
 ## Skills
 
 ### /obsidian-memory
-Project-first session memory using Obsidian. At session start, loads project context and current focus. During sessions, proactively saves after milestones. At session end, updates project docs and writes session logs. Presents a summary with categories for approval before writing.
+Project-first session memory using Obsidian. At session start, loads project context, current focus, and runs periodic vault health checks (lint). During sessions, proactively saves after milestones and logs URLs to a Sources/ citation trail. At session end, updates project docs and writes session logs. Presents a summary with categories for approval before writing.
 
 ### /technical-handoff-writer
 Structures exploratory technical work (SQL, data analysis, algorithm validation) into an engineering handoff. Outputs two files: a curated handoff document and a companion development timeline (via claude-mem's `timeline-report`). Requires [claude-mem](https://github.com/thedotmack/claude-mem) for timeline generation.
@@ -44,6 +44,24 @@ This gives Claude lightweight session-to-session continuity with zero effort. Bu
 Writes to an Obsidian vault — a local folder of markdown files you can open and browse anytime. Maintains curated project docs, session logs with wikilinks, and a current-focus dashboard.
 
 **Why it exists:** Removes the black box. You can verify what Claude knows, trace decisions to specific conversations, and see project status without starting a session. Also the best context source for Claude itself — ~50 lines per project vs thousands of raw observations.
+
+#### Source Logging & Citation Trail
+
+Every URL shared in conversation gets logged to a `Sources/` folder — one markdown file per URL with Summary (objective description), Takeaways (personal learnings), and bidirectional wikilinks to the session where it was discussed. This is the raw citation layer.
+
+On top of that, curated **aggregated project pages** (e.g., `Work/Chalktalk/Knowledge/skill-architecture-sources.md`) roll up relevant sources with analysis for specific projects. You read the aggregated pages; the Sources/ folder is the searchable citation trail feeding them. Inspired by [Karpathy's raw/ → wiki/ pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
+
+#### Vault Health Checks (Lint)
+
+Built into the session-start ritual. Every 7 days, obsidian-memory automatically scans for:
+- **Abandoned projects** — active in current-focus but untouched for 14+ days (with day count). Framed positively: abandoning low-priority projects is good prioritization.
+- **Broken wikilinks** — current-focus references a project doc that doesn't exist
+- **Status drift** — project doc says `active` but current-focus lists it as complete (or vice versa)
+- **Orphan project docs** — files not referenced from current-focus
+- **Stale Next Steps** — unchanged across 3+ sessions
+- **Empty sections** — project docs with blank Overview, Key Findings, or Next Steps
+
+Produces a report — does not modify project docs. You glance at it and decide what to do.
 
 ### 3. claude-mem (Separate Plugin)
 
