@@ -226,20 +226,24 @@ Before writing to any file, follow this decision tree:
    ```
    If no report exists or the most recent is 7+ days old, run the lint:
 
-   **Checks:**
-   - **Abandoned projects**: Active in current-focus but no session log touching them in 14+ days. List with day count.
-   - **Broken wikilinks**: current-focus references a project doc path that doesn't exist in the vault.
-   - **Status drift**: Project doc frontmatter `status` field disagrees with its section in current-focus (e.g., doc says `active` but current-focus lists it under Complete).
-   - **Orphan project docs**: Files in `Work/` or `Personal/` not referenced from current-focus.
+   **Checks and actions:**
+
+   - **Abandoned projects** (auto-fix): Projects listed as Active or Active but Backlogged in current-focus but no session log touching them in 14+ days. **Action: move them to a new "Abandoned" section in current-focus.md** with day count (e.g., `Adaptivity Algorithm — 45 days since last session`). The Abandoned section sits between Complete and Priorities, with this descriptor at the top:
+     > This is not a bad thing — it's a sign of good prioritization. You can't solve everything. This list is a point of pride as long as you're moving the most important things toward the finish line. These are projects you explored, learned from, and chose not to continue investing in right now.
+
+   - **Broken wikilinks**: current-focus references a project doc path that doesn't exist in the vault. If none found, report one sentence: "All N wikilinks in current-focus.md resolved. No broken links." and stop. Don't elaborate.
+
+   - **Status drift** (auto-fix): Project doc frontmatter `status` field disagrees with its section in current-focus (e.g., doc says `active` but current-focus lists it under Complete). **Action: update the frontmatter** to match current-focus (e.g., set `status: complete` and add `completed: YYYY-MM-DD`).
+
+   - **Orphan project docs**: Files in `Work/` or `Personal/` not referenced from current-focus. **Action: add a note in current-focus** pointing to the subfolder if the orphan is a legitimate project doc. If it's a supporting file under a parent project, no action needed — just note it.
+
    - **Stale Next Steps**: A project doc's Next Steps section is identical to what it was 3+ sessions ago.
+
    - **Empty sections**: Project docs with blank Overview, Key Findings, or Next Steps.
 
-   **Output:** Save report to `Context/vault-lint-report.md` (overwrite each time). Present a brief summary to the user during session start.
+   **Output:** Save report to `Context/vault-lint-report.md` (overwrite each time). Present a compact summary to the user during session start. For any issues the lint cannot auto-fix, present **copy-paste terminal commands** so the user can act on them directly.
 
-   **Framing:** The "Abandoned" section should have this descriptor at the top:
-   > This is not a bad thing — it's a sign of good prioritization. You can't solve everything. This list is a point of pride as long as you're moving the most important things toward the finish line. These are projects you explored, learned from, and chose not to continue investing in right now.
-
-   The lint produces a report only — it does NOT modify project docs or current-focus.
+   **Auto-fix vs report:** The lint auto-fixes abandoned projects (moves to Abandoned section in current-focus) and status drift (updates frontmatter). Everything else is reported with actionable commands.
 
 **Do NOT ask permission** — just do this automatically at session start.
 
@@ -520,6 +524,8 @@ Read then update the relevant context file. Note: `obsidian update` does not exi
 - **Aggregated project pages** (e.g., `Work/Chalktalk/Knowledge/skill-architecture-sources.md`) are curated per-project views that roll up relevant sources with analysis. These are what the user reads.
 
 Sources/ is the raw layer feeding the aggregated pages. When multiple sources relate to a project, roll them up into the appropriate aggregated page if one exists.
+
+**Where aggregated pages live:** Curated multi-source knowledge pages go under `Work/Chalktalk/Knowledge/` (for work topics) or `Personal/Knowledge/` (for personal topics). These are knowledge artifacts — distinct from project docs (which track work) and session logs (which track what happened). Example: `Work/Chalktalk/Knowledge/skill-architecture-sources.md` aggregates 5+ sources about agent architecture into one reference page.
 
 **Naming:** Use a short descriptive name derived from the content (like the Instagram transcription skill does). Title case, under ~60 chars, hyphens for spaces in the filename.
 
