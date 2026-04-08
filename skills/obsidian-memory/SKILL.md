@@ -9,12 +9,7 @@ This skill provides persistent memory and context management for Claude Code usi
 
 ---
 
-> **COMMON MISTAKES — Read before using this skill**
->
-> 1. **`obsidian update` does not exist.** There is no update command. To overwrite an existing file, use the **Write tool** targeting the full filesystem path (e.g. `~/Documents/<VAULT_NAME>/Context/current-focus.md`). Using `obsidian update` will fail silently or error out.
-> 2. **New file vs. overwrite** — Use `obsidian create` only for files that do not exist yet. For files that already exist, use the Write tool. See the "File Write Decision Tree" section below.
-> 3. **Vault path resolution** — The `obsidian` CLI commands use the vault *name* (e.g. `vault="Claude Code Obsidian"`). The Write tool needs the full *filesystem path* (e.g. `~/Documents/Claude Code Obsidian/Context/current-focus.md`). These are different. See "Vault Location" below.
-> 4. **Never skip the session-end approval step.** Writing project docs with wrong categories (ChalkTalk vs Personal) is a high-consequence error. Always present the summary and wait for user confirmation before writing anything.
+> **Read `references/gotchas.md` before using this skill.** It lists the failure modes the skill has hit in real runs — non-existent CLI subcommands, vault-path confusion between `obsidian` CLI and the Write tool, and the session-end approval step that must never be skipped.
 
 ---
 
