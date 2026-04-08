@@ -33,7 +33,7 @@ cat ~/.claude/obsidian-vault-name 2>/dev/null
 
 ## Installation Flow (First-Time Only)
 
-Read and follow `reference/installation-flow.md` in this skill's directory. It contains the full setup wizard (vault creation, folder scaffolding, confirmation).
+Read and follow `references/installation-flow.md` in this skill's directory. It contains the full setup wizard (vault creation, folder scaffolding, confirmation).
 
 ---
 
@@ -147,7 +147,7 @@ Before writing to any file, follow this decision tree:
    ```bash
    obsidian search query="vault-lint-report" vault="<VAULT_NAME>" | head -1
    ```
-   If no report exists or the most recent is 7+ days old: read `reference/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 6 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections), which ones auto-fix, and the report formatting rules.
+   If no report exists or the most recent is 7+ days old: read `references/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 6 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections), which ones auto-fix, and the report formatting rules.
 
 **Do NOT ask permission** — just do this automatically at session start.
 
@@ -380,7 +380,7 @@ Read then update the relevant context file. Note: `obsidian update` does not exi
 ### 9. Source Logging — Capture URLs with Context
 **When to use**: During any save ritual (session end, "log progress," mid-session save) when URLs were shared in the conversation.
 
-If URLs were shared, read `reference/source-logging-rules.md` in this skill's directory and follow it. It defines the source file format, two-layer source system (raw Sources/ → aggregated Knowledge/ pages), and naming conventions.
+If URLs were shared, read `references/source-logging-rules.md` in this skill's directory and follow it. It defines the source file format, two-layer source system (raw Sources/ → aggregated Knowledge/ pages), and naming conventions.
 
 ---
 

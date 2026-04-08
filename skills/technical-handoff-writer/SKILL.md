@@ -196,5 +196,5 @@ Include success criteria and out-of-scope boundaries.
 ## Reference
 
 Worked examples:
-- Handoff doc: [`reference/irt-elo-handoff-example.md`](reference/irt-elo-handoff-example.md)
-- Agent context doc: [`reference/irt-elo-agent-context-example.md`](reference/irt-elo-agent-context-example.md)
+- Handoff doc: [`references/irt-elo-handoff-example.md`](references/irt-elo-handoff-example.md)
+- Agent context doc: [`references/irt-elo-agent-context-example.md`](references/irt-elo-agent-context-example.md)
