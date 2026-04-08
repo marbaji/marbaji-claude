@@ -1,6 +1,6 @@
 ---
 name: instagram-transcribe
-description: Transcribe and summarize Instagram Reels (or any video URL supported by yt-dlp) using yt-dlp and Whisper. Use when the user shares an Instagram Reel URL and wants a transcript or summary.
+description: Use when the user shares an Instagram Reel URL (or any yt-dlp-supported video URL) and wants a transcript or summary — downloads the audio with yt-dlp and transcribes locally with Whisper.
 ---
 
 # Instagram Reel Transcriber

@@ -1,6 +1,6 @@
 ---
 name: obsidian-memory
-description: Manage persistent memory and context for Claude Code sessions using Obsidian. Load context at session start, save sessions automatically, search past work, and maintain evolving knowledge graph.
+description: Use at the start and end of every Claude Code session, and whenever you need to recall past work — loads and persists context via an Obsidian vault, saves session logs automatically, searches prior sessions, and maintains an evolving project knowledge graph.
 ---
 
 # Obsidian Memory Management

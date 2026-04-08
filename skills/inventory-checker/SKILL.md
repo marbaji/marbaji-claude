@@ -1,6 +1,6 @@
 ---
 name: inventory-checker
-description: Display a complete inventory of all installed Claude Code components including MCP servers (with status), plugin marketplaces, available skills, npm packages, Python packages, Homebrew packages, and key CLI tools. Use this when the user asks what they have installed, what's configured, or wants to see their complete Claude Code setup.
+description: Use when the user asks what they have installed, what's configured, or wants to see their complete Claude Code setup — displays a full inventory of MCP servers (with status), plugin marketplaces, available skills, npm packages, Python packages, Homebrew packages, and key CLI tools.
 ---
 
 # Claude Code Inventory Checker
