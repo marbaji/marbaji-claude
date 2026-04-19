@@ -35,35 +35,6 @@ def _today() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def _upsert_config_key(content: str, key: str, value: str) -> str:
-    """Return `content` with `key = value` ensured (existing key replaced, else appended).
-
-    Matches lines of the form ``key = ...`` (preserving any other content).
-    """
-    lines = content.splitlines() if content else []
-    new_line = f"{key} = {value}"
-    found = False
-    out: list[str] = []
-    for line in lines:
-        stripped = line.lstrip()
-        # Detect `key =` or `key=` at start of logical content (ignore comments).
-        if not stripped.startswith("#"):
-            # Split on first '=' to check key.
-            if "=" in stripped:
-                k = stripped.split("=", 1)[0].strip()
-                if k == key:
-                    out.append(new_line)
-                    found = True
-                    continue
-        out.append(line)
-    if not found:
-        # Ensure trailing newline separation if file non-empty
-        if out and out[-1].strip() != "":
-            out.append("")
-        out.append(new_line)
-    return "\n".join(out) + "\n"
-
-
 class RalphexRunner:
     """Spawns ralphex, tails its transcript, drives the detector.
 
@@ -107,19 +78,13 @@ class RalphexRunner:
     def _write_ralphex_config(self) -> None:
         """Upsert `claude_command = <wrapper>` into .ralphex/config.
 
-        Preserves any pre-existing config content. The wrapper script is built
-        in Phase 10; we write the line now regardless of whether the script
-        exists yet.
+        Preserves any pre-existing config content. Uses config.wrapper_path()
+        so the wrapper resolves to the ralph-stack install dir regardless of
+        the user's CWD.
         """
-        config_dir = self.paths.root / ".ralphex"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "config"
-        wrapper_path = str(
-            (self.paths.root / "scripts" / "claude-ralph-wrapper.sh").resolve()
-        )
-        existing = config_path.read_text() if config_path.exists() else ""
-        updated = _upsert_config_key(existing, "claude_command", wrapper_path)
-        config_path.write_text(updated)
+        from ralph_stack import config
+        config_path = self.paths.root / ".ralphex" / "config"
+        config.upsert_key(config_path, "claude_command", str(config.wrapper_path()))
 
     def tick(self, tests_now: dict[str, str]) -> str:
         """Process any new iterations. Return 'running' | 'paused' | 'complete'."""
