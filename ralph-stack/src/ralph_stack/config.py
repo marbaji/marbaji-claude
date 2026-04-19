@@ -11,3 +11,41 @@ def wrapper_path() -> Path:
     ralph-stack was installed via pip editable or standard install.
     """
     return (Path(__file__).parent.parent.parent / "scripts" / "claude-ralph-wrapper.sh").resolve()
+
+
+def upsert_key(path: Path, key: str, value: str) -> bool:
+    """Upsert a `key = value` line in a `.ralphex/config`-style file.
+
+    Returns True if the file was changed (key added or value changed), False if
+    the key already had that value. Creates the file if absent. Preserves
+    comments (# ...) and blank lines verbatim. Handles CRLF line endings.
+    """
+    existing = path.read_text() if path.exists() else ""
+    new_line = f"{key} = {value}"
+    lines = existing.splitlines() if existing else []
+    out: list[str] = []
+    found = False
+    changed = False
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped.startswith("#") and "=" in stripped:
+            k = stripped.split("=", 1)[0].strip()
+            if k == key:
+                found = True
+                if line.rstrip("\r") == new_line:
+                    out.append(line)
+                else:
+                    out.append(new_line)
+                    changed = True
+                continue
+        out.append(line)
+    if not found:
+        if out and out[-1].strip() != "":
+            out.append("")
+        out.append(new_line)
+        changed = True
+    if not changed:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out) + "\n")
+    return True
