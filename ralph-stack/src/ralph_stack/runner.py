@@ -97,6 +97,7 @@ class RalphexRunner:
             _ralphex_cmd() + ["--worktree", str(self.plan_path)],
             cwd=self.paths.root,
         )
+        (self.paths.ralph_dir / "ralphex.pid").write_text(str(self.proc.pid))
 
     def _write_combined_guardrails(self) -> None:
         from ralph_stack.guardrails import concat_guardrails
