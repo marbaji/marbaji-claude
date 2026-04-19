@@ -49,3 +49,12 @@ def upsert_key(path: Path, key: str, value: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(out) + "\n")
     return True
+
+
+def upsert_keys(path: Path, pairs: dict[str, str]) -> list[str]:
+    """Upsert multiple key/value pairs. Returns list of keys that changed."""
+    changed: list[str] = []
+    for key, value in pairs.items():
+        if upsert_key(path, key, value):
+            changed.append(key)
+    return changed

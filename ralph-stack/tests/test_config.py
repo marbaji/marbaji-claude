@@ -90,3 +90,17 @@ def test_upsert_key_handles_crlf(tmp_path):
     text = p.read_text()
     assert "task_model = opus" in text
     assert "other = x" in text
+
+
+def test_upsert_keys_reports_only_changed(tmp_path):
+    p = tmp_path / "config"
+    p.write_text("task_model = opus\n")
+    changed = config.upsert_keys(p, {
+        "task_model": "opus",       # unchanged
+        "claude_command": "/x",      # new
+        "use_worktree": "true",      # new
+    })
+    assert "task_model" not in changed
+    assert "claude_command" in changed
+    assert "use_worktree" in changed
+    assert len(changed) == 2
