@@ -64,3 +64,66 @@ def test_initialize_fresh_directory(tmp_path, monkeypatch):
     assert "ralph/" in result.created
     assert "tasks/lessons.md" in result.created
     assert "ralph-stack run" in result.next_step
+
+
+def test_initialize_fully_idempotent(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    paths = ProjectPaths(root=tmp_path / "project")
+    paths.root.mkdir()
+
+    # First run
+    setup_mod.initialize(paths)
+
+    # Second run — everything should be skipped, nothing upserted
+    result = setup_mod.initialize(paths)
+
+    assert "ralph/" in result.skipped
+    assert "tasks/lessons.md" in result.skipped
+    assert ".ralphex/config" in result.skipped
+    assert ".gitignore" in result.skipped
+    assert result.upserted == {}
+    assert result.created == []
+    assert "~/.ralph/guardrails.md" in result.ensured
+
+
+def test_initialize_preserves_existing_lessons_byte_for_byte(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    paths = ProjectPaths(root=tmp_path / "project")
+    paths.root.mkdir()
+    (paths.root / "tasks").mkdir()
+    custom_content = "# My custom lessons\n\n- rule 1\n- rule 2\n"
+    (paths.root / "tasks" / "lessons.md").write_text(custom_content)
+
+    setup_mod.initialize(paths)
+
+    assert (paths.root / "tasks" / "lessons.md").read_text() == custom_content
+
+
+def test_initialize_gitignore_merge(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    paths = ProjectPaths(root=tmp_path / "project")
+    paths.root.mkdir()
+    # Existing .gitignore with one of our entries already present
+    (paths.root / ".gitignore").write_text("node_modules/\nralph/\n")
+
+    result = setup_mod.initialize(paths)
+
+    gi = (paths.root / ".gitignore").read_text()
+    assert "node_modules/" in gi
+    assert "ralph/" in gi
+    assert ".ralphex/*" in gi
+    assert "!.ralphex/config" in gi
+    # ralph/ should appear only once
+    assert gi.count("ralph/") == 1
+    assert ".gitignore" in result.upserted
+    assert ".ralphex/*" in result.upserted[".gitignore"]
+    assert "ralph/" not in result.upserted[".gitignore"]
