@@ -142,3 +142,37 @@ These are Phase 13 tasks.
 | Codex escalation | Direct Codex exec mid-loop | Open question (see above) | Raise to user before Phase 7 |
 
 None of these invalidate Phases 1–6 work. Pure-Python core is schema-agnostic and remains correct.
+
+---
+
+## Decisions (2026-04-18, after spike review)
+
+**Decision 1: Model-override mechanism — Strategy D (claude_command wrapper).**
+
+- Write `scripts/claude-ralph-wrapper.sh` in the ralph-stack package
+- Wrapper reads `./ralph/next-iter-model.txt`, prepends `--model` to real `claude` call, clears the override file after one use
+- Set `.ralphex/config: claude_command = /absolute/path/to/claude-ralph-wrapper.sh` during `ralph-stack run` startup
+
+**Decision 2: "Escalate to Codex" semantics — Option (ii) Claude-variant swap.**
+
+Mid-loop escalation swaps Claude effort level, not executor. Specifically:
+
+| Detector decision | What the wrapper actually invokes |
+|---|---|
+| `next_model = "opus"` (default / handback) | `claude --model opus` (no effort override, uses ralphex's configured default) |
+| `next_model = "codex"` (escalate) | `claude --model opus:max` |
+
+Rationale:
+- Real Codex CLI mid-loop would require pausing/resuming ralphex with plan-file state handoff — messy
+- Opus-at-max-effort gives a different reasoning surface (matches Agrim's spirit)
+- Ralphex's built-in checkpoint Codex review still fires at end of run (unchanged)
+- Internal state/detector code keeps using `"codex"` as the string label — only the wrapper script translates
+
+If dogfood shows Opus-at-max isn't enough to unstick, upgrade to Strategy (i) (real Codex with SIGSTOP/SIGCONT) in a later iteration. Not blocking v0.1.
+
+**Downstream impact on remaining phases:**
+
+- **Phase 7 runner.py** — invoke `ralphex <plan-file>` (no `run` subcommand). Write `.ralphex/config` override for `claude_command` on start. Delegate worktree to ralphex's `--worktree`.
+- **Phase 7 transcript_source.py** — tail `~/.claude/projects/<hashed-cwd>/` for new `.jsonl` files, parse Claude Code stream-json → `Iteration` adapter.
+- **Phase 10 hook script** — becomes `scripts/claude-ralph-wrapper.sh` (Bash) rather than a PreToolUse Python hook. Simpler.
+- **All Phases 1–6 unchanged.**
