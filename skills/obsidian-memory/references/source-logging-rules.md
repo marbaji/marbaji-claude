@@ -2,48 +2,68 @@
 
 Run this during any save ritual (session end, "log progress," mid-session save) when URLs were shared in the conversation.
 
-## What to Do
+## The Rule: Sources/ Files Come First, Session Log Bullets Are Derived
 
-1. Identify all URLs shared during the session (or since last save)
-2. For each URL, create a source file in the vault:
+The session log's `## Sources Captured` section is **a derived artifact**. Never hand-type URL bullets into it. Always:
 
-   ```bash
-   obsidian create \
-     path="Sources/YYYY-MM-DD-descriptive-name.md" \
-     content="<source-doc>" \
-     vault="<VAULT_NAME>"
-   ```
+1. Enumerate every URL shared this session.
+2. **Create a `Sources/YYYY-MM-DD-name.md` file for each one first.**
+3. **Then** generate the session log's `Sources Captured` section by listing the files you just created as wikilinks.
 
-   **Source file format:**
-   ```markdown
-   ---
-   date: YYYY-MM-DD
-   url: <original-url>
-   type: <article|github-gist|video|documentation|social-post|tool>
-   tags: [relevant, tags]
-   ---
+Inverting this order (writing URLs into the session log and *intending* to create source files later) is the failure mode that caused multiple missed sources historically. A PostToolUse hook at `~/.claude/hooks/check-session-log-sources.py` enforces this rule by blocking writes to session logs that reference missing `Sources/` files or contain raw URL bullets.
 
-   # Descriptive Title
+## Steps
 
-   ## Summary
-   Objective description of what the source says. 2-4 sentences.
+### 1. Enumerate URLs
 
-   ## Takeaways
-   Personal learnings and insights extracted from this source.
-   What's useful for our work? What changes how we think?
-   - Takeaway 1
-   - Takeaway 2
+Scroll the current conversation (or the since-last-save window). List every URL that was shared — including ones shared only in passing. If an article cites another article that shaped the discussion, that counts too.
 
-   ## Context
-   Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
-   Brief note on how/why this source came up.
-   ```
+### 2. Create one `Sources/` file per URL
 
-3. In the session log, add a "Sources Captured" section listing the URLs captured:
-   ```markdown
-   ## Sources Captured
-   - [[Sources/YYYY-MM-DD-descriptive-name|Title]] — why it was relevant
-   ```
+```bash
+obsidian create \
+  path="Sources/YYYY-MM-DD-descriptive-name.md" \
+  content="<source-doc>" \
+  vault="<VAULT_NAME>"
+```
+
+**Source file format:**
+```markdown
+---
+date: YYYY-MM-DD
+url: <original-url>
+type: <article|github-gist|video|documentation|social-post|tool>
+tags: [relevant, tags]
+---
+
+# Descriptive Title
+
+## Summary
+Objective description of what the source says. 2-4 sentences.
+
+## Takeaways
+Personal learnings and insights extracted from this source.
+What's useful for our work? What changes how we think?
+- Takeaway 1
+- Takeaway 2
+
+## Context
+Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
+Brief note on how/why this source came up.
+```
+
+If a URL is paywalled or JS-gated (X/Twitter, LinkedIn, Substack): use Playwright CLI (`playwright screenshot --full-page <url> /tmp/out.png`), then read the image to transcribe content before creating the source file. Never skip a source because WebFetch failed — fall back to the screenshot path.
+
+### 3. Generate the session log's `Sources Captured` section from the files you just created
+
+Only after every source file exists, add this section to the session log:
+
+```markdown
+## Sources Captured
+- [[Sources/YYYY-MM-DD-descriptive-name|Title]] — why it was relevant
+```
+
+Every bullet must be a `[[Sources/...]]` wikilink to a file that exists. No raw URLs. The PostToolUse hook will block the write if this is violated.
 
 ## Two-Layer Source System
 

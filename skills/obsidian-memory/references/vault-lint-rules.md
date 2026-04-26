@@ -41,6 +41,20 @@ Project docs with blank Overview, Key Findings, or Next Steps.
 
 **Skip this check for Abandoned projects.** For active/backlogged/ongoing projects: auto-create the section with reasonable content if possible, or ask the user.
 
+### 7. Session Log Source Integrity (auto-fix when possible)
+Every bullet under `## Sources Captured` in any `Sessions/**/*.md` must be a `[[Sources/<name>|Title]]` wikilink pointing to an existing `Sources/<name>.md` file. This lint is the backstop for the PostToolUse hook (`~/.claude/hooks/check-session-log-sources.py`) — it catches sessions that pre-date the hook, were written from subagents, or slipped through for any other reason.
+
+Scan every session log. For each `## Sources Captured` section, flag:
+- **Raw URL bullets** (no wikilink at all) — the source file was never created.
+- **Broken wikilinks** — bullet references `[[Sources/foo]]` but `Sources/foo.md` doesn't exist.
+
+**Action:**
+- If the URL is publicly fetchable (standard article) and the session log has enough context to summarize it: **auto-create** the `Sources/YYYY-MM-DD-name.md` file using the source-logging template, then replace the raw URL bullet with a proper wikilink.
+- If the URL is JS-gated/paywalled (X, LinkedIn, Substack) or session context is insufficient: **report** with a one-line suggestion (e.g., "Run Playwright to capture, then create Sources/...").
+- For broken wikilinks: report the expected filename and ask whether to rename an existing nearby file or create a new one.
+
+**Report format:** one row per offending session log with the offending bullets. If all session logs pass, one-sentence summary: "All N session logs have clean Sources Captured sections."
+
 ## Output
 
 Save report to `Context/vault-lint-report.md` (overwrite each time). Present a compact summary to the user during session start.
