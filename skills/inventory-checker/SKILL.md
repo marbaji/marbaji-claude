@@ -135,6 +135,95 @@ npm list -g --depth=0 2>/dev/null
 pip3 list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(pip3 list 2>/dev/null | tail -n +3 | wc -l | tr -d ' ')"
 ```
 
+### Step 5b: List Python Environments (cross-tool)
+
+Detects environments from any tool by scanning two universal markers:
+- `pyvenv.cfg` (PEP 405): venv, virtualenv, uv, poetry, pipenv, rye, hatch, pyenv-virtualenv
+- `conda-meta/` directory: conda, mamba, miniforge
+
+```bash
+{
+  # conda envs (named envs live under <prefix>/envs/<name>)
+  for root in ~/miniconda3/envs ~/anaconda3/envs /opt/homebrew/Caskroom/miniconda/base/envs /opt/homebrew/anaconda3/envs ~/.conda/envs; do
+    [ -d "$root" ] && find "$root" -maxdepth 2 -type d -name conda-meta 2>/dev/null
+  done
+  # conda base envs (sit at the prefix root, not under envs/)
+  for base in ~/miniconda3 ~/anaconda3 /opt/homebrew/Caskroom/miniconda/base /opt/homebrew/anaconda3; do
+    [ -d "$base/conda-meta" ] && echo "$base/conda-meta"
+  done
+  # PEP 405 venvs
+  for root in ~/.pyenv/versions ~/.local/share/virtualenvs ~/Library/Caches/pypoetry/virtualenvs ~/.rye/py ~/.virtualenvs "$HOME/Library/Application Support/hatch"; do
+    [ -d "$root" ] && find "$root" -maxdepth 5 -name pyvenv.cfg 2>/dev/null
+  done
+} | python3 -c "
+import sys, os, re
+rows = []
+BASE_PREFIXES = {os.path.expanduser(p) for p in ('~/miniconda3','~/anaconda3','/opt/homebrew/Caskroom/miniconda/base','/opt/homebrew/anaconda3')}
+for line in sys.stdin:
+    p = line.strip()
+    if not p: continue
+    if p.endswith('conda-meta'):
+        env_dir = os.path.dirname(p)
+        name = '(base)' if env_dir in BASE_PREFIXES else os.path.basename(env_dir)
+        py = ''
+        bindir = os.path.join(env_dir, 'bin')
+        if os.path.isdir(bindir):
+            cands = [re.match(r'python(3\.\d+)$', f) for f in os.listdir(bindir)]
+            vers = [m.group(1) for m in cands if m]
+            if vers: py = max(vers, key=len)
+        try: count = sum(1 for f in os.listdir(p) if f.endswith('.json'))
+        except: count = 0
+        rows.append((name, py, 'conda', count, env_dir))
+    elif p.endswith('pyvenv.cfg'):
+        env_dir = os.path.dirname(p)
+        name = os.path.basename(env_dir)
+        py = ''
+        try:
+            with open(p) as f:
+                for ln in f:
+                    if ln.lower().startswith('version'):
+                        m = re.search(r'(\d+\.\d+)', ln)
+                        if m: py = m.group(1); break
+        except: pass
+        src = 'venv'
+        if '.pyenv' in env_dir: src = 'pyenv'
+        elif 'pypoetry' in env_dir: src = 'poetry'
+        elif 'pipenv' in env_dir.lower() or '.local/share/virtualenvs' in env_dir: src = 'pipenv'
+        elif '.rye' in env_dir: src = 'rye'
+        elif 'hatch' in env_dir.lower(): src = 'hatch'
+        elif '.virtualenvs' in env_dir: src = 'virtualenvwrapper'
+        count = 0
+        lib = os.path.join(env_dir, 'lib')
+        try:
+            if os.path.isdir(lib):
+                for d in os.listdir(lib):
+                    if d.startswith('python'):
+                        sp = os.path.join(lib, d, 'site-packages')
+                        if os.path.isdir(sp):
+                            count = sum(1 for x in os.listdir(sp) if x.endswith('.dist-info'))
+                            break
+        except: pass
+        rows.append((name, py, src, count, env_dir))
+
+seen = set()
+if not rows:
+    print('No Python environments detected.')
+else:
+    print('| Env | Python | Source | Packages |')
+    print('|---|---|---|---|')
+    for r in sorted(rows, key=lambda x: (x[2], x[0])):
+        if r[4] in seen: continue
+        seen.add(r[4])
+        print(f'| {r[0]} | {r[1] or \"?\"} | {r[2]} | {r[3]} |')
+    print(f'\nTotal envs: {len(seen)}')
+"
+```
+
+Display rules:
+- One row per env: name, Python version, source tool, package count.
+- Do **not** dump per-env package contents — that bloats the report. If the user asks about a specific env, run `conda list -n <name>` or `<env>/bin/pip list` on demand.
+- Project-local `.venv/` directories (uv default, ad-hoc venvs) are intentionally not scanned — no central registry, and a deep filesystem walk is too expensive. Mention this in a footnote if helpful.
+
 ### Step 6: List Homebrew Packages
 ```bash
 brew list 2>/dev/null | { head -30; echo ""; } && echo "Total packages: $(brew list 2>/dev/null | wc -l | tr -d ' ')"
@@ -212,6 +301,8 @@ Rules for the MCP tables:
 - Document Processing
 - Web & API
 - Utilities
+
+**Python Environments** - Render the table from Step 5b (Env / Python / Source / Packages). One row per env, no package contents. If empty, say "No Python environments detected." Note that project-local `.venv/` dirs are not scanned.
 
 **npm Global Packages** - List with versions
 
