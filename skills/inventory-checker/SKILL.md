@@ -96,7 +96,7 @@ Compare these against the output of `claude plugin marketplace list`:
 
 ### Step 3: List All Available Skills (grouped by marketplace)
 ```bash
-find ~/.claude/plugins ~/.claude/skills -name "SKILL.md" 2>/dev/null | python3 -c "
+find -L ~/.claude/plugins ~/.claude/skills -name "SKILL.md" 2>/dev/null | python3 -c "
 import sys, re
 from collections import defaultdict
 groups = defaultdict(set)
