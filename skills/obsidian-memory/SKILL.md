@@ -37,14 +37,21 @@ Read and follow `references/installation-flow.md` in this skill's directory. It 
 Read from `~/.claude/obsidian-vault-name`. Use this value as `<VAULT_NAME>` in all commands below.
 
 **Resolving the full filesystem path** (needed for the Write tool):
-```
-Vault filesystem path = ~/Documents/<VAULT_NAME>/
-```
-Example: if `<VAULT_NAME>` is `Claude Code Obsidian`, then:
-- `Context/current-focus.md` in obsidian commands = `~/Documents/Claude Code Obsidian/Context/current-focus.md` as a filesystem path
-- `Work/Chalktalk/Projects/renewal-cards.md` = `~/Documents/Claude Code Obsidian/Work/Chalktalk/Projects/renewal-cards.md`
 
-Use obsidian CLI commands with `vault="<VAULT_NAME>"` for read/create/append. Use the Write tool with the full filesystem path for overwrites.
+The Write tool **does not expand `~`**. You must pass a fully-resolved absolute path. Resolve once at session start:
+
+```bash
+echo "$HOME/Documents/<VAULT_NAME>"
+# e.g. /Users/mohannadarbaji/Documents/Claude Code Obsidian
+```
+
+Use that absolute path for every Write call this session. Examples:
+- `Context/current-focus.md` in obsidian commands → Write tool path = `/Users/mohannadarbaji/Documents/Claude Code Obsidian/Context/current-focus.md`
+- `Work/Chalktalk/Projects/renewal-cards.md` → `/Users/mohannadarbaji/Documents/Claude Code Obsidian/Work/Chalktalk/Projects/renewal-cards.md`
+
+`~/Documents/...` looks fine in conversation prose but the Write tool will fail with a generic "Error writing file" if you actually pass it. The `obsidian` CLI tolerates `~`; the Write tool does not.
+
+Use obsidian CLI commands with `vault="<VAULT_NAME>"` for read/create/append. Use the Write tool with the **resolved absolute filesystem path** for overwrites — and Read the file first in this session (Write blocks unread files).
 
 ---
 
@@ -89,7 +96,7 @@ Before writing to any file, follow this decision tree:
 | Scenario | Tool to Use | Example |
 |---|---|---|
 | **New file** (does not exist yet) | `obsidian create` | `obsidian create path="Work/Chalktalk/Projects/new-project.md" content="..." vault="<VAULT_NAME>"` |
-| **Overwrite existing file** | **Write tool** (full filesystem path) | Write tool targeting `~/Documents/<VAULT_NAME>/Context/current-focus.md` |
+| **Overwrite existing file** | **Write tool** (resolved absolute path; Read first) | Write tool targeting `/Users/<username>/Documents/<VAULT_NAME>/Context/current-focus.md` (NOT `~/Documents/...` — see Vault Location for why) |
 | **Append to existing file** | `obsidian append` | `obsidian append file="Technical/Learnings/lessons-learned" content="..." vault="<VAULT_NAME>"` |
 | **Update frontmatter property** | `obsidian property:set` | `obsidian property:set file="..." property="status" value="complete" vault="<VAULT_NAME>"` |
 
