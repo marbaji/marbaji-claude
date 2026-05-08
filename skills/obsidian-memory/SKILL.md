@@ -68,10 +68,41 @@ Context/
 Work/Chalktalk/Projects/
   project-name.md          — One file per ChalkTalk work project
 
+Work/Chalktalk/People/     — One note per ChalkTalk team member; backlinks aggregate 1:1s + competency evidence
+  <first-last>.md          — See references/people-template.md for schema
+  _index.md                — Folder index
+
+Work/Chalktalk/Departments/  — Top-level org units with head + sub-teams + member roster
+  Customer Experience.md, Engineering.md, Sales.md
+  _index.md
+
+Work/Chalktalk/Competencies/  — Competency notes mirrored from Notion role scorecards
+  <Role Folder>/<Competency>.md  — See references/competency-template.md for schema
+  _index.md (top-level + per-role)
+
+Work/Chalktalk/1-on-1s/    — Dated 1:1 meeting notes; folder scaffolded but capture flow is future work
+  <First Name> YYYY-MM-DD.md  — See references/one-on-one-template.md
+  _index.md
+
+Work/Chalktalk/Decisions/  — Decisions of lasting consequence; auto-extracted by session-end ritual
+  YYYY-MM-DD-<slug>.md     — See references/decision-template.md
+  _index.md
+
+Work/Chalktalk/Reviews/    — Employee review drafts produced by the employee-review skill
+  <period>/<First Last>.md
+  _index.md
+
+Work/Chalktalk/Values.md   — ChalkTalk's 7 paired company values; link target for value-aligned work
+Work/Chalktalk/Shipping Log.md  — Date-ordered log of what ChalkTalk shipped; feeds board/investor updates
+
 Personal/Projects/
   ProjectName/             — Subfolder per personal project (e.g. InBloom Early Learning/)
     overview.md            — Main project doc
     (other docs as needed)
+
+Personal/Brag Doc.md       — Mo's running log of personal wins; separate from company shipping
+Personal/Quarterly Reviews/  — Cross-quarter syntheses produced by the quarterly-review skill
+  YYYY-Q[1-4].md
 
 Sources/
   YYYY-MM-DD-description.md  — URL source files with summary + takeaways
@@ -297,6 +328,33 @@ Walkthrough of the work in the order it happened. Include:
 
 **Note:** Source logging (Core Function #9) runs during this step and any other save ritual (mid-session save, "log progress"). Whenever URLs were shared, create source files and include the Sources Captured section in the session log.
 
+#### Step 5.5: Extraction Pass
+
+After the session log is written, walk it for content that should live in its own structured file. Read `references/extraction-rules.md` for full triggers + templates. Four extraction types:
+
+1. **Decisions of lasting consequence** → `Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema)
+2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/Chalktalk/Shipping Log.md` under current month
+3. **Brag-worthy moments** (codified X, led the call to Y, hard call made well) → append to `Personal/Brag Doc.md` under current quarter
+4. **New-person mentions** (someone referenced who has no `Work/Chalktalk/People/<slug>.md` yet) → flag for confirmation, do NOT auto-create
+
+Surface candidates as a SINGLE batched confirmation prompt:
+
+```
+At session-end I found these to file:
+  • DECISION: "<headline>" → Decisions/YYYY-MM-DD-<slug>.md
+  • SHIPPING: "<event>" → append to Shipping Log
+  • BRAG: "<moment>" → append to Brag Doc Q<N>
+  • NEW PERSON: "<Name>" referenced, no People note exists → create? [y/n]
+Approve all? Edit any? Skip any?
+```
+
+After user approves, apply each extraction. For decisions/brags/shipping, leave a wikilink stub in the source session log so future reads point to the canonical extracted file.
+
+**Do NOT extract** when:
+- A decision is a one-off implementation choice (mid-task pivot, captured by `git log`)
+- A shipping event is internal-only churn (commit pushed, no feature/customer impact)
+- A brag is generic ("had a productive session")
+
 #### Step 6: Confirm to user
 
 ```
@@ -305,6 +363,8 @@ Walkthrough of the work in the order it happened. Include:
   - Created: Renewal Storytelling (new project doc)
   - Session log: Sessions/2026-03/2026-03-22-topic.md
   - current-focus.md updated
+  - Extracted: 1 decision, 2 shipping events, 1 brag entry
+  - Flagged: 1 new person (Latha Pillai) — confirm before creating People note?
 ```
 
 ---
@@ -383,6 +443,24 @@ Read then update the relevant context file. Note: `obsidian update` does not exi
 **When to use**: During any save ritual (session end, "log progress," mid-session save) when URLs were shared in the conversation.
 
 If URLs were shared, read `references/source-logging-rules.md` in this skill's directory and follow it. It defines the source file format, two-layer source system (raw Sources/ → aggregated Knowledge/ pages), and naming conventions.
+
+### 10. Competency Evidence Tagging
+**When to use**: When a session demonstrates a person on the team performing in a way that maps to one of their role's competencies (e.g., Ciaran's PR review showed "Driven by Detail"; Sajeda's data-clean-up call showed "Collaborator"; Mo's incident response showed "Default to Action").
+
+**What to do**:
+
+1. Identify (a) the person, (b) the competency note that matches their demonstrated behavior, (c) the value (if any) the behavior aligns with.
+2. In the relevant section of the session log (typically `## Learnings` or `## Key Decisions`), insert a wikilink to the competency note: `Demonstrated [[Work/Chalktalk/Competencies/<dept>/<Competency>|<Competency>]] (Ciaran) when <one-line context>.`
+3. If the behavior strongly aligns with a value, also link the relevant section of `[[Work/Chalktalk/Values]]`.
+
+This is **lightweight tagging in prose**, not a separate file. The competency note's `## Evidence` section auto-aggregates these mentions via Obsidian's backlinks panel — no manual edits to the competency note are needed.
+
+**When NOT to tag**:
+- Routine task completion (shipping a small bug fix is not "demonstrating Driven by Detail")
+- Behavior already captured by a Decision or 1:1 note that already links the competency
+- Cross-team / non-employee references (don't tag external collaborators against ChalkTalk competencies)
+
+The `employee-review` skill walks these backlinks to score reviews. Quality > quantity — fabricated or inflated tags weaken the signal.
 
 ---
 

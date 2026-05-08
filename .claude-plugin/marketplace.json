@@ -14,13 +14,17 @@
       "source": "./",
       "description": "Personal Claude Code skills — inventory checker, obsidian-memory, and technical handoff writer.",
       "skills": [
+        "./skills/board-update",
         "./skills/dream",
+        "./skills/employee-review",
         "./skills/full-output-enforcement",
         "./skills/graphify",
         "./skills/image-to-code",
         "./skills/instagram-transcribe",
         "./skills/inventory-checker",
+        "./skills/investor-update",
         "./skills/obsidian-memory",
+        "./skills/quarterly-review",
         "./skills/skill-inventory-checker",
         "./skills/technical-handoff-writer"
       ]
