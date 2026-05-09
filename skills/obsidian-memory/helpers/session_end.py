@@ -12,12 +12,20 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date
 from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+@dataclass
+class ChangeReport:
+    """Per-file record of what the helper changed."""
+    path: str                          # vault-relative path
+    summary: list[str] = dataclass_field(default_factory=list)  # one short string per section/op
 
 
 SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
@@ -363,12 +371,13 @@ def write_source_files(
     sources: list[Source],
     session_date: Date,
     session_log_filename: str,
-) -> None:
+) -> list[ChangeReport]:
     """Write each Source file into vault Sources/ directory.
 
     Skips (with stderr warning) if the file already exists. Does not raise on
     collision, matching the Decision-file behavior.
     """
+    reports: list[ChangeReport] = []
     for source in sources:
         rel_path = source_file_path(source, session_date)
         path = vault / rel_path
@@ -377,9 +386,12 @@ def write_source_files(
                 f"warning: source file {path} already exists; skipped (no overwrite)",
                 file=sys.stderr,
             )
+            reports.append(ChangeReport(path=rel_path, summary=["skipped (already exists)"]))
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(render_source_file(source, session_date, session_log_filename))
+        reports.append(ChangeReport(path=rel_path, summary=["created"]))
+    return reports
 
 
 def decision_file_path(decision: Decision, session_date: Date, org_name: str = "Chalktalk") -> str:
@@ -492,14 +504,16 @@ def append_to_shipping_log(
     entry: ShippingEntry,
     session_log_filename: str,
     org_name: str = "Chalktalk",
-) -> None:
+) -> ChangeReport:
     """Insert one bullet under the correct ## YYYY-MM heading. Newest at top of month."""
-    log_path = vault / f"Work/{org_name}/Shipping Log.md"
+    rel_path = f"Work/{org_name}/Shipping Log.md"
+    log_path = vault / rel_path
     if not log_path.exists():
         raise FileNotFoundError(f"Shipping Log not found at {log_path}")
 
     bullet = format_shipping_bullet(entry, session_log_filename)
     target_heading = f"## {entry.date.strftime('%Y-%m')}"
+    month_label = entry.date.strftime("%Y-%m")
 
     text = log_path.read_text()
     lines = text.splitlines()
@@ -515,16 +529,25 @@ def append_to_shipping_log(
             f"warning: shipping bullet already present at {log_path}; skipped (idempotent retry)",
             file=sys.stderr,
         )
-        return
+        return ChangeReport(
+            path=rel_path,
+            summary=[f"## {month_label}: skipped (bullet already present)"],
+        )
+
+    # Truncate label for display
+    label_display = entry.label[:60] + "..." if len(entry.label) > 60 else entry.label
 
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
         lines = lines[:insert_idx] + new_block + lines[insert_idx:]
+        summary_msg = f'## {month_label}: heading created; prepended 1 bullet "{label_display}"'
     else:
         lines.insert(heading_idx + 1, bullet)
+        summary_msg = f'## {month_label}: prepended 1 bullet "{label_display}"'
 
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
+    return ChangeReport(path=rel_path, summary=[summary_msg])
 
 
 def format_brag_bullet(entry: BragEntry, session_log_filename: str) -> str:
@@ -538,9 +561,10 @@ def append_to_brag_doc(
     vault: Path,
     entry: BragEntry,
     session_log_filename: str,
-) -> None:
+) -> ChangeReport:
     """Insert one bullet under the correct ## YYYY Q<N> heading. Newest at top of quarter."""
-    log_path = vault / "Personal/Brag Doc.md"
+    rel_path = "Personal/Brag Doc.md"
+    log_path = vault / rel_path
     if not log_path.exists():
         raise FileNotFoundError(f"Brag Doc not found at {log_path}")
 
@@ -561,16 +585,22 @@ def append_to_brag_doc(
             f"warning: brag bullet already present at {log_path}; skipped (idempotent retry)",
             file=sys.stderr,
         )
-        return
+        return ChangeReport(
+            path=rel_path,
+            summary=[f"## {entry.quarter}: skipped (bullet already present)"],
+        )
 
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
         lines = lines[:insert_idx] + new_block + lines[insert_idx:]
+        summary_msg = f"## {entry.quarter}: heading created; prepended 1 entry"
     else:
         lines.insert(heading_idx + 1, bullet)
+        summary_msg = f"## {entry.quarter}: prepended 1 entry"
 
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
+    return ChangeReport(path=rel_path, summary=[summary_msg])
 
 
 _RE_STATUS = re.compile(r"^## Status\s*$")
@@ -583,7 +613,7 @@ def append_to_project_doc(
     vault: Path,
     update: ProjectDocUpdate,
     org_name: str = "Chalktalk",
-) -> None:
+) -> ChangeReport:
     """Apply structured and/or legacy updates to an existing project doc.
 
     Operations run in deterministic order:
@@ -593,7 +623,8 @@ def append_to_project_doc(
       4. related_session -- append bullet to ## Related Sessions
       5. legacy (section_title + section_date + body) -- append ## YYYY-MM-DD — title at end
     """
-    path = vault / project_doc_path(update.slug, update.category, org_name)
+    rel_path = project_doc_path(update.slug, update.category, org_name)
+    path = vault / rel_path
     if not path.exists():
         raise FileNotFoundError(
             f"Project doc not found at {path}. "
@@ -602,6 +633,7 @@ def append_to_project_doc(
 
     text = path.read_text()
     lines = text.splitlines()
+    report_summary: list[str] = []
 
     # 1. Status
     if update.status is not None:
@@ -609,12 +641,16 @@ def append_to_project_doc(
         new_body_lines = [update.status.rstrip(), ""]
         if result is not None:
             heading_idx, body_end = result
+            old_count = body_end - (heading_idx + 1)
+            new_count = len(new_body_lines)
             lines[heading_idx + 1 : body_end] = new_body_lines
+            report_summary.append(f"## Status: replaced ({old_count} to {new_count} lines)")
         else:
             # Append at end
             if lines and lines[-1] != "":
                 lines.append("")
             lines.extend([f"## Status", *new_body_lines])
+            report_summary.append(f"## Status: created with {len(new_body_lines)} lines")
 
     # 2. Recent activity
     if update.recent_activity is not None:
@@ -642,6 +678,7 @@ def append_to_project_doc(
                 i for i in range(heading_idx + 1, new_body_end)
                 if i < len(lines) and lines[i].startswith("### ")
             ]
+            trimmed = 0
             if len(h3_indices) > 3:
                 # Drop oldest entries (those lower in the section, beyond index 3)
                 # Find the start of the 4th (0-indexed: [3]) h3 entry
@@ -652,7 +689,11 @@ def append_to_project_doc(
                     if j != drop_from and lines[j].startswith("## "):
                         drop_to = j
                         break
+                trimmed = len(h3_indices) - 3
                 del lines[drop_from:drop_to]
+            report_summary.append(
+                f'## Recent activity: prepended 1 entry "{ra.title}" (trimmed {trimmed} oldest)'
+            )
         else:
             # Append new section at end
             if lines and lines[-1] != "":
@@ -662,6 +703,9 @@ def append_to_project_doc(
                 "",
                 *new_entry_lines,
             ])
+            report_summary.append(
+                f'## Recent activity: heading created; prepended 1 entry "{ra.title}"'
+            )
 
     # 3. Next Steps
     if update.next_steps is not None:
@@ -669,11 +713,15 @@ def append_to_project_doc(
         new_body_lines = [update.next_steps.rstrip(), ""]
         if result is not None:
             heading_idx, body_end = result
+            old_count = body_end - (heading_idx + 1)
+            new_count = len(new_body_lines)
             lines[heading_idx + 1 : body_end] = new_body_lines
+            report_summary.append(f"## Next Steps: replaced ({old_count} to {new_count} lines)")
         else:
             if lines and lines[-1] != "":
                 lines.append("")
             lines.extend([f"## Next Steps", *new_body_lines])
+            report_summary.append(f"## Next Steps: created with {len(new_body_lines)} lines")
 
     # 4. Related Sessions
     if update.related_session is not None:
@@ -690,33 +738,42 @@ def append_to_project_doc(
             else:
                 insert_at = heading_idx + 1
             lines.insert(insert_at, bullet)
+            report_summary.append("## Related Sessions: appended 1 wikilink")
         else:
             if lines and lines[-1] != "":
                 lines.append("")
             lines.extend([f"## Related Sessions", bullet, ""])
+            report_summary.append("## Related Sessions: heading created; appended 1 wikilink")
 
     # 5. Legacy
     if update.section_title is not None:
+        body_lines = update.body.rstrip().splitlines()
         legacy_block = [
             "",
             f"## {update.section_date.isoformat()} — {update.section_title}",
             update.body.rstrip(),
         ]
         lines.extend(legacy_block)
+        report_summary.append(
+            f"appended section ## {update.section_date.isoformat()} — {update.section_title}"
+            f" ({len(body_lines)} lines body)"
+        )
 
     new_text = "\n".join(lines)
     if not new_text.endswith("\n"):
         new_text += "\n"
     path.write_text(new_text)
+    return ChangeReport(path=rel_path, summary=report_summary)
 
 
 def write_new_project_doc(
     vault: Path,
     doc: NewProjectDoc,
     org_name: str = "Chalktalk",
-) -> None:
+) -> ChangeReport:
     """Write a brand-new project doc. Fails if file exists."""
-    path = vault / project_doc_path(doc.slug, doc.category, org_name)
+    rel_path = project_doc_path(doc.slug, doc.category, org_name)
+    path = vault / rel_path
     if path.exists():
         raise FileExistsError(
             f"Project doc already exists at {path}. "
@@ -727,6 +784,7 @@ def write_new_project_doc(
     text = f"---\n{fm_yaml}\n---\n\n{doc.body.rstrip()}\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
+    return ChangeReport(path=rel_path, summary=["created"])
 
 
 def _split_frontmatter(text: str) -> tuple[str, str]:
@@ -787,27 +845,44 @@ def process_focus_updates(
     updates: FocusUpdates,
     last_updated_slug: str,
     org_name: str = "Chalktalk",
-) -> None:
+) -> ChangeReport:
     """Apply remove / upsert / move_to_complete to current-focus.md and bump last-updated."""
-    path = vault / "Context/current-focus.md"
+    rel_path = "Context/current-focus.md"
+    path = vault / rel_path
     if not path.exists():
         raise FileNotFoundError(f"current-focus.md not found at {path}")
 
     text = path.read_text()
     frontmatter, body = _split_frontmatter(text)
+
+    # Extract old last-updated value for the report
+    old_slug = ""
+    m = re.search(r"last-updated:\s*(\S+)", frontmatter)
+    if m:
+        old_slug = m.group(1)
+
     frontmatter = _update_last_updated_field(frontmatter, last_updated_slug)
 
     lines = body.splitlines()
+    report_summary: list[str] = []
+
+    # Frontmatter bump
+    report_summary.append(f"frontmatter last-updated: {old_slug} to {last_updated_slug}")
 
     # 1. Removes
+    removed_slugs: list[str] = []
     for slug in updates.remove:
         block = _find_entry_block(lines, slug, org_name)
         if block is None:
             continue
         start, end = block
         del lines[start:end]
+        removed_slugs.append(slug)
+    if removed_slugs:
+        report_summary.append(f"removed {len(removed_slugs)}: {removed_slugs}")
 
     # 2. Move to complete
+    moved_slugs: list[str] = []
     for slug in updates.move_to_complete:
         block = _find_entry_block(lines, slug, org_name)
         if block is None:
@@ -822,8 +897,12 @@ def process_focus_updates(
             lines.extend(["", "## Complete", *block_lines])
         else:
             lines[complete_idx + 1 : complete_idx + 1] = block_lines
+        moved_slugs.append(slug)
+    if moved_slugs:
+        report_summary.append(f"## Complete: moved {len(moved_slugs)}: {moved_slugs}")
 
     # 3. Upsert
+    upserted_slugs: list[str] = []
     for upsert in updates.upsert:
         existing = _find_entry_block(lines, upsert.slug, org_name)
         new_block = [
@@ -840,6 +919,9 @@ def process_focus_updates(
                 lines.extend(["", "## Active Projects", *new_block])
             else:
                 lines[active_idx + 1 : active_idx + 1] = ["", *new_block]
+        upserted_slugs.append(upsert.slug)
+    if upserted_slugs:
+        report_summary.append(f"## Active Projects: upserted {len(upserted_slugs)}: {upserted_slugs}")
 
     # 4. Priorities
     if updates.priorities is not None:
@@ -851,17 +933,22 @@ def process_focus_updates(
             new_prio_lines.append("")
         if result is not None:
             heading_idx, body_end = result
+            old_count = body_end - (heading_idx + 1)
+            new_count = len(new_prio_lines)
             lines[heading_idx + 1 : body_end] = new_prio_lines
+            report_summary.append(f"## Priorities: replaced ({old_count} to {new_count} lines)")
         else:
             # Append section at end of body
             if lines and lines[-1] != "":
                 lines.append("")
             lines.extend(["## Priorities", *new_prio_lines])
+            report_summary.append(f"## Priorities: created with {len(new_prio_lines)} lines")
 
     new_body = "\n".join(lines)
     if not new_body.endswith("\n"):
         new_body += "\n"
     path.write_text(frontmatter + new_body)
+    return ChangeReport(path=rel_path, summary=report_summary)
 
 
 def write_decision_files(
@@ -870,7 +957,7 @@ def write_decision_files(
     session_date: Date,
     session_log_filename: str,
     org_name: str = "Chalktalk",
-) -> None:
+) -> list[ChangeReport]:
     """Write each Decision file.
 
     Dedupe and collision detection both key on the resolved output path, not the
@@ -899,6 +986,7 @@ def write_decision_files(
             )
         seen[resolved] = decision
 
+    reports: list[ChangeReport] = []
     for resolved, decision in seen.items():
         path = vault / resolved
         if path.exists():
@@ -906,9 +994,12 @@ def write_decision_files(
                 f"warning: decision file {path} already exists; skipped (no overwrite)",
                 file=sys.stderr,
             )
+            reports.append(ChangeReport(path=resolved, summary=["skipped (already exists)"]))
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(render_decision_file(decision, source_session_link, session_date))
+        reports.append(ChangeReport(path=resolved, summary=["created"]))
+    return reports
 
 
 def preflight_validate(
@@ -1066,7 +1157,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
     p.add_argument("--only", type=_comma_list, default=None)
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress per-file change report; only print the trailing summary line.",
+    )
     return p
+
+
+def print_change_report(reports: list[ChangeReport], vault: Path) -> None:
+    """Print per-file change blocks. Path is vault-relative."""
+    for r in reports:
+        print()
+        print(r.path)
+        for line in r.summary:
+            print(f"  {line}")
 
 
 def run(
@@ -1075,6 +1180,7 @@ def run(
     org_name: str,
     dry_run: bool,
     sections: set[str],
+    quiet: bool = False,
 ) -> int:
     """Orchestrate all writes per the manifest. Returns process exit code.
 
@@ -1101,6 +1207,8 @@ def run(
             print(f"  - {p}", file=sys.stderr)
         return 2
 
+    change_reports: list[ChangeReport] = []
+
     try:
         if "session_log" in sections:
             if dry_run:
@@ -1108,12 +1216,13 @@ def run(
                     rel = source_file_path(src, manifest.date)
                     print(f"[dry-run] would write source: {vault / rel}")
             else:
-                write_source_files(
+                source_reports = write_source_files(
                     vault=vault,
                     sources=manifest.sources_captured,
                     session_date=manifest.date,
                     session_log_filename=session_log_filename,
                 )
+                change_reports.extend(source_reports)
             log_text = render_session_log(manifest, org_name)
             log_path = vault / session_log_path(manifest)
             if dry_run:
@@ -1121,6 +1230,13 @@ def run(
             else:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 log_path.write_text(log_text)
+                n_lines = len(log_text.splitlines())
+                change_reports.append(
+                    ChangeReport(
+                        path=session_log_path(manifest),
+                        summary=[f"created ({n_lines} lines)"],
+                    )
+                )
 
         if "extractions" in sections:
             if manifest.extractions.decisions:
@@ -1129,32 +1245,35 @@ def run(
                         path = vault / decision_file_path(d, manifest.date, org_name)
                         print(f"[dry-run] would write decision: {path}")
                 else:
-                    write_decision_files(
+                    decision_reports = write_decision_files(
                         vault=vault,
                         decisions=manifest.extractions.decisions,
                         session_date=manifest.date,
                         session_log_filename=session_log_filename,
                         org_name=org_name,
                     )
+                    change_reports.extend(decision_reports)
 
             for entry in manifest.extractions.shipping_log:
                 if dry_run:
                     print(f"[dry-run] would append shipping bullet: {entry.label}")
                 else:
-                    append_to_shipping_log(
+                    rpt = append_to_shipping_log(
                         vault=vault, entry=entry,
                         session_log_filename=session_log_filename,
                         org_name=org_name,
                     )
+                    change_reports.append(rpt)
 
             for entry in manifest.extractions.brag:
                 if dry_run:
                     print(f"[dry-run] would append brag bullet: {entry.body[:40]}...")
                 else:
-                    append_to_brag_doc(
+                    rpt = append_to_brag_doc(
                         vault=vault, entry=entry,
                         session_log_filename=session_log_filename,
                     )
+                    change_reports.append(rpt)
 
             for person in manifest.extractions.new_people:
                 print(f"NEW PERSON FLAG: {person.name} — {person.why_flagged}")
@@ -1165,14 +1284,16 @@ def run(
                 if dry_run:
                     print(f"[dry-run] would append section to project: {upd.slug}")
                 else:
-                    append_to_project_doc(vault=vault, update=upd, org_name=org_name)
+                    rpt = append_to_project_doc(vault=vault, update=upd, org_name=org_name)
+                    change_reports.append(rpt)
 
         if "new_project_docs" in sections:
             for doc in manifest.new_project_docs:
                 if dry_run:
                     print(f"[dry-run] would create new project: {doc.slug}")
                 else:
-                    write_new_project_doc(vault=vault, doc=doc, org_name=org_name)
+                    rpt = write_new_project_doc(vault=vault, doc=doc, org_name=org_name)
+                    change_reports.append(rpt)
 
         if "focus_updates" in sections:
             if dry_run:
@@ -1184,12 +1305,13 @@ def run(
                     f"move_to_complete={list(manifest.focus_updates.move_to_complete)})"
                 )
             else:
-                process_focus_updates(
+                rpt = process_focus_updates(
                     vault=vault,
                     updates=manifest.focus_updates,
                     last_updated_slug=manifest.last_updated_slug,
                     org_name=org_name,
                 )
+                change_reports.append(rpt)
 
     except FileNotFoundError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -1199,6 +1321,8 @@ def run(
         return 2
 
     if not dry_run:
+        if not quiet:
+            print_change_report(change_reports, vault)
         print(f"Wrote session-end artifacts under {vault}.")
     return 0
 
@@ -1242,6 +1366,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         org_name=org_name,
         dry_run=args.dry_run,
         sections=sections_to_run,
+        quiet=args.quiet,
     )
 
 

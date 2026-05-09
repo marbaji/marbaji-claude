@@ -2031,3 +2031,164 @@ class TestProjectsTouchedConsistency:
         captured = capsys.readouterr()
         assert "not in projects_touched" not in captured.err
         assert "no matching project_doc_updates" not in captured.err
+
+
+class TestChangeReport:
+    """Tests for per-file change report printed after a successful run."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_session_log_change_report_includes_lines(self, tmp_path, capsys):
+        """Full e2e run; stdout contains session log path with created (N lines)."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        # Session log path + created (N lines)
+        assert "Sessions/2026-05/2026-05-09-full-example.md" in captured.out
+        assert "created (" in captured.out
+        assert "lines)" in captured.out
+
+    def test_project_doc_structured_update_reports_each_op(self, tmp_path, capsys):
+        """Structured update with all four fields; report has one line per section touched."""
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🟢 **Active.** All good.",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Hardening pass",
+                body="- Fixed 5 bugs.",
+            ),
+            next_steps="- Deploy.\n- Tag release.",
+            related_session="[[Sessions/2026-05/2026-05-09-test]] — test run",
+        )
+        rpt = session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        assert "## Status: replaced" in rpt.summary[0]
+        assert any("## Recent activity: prepended 1 entry" in s for s in rpt.summary)
+        assert any("## Next Steps: replaced" in s for s in rpt.summary)
+        assert any("## Related Sessions: appended 1 wikilink" in s for s in rpt.summary)
+
+    def test_recent_activity_trim_count_in_report(self, tmp_path):
+        """Fixture has 2 entries; after prepending 1 more (total 3) no trim occurs.
+        Then prepend a 4th; report says trimmed 1 oldest."""
+        vault = self._setup_vault(tmp_path)
+        proj = vault / "Work/Chalktalk/Projects/existing-project.md"
+        # Add a 3rd entry so fixture has 3 total
+        text = proj.read_text()
+        text = text.replace(
+            "## Recent activity\n\n### 2026-04-20",
+            "## Recent activity\n\n### 2026-04-30 — Third\n- Third.\n\n### 2026-04-20",
+        )
+        proj.write_text(text)
+
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Fourth causes trim",
+                body="- Trimming now.",
+            ),
+        )
+        rpt = session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        # The report should mention trimmed 1 oldest
+        ra_lines = [s for s in rpt.summary if "Recent activity" in s]
+        assert len(ra_lines) == 1
+        assert "trimmed 1 oldest" in ra_lines[0]
+
+    def test_decision_skipped_appears_in_report(self, tmp_path, capsys):
+        """Pre-create a decision file; e2e run with that decision; report says skipped."""
+        vault = self._setup_vault(tmp_path)
+        # Pre-create the decision that the full manifest would write
+        existing = vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
+        existing.parent.mkdir(parents=True, exist_ok=True)
+        existing.write_text("---\nexisting: true\n---\n")
+
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "Work/Chalktalk/Decisions/2026-05-09-test-decision.md" in captured.out
+        assert "skipped (already exists)" in captured.out
+
+    def test_focus_updates_report_lists_sections(self, tmp_path, capsys):
+        """Full e2e run; report contains frontmatter bump, upserted projects, replaced priorities."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "frontmatter last-updated:" in captured.out
+        assert "## Active Projects: upserted" in captured.out
+        assert "## Priorities: replaced" in captured.out
+
+    def test_shipping_idempotent_skip_in_report(self, tmp_path, capsys):
+        """Pre-write a matching bullet; helper run reports skipped (bullet already present)."""
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="pre-written thing",
+            context="ctx",
+        )
+        # Pre-insert the exact bullet that the helper would write
+        bullet = session_end.format_shipping_bullet(entry, "2026-05-09-test")
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        log_path.write_text(log_path.read_text() + bullet + "\n")
+
+        rpt = session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        assert "skipped (bullet already present)" in rpt.summary[0]
+
+    def test_quiet_flag_suppresses_change_report(self, tmp_path, capsys):
+        """With --quiet, per-file blocks are not printed but trailing summary is."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--quiet",
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        # Trailing summary always present
+        assert "Wrote session-end artifacts under" in captured.out
+        # Per-file path blocks NOT present
+        assert "Sessions/2026-05/2026-05-09-full-example.md" not in captured.out
+        assert "## Status:" not in captured.out
+        assert "frontmatter last-updated:" not in captured.out
+
+    def test_dry_run_does_not_emit_change_report(self, tmp_path, capsys):
+        """--dry-run emits [dry-run] lines but NOT the change-report blocks."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--dry-run",
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        # dry-run preview lines are present
+        assert "[dry-run]" in captured.out
+        # Change report blocks are NOT present (no actual writes happened)
+        assert "created (" not in captured.out
+        assert "## Status: replaced" not in captured.out
+        assert "frontmatter last-updated:" not in captured.out

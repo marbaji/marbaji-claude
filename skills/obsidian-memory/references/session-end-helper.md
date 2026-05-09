@@ -16,6 +16,7 @@ python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--on
 | `--dry-run` | flag | No | Print what would be written without touching any file. Preflight still runs. |
 | `--vault-path` | `Path` | No | Override the vault path. When omitted, resolved from `~/.claude/obsidian-vault-path` (or legacy `~/.claude/obsidian-vault-name`). |
 | `--only` | `str` (comma-separated) | No | Run only the named sections. Valid values: `session_log`, `extractions`, `project_doc_updates`, `new_project_docs`, `focus_updates`. Omit to run all five. |
+| `--quiet` | flag | No | Suppress the per-file change report; only the trailing `Wrote session-end artifacts under <vault>.` line is printed. |
 
 ---
 
@@ -621,3 +622,30 @@ Artifacts written:
 - **Tag dedup:** Frontmatter tags on the session log and Decision files are deduplicated with stable first-seen order before serialization.
 - **`marbaji-claude` field:** In YAML, use the key `marbaji-claude` (hyphenated). Both `marbaji-claude` and `marbaji_claude` (underscored) are accepted due to Pydantic's `populate_by_name: True` setting.
 - **Shipping Log and Brag Doc insertion order:** New bullets are inserted immediately after the target heading (newest at top of their month/quarter block), not appended at the end.
+- **Per-file change report:** After a successful (non-dry-run) invocation the helper prints one block per file it touched, with vault-relative paths and indented per-section summary lines. Example output:
+  ```
+  Sessions/2026-05/2026-05-09-foo.md
+    created (30 lines)
+
+  Work/Chalktalk/Decisions/2026-05-09-bar.md
+    created
+  Work/Chalktalk/Decisions/2026-05-09-baz.md
+    skipped (already exists)
+
+  Work/Chalktalk/Shipping Log.md
+    ## 2026-05: prepended 1 bullet "shipped thing"
+
+  Work/Chalktalk/Projects/existing-project.md
+    ## Status: replaced (2 to 4 lines)
+    ## Recent activity: prepended 1 entry "Hardening pass" (trimmed 0 oldest)
+    ## Next Steps: replaced (3 to 2 lines)
+    ## Related Sessions: appended 1 wikilink
+
+  Context/current-focus.md
+    frontmatter last-updated: 2026-04-30-old-session to 2026-05-09-foo
+    ## Active Projects: upserted 1: ['existing-project']
+    ## Priorities: replaced (3 to 5 lines)
+
+  Wrote session-end artifacts under /Users/.../vault.
+  ```
+  Use `--quiet` to suppress the per-file blocks (only the trailing `Wrote ...` line is printed). The change report is never emitted in `--dry-run` mode.
