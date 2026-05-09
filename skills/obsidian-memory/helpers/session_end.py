@@ -984,6 +984,30 @@ def preflight_validate(
                     f"extractions.brag: target missing at {brag_path}"
                 )
 
+    # Cross-section consistency: warn when projects_touched and project_doc_updates/new_project_docs disagree.
+    # These are warnings only -- they do not block the run (not added to problems).
+    if "session_log" in sections and (
+        "project_doc_updates" in sections or "new_project_docs" in sections
+    ):
+        touched = {(p.slug, p.category) for p in manifest.projects_touched}
+        updated = (
+            {(u.slug, u.category) for u in manifest.project_doc_updates}
+            | {(d.slug, d.category) for d in manifest.new_project_docs}
+        )
+        for slug, category in sorted(updated - touched):
+            print(
+                f"warning: slug {slug!r} ({category}) in project_doc_updates/new_project_docs "
+                f"but not in projects_touched; the session log Projects Touched section won't mention it.",
+                file=sys.stderr,
+            )
+        for slug, category in sorted(touched - updated):
+            print(
+                f"warning: slug {slug!r} ({category}) in projects_touched but no matching "
+                f"project_doc_updates or new_project_docs; the session log will reference a project "
+                f"that won't be updated.",
+                file=sys.stderr,
+            )
+
     return problems
 
 

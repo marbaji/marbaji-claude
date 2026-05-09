@@ -1877,3 +1877,157 @@ class TestTagDedup:
     def test_dedup_preserves_first_seen_order(self):
         result = session_end._dedup_preserve_order(["c", "a", "c", "b", "a"])
         assert result == ["c", "a", "b"]
+
+
+class TestProjectsTouchedConsistency:
+    """Enrichment #4: preflight warns when projects_touched and project_doc_updates disagree."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def _base_manifest(self, **overrides):
+        defaults = dict(
+            date="2026-05-09",
+            topic="ok",
+            tags=["session"],
+            last_updated_slug="2026-05-09-ok",
+            summary="x",
+            projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            project_doc_updates=[],
+            new_project_docs=[],
+        )
+        defaults.update(overrides)
+        return session_end.SessionEndManifest(**defaults)
+
+    def test_warns_when_update_missing_from_projects_touched(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    status="active",
+                ),
+            ],
+            # projects_touched is empty -- existing-project not mentioned there
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == [], "Consistency mismatch should not block the run"
+        captured = capsys.readouterr()
+        assert "existing-project" in captured.err
+        assert "not in projects_touched" in captured.err
+
+    def test_warns_when_projects_touched_missing_from_updates(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            # No project_doc_updates or new_project_docs for existing-project
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == [], "Consistency mismatch should not block the run"
+        captured = capsys.readouterr()
+        assert "existing-project" in captured.err
+        assert "no matching project_doc_updates" in captured.err
+
+    def test_no_warning_when_consistent(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    status="active",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == []
+        captured = capsys.readouterr()
+        # No consistency warnings
+        assert "not in projects_touched" not in captured.err
+        assert "no matching project_doc_updates" not in captured.err
+
+    def test_categories_distinguished(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        # projects_touched has (existing-project, work), new_project_docs has (existing-project, personal).
+        # The (slug, category) tuples differ so both directions should warn.
+        # Use new_project_docs to avoid the project_doc_updates file-existence preflight check.
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(
+                    slug="existing-project",
+                    note="work project",
+                    category="work",
+                ),
+            ],
+            new_project_docs=[
+                session_end.NewProjectDoc(
+                    slug="existing-project",
+                    category="personal",  # different category -- (slug, category) tuples differ
+                    frontmatter={"type": "project", "status": "active"},
+                    body="New personal project.",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "new_project_docs"},
+        )
+        assert problems == [], "Category mismatch should be a warning, not a blocker"
+        captured = capsys.readouterr()
+        # Both directions warn: update not in touched, touched not in updates
+        assert "not in projects_touched" in captured.err
+        assert "no matching project_doc_updates" in captured.err
+
+    def test_no_warning_when_session_log_section_excluded(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    category="personal",  # intentionally inconsistent
+                    status="active",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"extractions"},  # session_log not included -- check should not run
+        )
+        assert problems == []
+        captured = capsys.readouterr()
+        assert "not in projects_touched" not in captured.err
+        assert "no matching project_doc_updates" not in captured.err
