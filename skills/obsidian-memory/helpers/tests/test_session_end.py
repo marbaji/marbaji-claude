@@ -714,6 +714,34 @@ class TestPartialRun:
         assert not (vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md").exists()
 
 
+class TestDryRun:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_dry_run_writes_nothing(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--dry-run",
+        ])
+        assert rc == 0
+        assert not (vault / "Sessions/2026-05/2026-05-09-full-example.md").exists()
+        assert not (vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md").exists()
+
+        focus_before = (Path(__file__).parent / "fixtures" / "vault" / "Context" / "current-focus.md").read_text()
+        focus_after = (vault / "Context/current-focus.md").read_text()
+        assert focus_before == focus_after
+
+        captured = capsys.readouterr()
+        for needle in ["session_log", "decision", "shipping", "brag", "project", "current-focus"]:
+            assert needle in captured.out.lower(), f"dry-run preview missing: {needle}"
+
+
 class TestCLI:
     VALID_SECTIONS = {
         "session_log", "extractions", "project_doc_updates",
