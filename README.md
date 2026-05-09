@@ -15,7 +15,25 @@ claude plugin enable claude-mem@claude-mem
 ## Skills
 
 ### /obsidian-memory
-Project-first session memory using Obsidian. At session start, loads project context, current focus, and runs periodic vault health checks (lint). During sessions, proactively saves after milestones and logs URLs to a Sources/ citation trail. At session end, updates project docs and writes session logs. Presents a summary with categories for approval before writing.
+Project-first session memory using Obsidian. At session start, loads project context, current focus, and runs periodic vault health checks (lint). During sessions, proactively saves after milestones and logs URLs to a Sources/ citation trail. At session end, updates project docs, writes session logs, and runs an extraction pass that promotes decisions, shipping events, and brag-worthy moments into their own structured files. Presents a summary with categories for approval before writing.
+
+The skill ships generic primitives: vault layout, templates (People, Competency, Decision, 1:1), extraction rules, and four invokable companion skills below. Adopters populate their own private vault content (org chart, People notes, scorecards, Values, Shipping Log, Brag Doc) — see `skills/obsidian-memory/references/adopting-this-skill.md`.
+
+**Optional token-cost optimizations** (skill works without either):
+- **SessionStart hook** at `skills/obsidian-memory/scripts/session-start-context.sh` — injects vault context procedurally instead of via LLM file reads. Wire-up in `references/session-start-hook.md`.
+- **QMD semantic search MCP** — adds `mcp__qmd__query` for chunked semantic recall. Falls back to `obsidian search:context` if not installed. Setup in `references/qmd-setup.md`.
+
+### /board-update
+Generates a date-ranged board update draft from the Obsidian vault's Shipping Log + Decisions + project changes. Modeled on the user's most recent existing board memo style. Use when prepping for a board meeting.
+
+### /investor-update
+Generates an investor update draft from the same vault sources. Use when prepping for a monthly investor email or KPI digest.
+
+### /quarterly-review
+Synthesizes a personal quarterly review across sessions, brag entries, decisions, and shipping events. Output goes to `Personal/Quarterly Reviews/YYYY-Q[1-4].md`.
+
+### /employee-review
+Drafts an employee review by walking backlinks from the target person's Competency evidence in session logs, 1:1 notes, and Decisions. Role-agnostic. Single or bulk variants.
 
 ### /technical-handoff-writer
 Structures exploratory technical work (SQL, data analysis, algorithm validation) into an engineering handoff. Outputs two files: a curated handoff document and a companion development timeline (via claude-mem's `timeline-report`). Requires [claude-mem](https://github.com/thedotmack/claude-mem) for timeline generation.
