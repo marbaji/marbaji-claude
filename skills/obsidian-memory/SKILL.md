@@ -112,7 +112,13 @@ For specific operations, read the matching reference. References load on-demand;
 
 **At session start** (every new conversation): read `references/session-start.md` and execute the ritual. If the SessionStart hook injected context (you'll see the block in the system reminders), skip steps 1–5 (read-context) and execute steps 6–7 (summarize, weekly lint) only. Do **not** ask permission — just do it.
 
-**At session end** (when user says "done", "exit", "that's all", "wrap up", or similar): read `references/session-end.md` and execute the ritual. The session-end ritual includes a mandatory approval step before writing project docs.
+**At session end**: read `references/session-end.md` and execute the FULL ritual (all 7 steps including the mandatory approval and extraction-batch confirmation, plus the helper invocation that prints the change report). Trigger phrases include:
+
+- "done", "exit", "wrap up", "that's all"
+- "save to obsidian", "save progress", "save this", "save this session", "log this", "log progress", "capture this"
+- any "save" / "log" / "capture" verb pointed at obsidian / the vault / the session
+
+**Do NOT shortcut to a single Write tool call when the scope looks small.** Even narrow saves (one session log, no project docs, no extractions) go through the helper-driven ritual: the manifest just has empty arrays for unused sections. Skipping the mandatory approval step (Step 2) or the extraction batch confirmation (Step 3) is the failure mode the ritual is designed to prevent.
 
 **Whenever the user asks to recall past work**: search the vault using the retrieval rule above. Do not read whole files when a search would return the answer.
 

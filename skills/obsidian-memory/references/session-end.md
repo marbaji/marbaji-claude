@@ -1,6 +1,17 @@
 # Session End — Compose Manifest, Run Helper, Confirm (Automatic)
 
-**When to use**: When user says "done", "exit", "that's all", or similar session-ending phrases.
+**When to use** — run the FULL ritual (Steps 1 through 7) when the user says any of:
+- "done", "exit", "wrap up", "that's all", "thanks all done"
+- "save to obsidian", "save progress", "save this", "save this session", "log this", "log progress", "capture this"
+- any "save" / "log" / "capture" verb pointed at obsidian / the vault / the session
+
+**Do NOT shortcut to a single Write tool call** because the scope looks small. Even when there are no project docs to update and no decisions to extract, the ritual still:
+1. presents the projects-touched summary for user approval (Step 2 — MANDATORY)
+2. surfaces extraction candidates as a single batched confirmation (Step 3 — MANDATORY)
+3. emits the manifest (with empty arrays for unused sections — that's fine)
+4. runs the helper, which writes the session log + any extractions atomically and prints the change report
+
+A "narrow" session-end (just a session log, no other artifacts) is just a manifest with empty `extractions`, `project_doc_updates`, `new_project_docs`, and `focus_updates` lists. The helper handles that case fine. The cost overhead of composing the manifest is small; the cost of skipping the approval step is high (wrong-category writes corrupt the knowledge graph).
 
 **This is the most important function.** The primary outputs of session-end are an updated set of vault artifacts: project docs, current-focus.md, a session log, and any extracted decisions / Shipping Log entries / Brag Doc entries.
 
