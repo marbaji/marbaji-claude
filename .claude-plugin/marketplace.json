@@ -17,6 +17,7 @@
         "./skills/board-update",
         "./skills/dream",
         "./skills/employee-review",
+        "./skills/find-skills",
         "./skills/full-output-enforcement",
         "./skills/graphify",
         "./skills/image-to-code",
