@@ -353,3 +353,82 @@ class TestProjectDocOps:
         )
         with pytest.raises(FileExistsError):
             session_end.write_new_project_doc(vault=vault, doc=new_doc, org_name="Chalktalk")
+
+
+class TestCurrentFocusUpdates:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_upsert_new_lands_at_top_of_active(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="brand-new",
+                    status_line="**🟡 Brand new project.** Just started.",
+                ),
+            ],
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        active_section = text.split("## Complete")[0]
+        assert active_section.index("brand-new") < active_section.index("foo")
+        assert active_section.index("foo") < active_section.index("bar")
+
+    def test_upsert_existing_replaces_status_block(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="foo",
+                    status_line="**🔴 Foo is now blocked.** New status.",
+                ),
+            ],
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        assert "🔴 Foo is now blocked" in text
+        assert "Foo is active" not in text
+
+    def test_remove_deletes_heading_and_block(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(remove=["bar"])
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        assert "bar" not in text
+        assert "Bar is in progress" not in text
+
+    def test_move_to_complete_adds_checkmark(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(move_to_complete=["foo"])
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        active_section = text.split("## Complete")[0]
+        complete_section = text.split("## Complete")[1]
+        assert "foo" not in active_section
+        assert "[[Work/Chalktalk/Projects/foo]] ✅" in complete_section
+
+    def test_last_updated_frontmatter_bumped(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(),
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        assert "last-updated: 2026-05-09-test" in text
+        assert "last-updated: 2026-04-30-old-session" not in text

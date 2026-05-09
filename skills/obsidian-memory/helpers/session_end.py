@@ -418,6 +418,118 @@ def write_new_project_doc(
     path.write_text(text)
 
 
+def _split_frontmatter(text: str) -> tuple[str, str]:
+    """Split a markdown file into (frontmatter_block_with_delimiters, body)."""
+    if not text.startswith("---\n"):
+        return "", text
+    end_marker = text.find("\n---\n", 4)
+    if end_marker == -1:
+        return "", text
+    fm_end = end_marker + len("\n---\n")
+    return text[:fm_end], text[fm_end:]
+
+
+def _update_last_updated_field(frontmatter: str, slug: str) -> str:
+    if "last-updated:" in frontmatter:
+        return re.sub(
+            r"last-updated:.*$",
+            f"last-updated: {slug}",
+            frontmatter,
+            flags=re.MULTILINE,
+        )
+    return frontmatter.replace("\n---\n", f"\nlast-updated: {slug}\n---\n", 1)
+
+
+def _find_entry_block(lines: list[str], slug: str, org_name: str) -> Optional[tuple[int, int]]:
+    """Locate (start, end) line indices of an entry's heading + body block.
+
+    The block runs from the heading line until the next ### or ## (exclusive).
+    Returns None if not found.
+    """
+    target = f"### [[Work/{org_name}/Projects/{slug}]]"
+    for i, line in enumerate(lines):
+        if line.strip().startswith(target):
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].startswith("### ") or lines[j].startswith("## "):
+                    end = j
+                    break
+            return (i, end)
+    return None
+
+
+def _find_section_index(lines: list[str], heading: str) -> Optional[int]:
+    for i, line in enumerate(lines):
+        if line.strip() == heading:
+            return i
+    return None
+
+
+def process_focus_updates(
+    vault: Path,
+    updates: FocusUpdates,
+    last_updated_slug: str,
+    org_name: str = "Chalktalk",
+) -> None:
+    """Apply remove / upsert / move_to_complete to current-focus.md and bump last-updated."""
+    path = vault / "Context/current-focus.md"
+    if not path.exists():
+        raise FileNotFoundError(f"current-focus.md not found at {path}")
+
+    text = path.read_text()
+    frontmatter, body = _split_frontmatter(text)
+    frontmatter = _update_last_updated_field(frontmatter, last_updated_slug)
+
+    lines = body.splitlines()
+
+    # 1. Removes
+    for slug in updates.remove:
+        block = _find_entry_block(lines, slug, org_name)
+        if block is None:
+            continue
+        start, end = block
+        del lines[start:end]
+
+    # 2. Move to complete
+    for slug in updates.move_to_complete:
+        block = _find_entry_block(lines, slug, org_name)
+        if block is None:
+            continue
+        start, end = block
+        block_lines = lines[start:end]
+        if " ✅" not in block_lines[0]:
+            block_lines[0] = block_lines[0].rstrip() + " ✅"
+        del lines[start:end]
+        complete_idx = _find_section_index(lines, "## Complete")
+        if complete_idx is None:
+            lines.extend(["", "## Complete", *block_lines])
+        else:
+            lines[complete_idx + 1 : complete_idx + 1] = block_lines
+
+    # 3. Upsert
+    for upsert in updates.upsert:
+        existing = _find_entry_block(lines, upsert.slug, org_name)
+        new_block = [
+            f"### [[Work/{org_name}/Projects/{upsert.slug}]]",
+            upsert.status_line.rstrip(),
+            "",
+        ]
+        if existing is not None:
+            start, end = existing
+            lines[start:end] = new_block
+        else:
+            active_idx = _find_section_index(lines, "## Active Projects")
+            if active_idx is None:
+                lines.extend(["", "## Active Projects", *new_block])
+            else:
+                lines[active_idx + 1 : active_idx + 1] = ["", *new_block]
+
+    new_body = "\n".join(lines)
+    if not new_body.endswith("\n"):
+        new_body += "\n"
+    path.write_text(frontmatter + new_body)
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 
