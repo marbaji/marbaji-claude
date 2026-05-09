@@ -182,3 +182,65 @@ class TestDecisionFile:
         decision = self._decision(slug="2026-05-09-test-decision")
         path = session_end.decision_file_path(decision, session_date=Date(2026, 5, 9))
         assert path == "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
+
+
+import shutil
+
+
+class TestShippingLogAppend:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_append_under_existing_month(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-04-15",
+            label="Mid-April thing",
+            project_slug="some-project",
+            context="quick context",
+        )
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-04-15-mid-april",
+            org_name="Chalktalk",
+        )
+        log = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        assert log.index("Mid-April thing") < log.index("Old item shipped earlier")
+
+    def test_creates_new_month_heading_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="May thing",
+            context="May context",
+        )
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-may",
+            org_name="Chalktalk",
+        )
+        log = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        assert "## 2026-05" in log
+        assert log.index("## 2026-05") < log.index("## 2026-04")
+        assert "May thing" in log
+
+    def test_bullet_format(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="May thing",
+            context="extra detail",
+        )
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-may",
+            org_name="Chalktalk",
+        )
+        log = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        assert "- **2026-05-09** — May thing — extra detail. [[Sessions/2026-05/2026-05-09-may]]" in log

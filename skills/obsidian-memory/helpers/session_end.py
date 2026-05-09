@@ -53,7 +53,7 @@ class ShippingEntry(BaseModel):
     date: Date
     label: str
     project_slug: Optional[str] = None
-    context: str
+    context: Optional[str] = None
 
 
 class BragEntry(BaseModel):
@@ -285,6 +285,56 @@ def render_decision_file(
     lines.append("")
 
     return "\n".join(lines)
+
+
+def format_shipping_bullet(entry: ShippingEntry, session_log_filename: str) -> str:
+    """Build the canonical Shipping Log bullet line."""
+    yyyy_mm = entry.date.strftime("%Y-%m")
+    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+    if entry.context:
+        return f"- **{entry.date.isoformat()}** — {entry.label} — {entry.context}. {sess_link}"
+    return f"- **{entry.date.isoformat()}** — {entry.label}. {sess_link}"
+
+
+def _find_first_h2(lines: list[str]) -> int:
+    """Return index of first '## ' heading, or end-of-file if none."""
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            return i
+    return len(lines)
+
+
+def append_to_shipping_log(
+    vault: Path,
+    entry: ShippingEntry,
+    session_log_filename: str,
+    org_name: str = "Chalktalk",
+) -> None:
+    """Insert one bullet under the correct ## YYYY-MM heading. Newest at top of month."""
+    log_path = vault / f"Work/{org_name}/Shipping Log.md"
+    if not log_path.exists():
+        raise FileNotFoundError(f"Shipping Log not found at {log_path}")
+
+    bullet = format_shipping_bullet(entry, session_log_filename)
+    target_heading = f"## {entry.date.strftime('%Y-%m')}"
+
+    text = log_path.read_text()
+    lines = text.splitlines()
+
+    heading_idx = None
+    for i, line in enumerate(lines):
+        if line.strip() == target_heading:
+            heading_idx = i
+            break
+
+    if heading_idx is None:
+        insert_idx = _find_first_h2(lines)
+        new_block = [target_heading, bullet, ""]
+        lines = lines[:insert_idx] + new_block + lines[insert_idx:]
+    else:
+        lines.insert(heading_idx + 1, bullet)
+
+    log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
 
 
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
