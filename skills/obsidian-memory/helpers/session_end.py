@@ -445,10 +445,16 @@ def _find_entry_block(lines: list[str], slug: str, org_name: str) -> Optional[tu
 
     The block runs from the heading line until the next ### or ## (exclusive).
     Returns None if not found.
+
+    Matches both plain wikilinks ([[.../slug]]) and aliased wikilinks
+    ([[.../slug|Display Name]]) so that upserts correctly replace entries
+    written by humans or prose-generated session-end rituals that may include
+    a display-name pipe alias.
     """
-    target = f"### [[Work/{org_name}/Projects/{slug}]]"
+    prefix = f"### [[Work/{org_name}/Projects/{slug}"
     for i, line in enumerate(lines):
-        if line.strip().startswith(target):
+        stripped = line.strip()
+        if stripped.startswith(prefix) and len(stripped) > len(prefix) and stripped[len(prefix)] in ("]", "|"):
             end = len(lines)
             for j in range(i + 1, len(lines)):
                 if lines[j].startswith("### ") or lines[j].startswith("## "):

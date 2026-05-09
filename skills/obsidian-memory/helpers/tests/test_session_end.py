@@ -399,6 +399,43 @@ class TestCurrentFocusUpdates:
         assert "🔴 Foo is now blocked" in text
         assert "Foo is active" not in text
 
+    def test_upsert_existing_with_pipe_alias_replaces_block(self, tmp_path):
+        """Upsert must replace entries whose heading uses a display-name alias.
+
+        When current-focus.md has an entry written by a prose ritual or human
+        that includes a pipe alias (e.g. ``### [[Work/Chalktalk/Projects/foo|Foo Alias]]``),
+        upsert should still detect and replace it, not insert a duplicate.
+        """
+        vault = self._setup_vault(tmp_path)
+        focus_path = vault / "Context/current-focus.md"
+        # Patch the fixture: replace the plain [[.../foo]] heading with an aliased one.
+        text = focus_path.read_text()
+        text = text.replace(
+            "### [[Work/Chalktalk/Projects/foo]]",
+            "### [[Work/Chalktalk/Projects/foo|Foo Alias Display Name]]",
+        )
+        focus_path.write_text(text)
+
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="foo",
+                    status_line="**🔴 Foo is now blocked after alias test.** Updated.",
+                ),
+            ],
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        result = focus_path.read_text()
+        # The old aliased heading must be gone.
+        assert "Foo Alias Display Name" not in result
+        # The old status must be gone.
+        assert "Foo is active" not in result
+        # The new status is present exactly once.
+        assert result.count("Foo is now blocked after alias test") == 1
+
     def test_remove_deletes_heading_and_block(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         updates = session_end.FocusUpdates(remove=["bar"])
