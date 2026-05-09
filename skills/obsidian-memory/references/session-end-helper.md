@@ -47,7 +47,7 @@ python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--on
 | `learnings` | `str` | Required | Any markdown. Rendered under `## Learnings` in the session log. | `"Pydantic alias fields require model_config populate_by_name."` |
 | `files_modified` | `FilesModified` | Required | Nested object; see `FilesModified` below. | See below. |
 | `next_steps` | `str` | Required | Any markdown. Rendered under `## Next Steps` in the session log. | `"Commit and open PR."` |
-| `sources_captured` | `list[Source]` | Optional (default `[]`) | Each entry has `url`, `title`, `why`. | See `Source` below. |
+| `sources_captured` | `list[Source]` | Optional (default `[]`) | Each entry has `url`, `title`, `slug`, `type`, `summary`, `why`, and optional `tags[]` + `takeaways[]`. Helper writes one `Sources/YYYY-MM-DD-<slug>.md` per entry before the session log. | See `Source` below. |
 | `extractions` | `Extractions` | Optional (default empty) | Nested object; see `Extractions` below. | See below. |
 | `project_doc_updates` | `list[ProjectDocUpdate]` | Optional (default `[]`) | Each entry updates an existing project doc. | See `ProjectDocUpdate` below. |
 | `new_project_docs` | `list[NewProjectDoc]` | Optional (default `[]`) | Each entry creates a new project doc. | See `NewProjectDoc` below. |
@@ -59,8 +59,16 @@ python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--on
 
 | Field | Type | Req/Opt | Validation | Example |
 |---|---|---|---|---|
-| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` | `obsidian-memory` |
+| `slug` | `str` | Required | **work** (default): pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. **personal**: any non-empty string; no leading/trailing whitespace, no `/`, no newlines. Spaces and Title Case are allowed for personal slugs (the slug becomes the Display Name). | `obsidian-memory` (work) or `InBloom Early Learning` (personal) |
 | `note` | `str` | Required | Free text. | `"Wrote session-end-helper.md reference doc."` |
+| `category` | `Literal["work", "personal"]` | Optional (default `"work"`) | Controls path and wikilink form. `"work"` → `Work/<Org>/Projects/<slug>.md`; `"personal"` → `Personal/Projects/<slug>/overview.md`. | `personal` |
+
+**Path and wikilink by category:**
+
+| Category | Vault path | Wikilink in session log |
+|---|---|---|
+| `work` (default) | `Work/<Org>/Projects/<slug>.md` | `[[Work/<Org>/Projects/<slug>]]` |
+| `personal` | `Personal/Projects/<slug>/overview.md` | `[[Personal/Projects/<slug>/overview\|<slug>]]` (pipe alias) |
 
 ---
 
@@ -100,7 +108,38 @@ python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--on
 |---|---|---|---|---|
 | `url` | `str` | Required | Full URL. | `https://docs.pydantic.dev/latest/` |
 | `title` | `str` | Required | Display title. | `"Pydantic v2 docs"` |
-| `why` | `str` | Required | Reason this source is relevant. | `"Verified alias field behavior"` |
+| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Used as the filename suffix: `Sources/YYYY-MM-DD-<slug>.md`. | `pydantic-v2-docs` |
+| `type` | `Literal["article", "github-gist", "video", "documentation", "social-post", "tool"]` | Required | Content type of the source. | `documentation` |
+| `tags` | `list[str]` | Optional (default `[]`) | Tag list written to frontmatter. | `[pydantic, python]` |
+| `summary` | `str` | Required | Description of what the source covers. Written verbatim under `## Summary`. | `"Official Pydantic v2 reference for field aliases."` |
+| `takeaways` | `list[str]` | Optional (default `[]`) | Key points extracted during the session. Each becomes a bullet under `## Takeaways`. Empty list renders the section with no bullets but the section header is still emitted. | `["alias + populate_by_name must be used together"]` |
+| `why` | `str` | Required | Reason this source is relevant to the session. Written verbatim in `## Context`. | `"Verified alias field behavior"` |
+
+**Output:** The helper writes one `Sources/YYYY-MM-DD-<slug>.md` file per entry **before** rendering the session log. Skip-with-warning on collision (same behavior as Decision files — no overwrite). The session log emits a wikilink bullet `[[Sources/<date>-<slug>|<title>]] — <why>` (not a markdown link).
+
+**Source file template:**
+
+```markdown
+---
+date: YYYY-MM-DD
+url: <url>
+type: <type>
+tags: [...]
+---
+
+# <title>
+
+## Summary
+<summary verbatim>
+
+## Takeaways
+- <takeaway 1>
+- <takeaway 2>
+
+## Context
+Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
+<why verbatim>
+```
 
 ---
 
@@ -174,10 +213,28 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 
 | Field | Type | Req/Opt | Validation | Example |
 |---|---|---|---|---|
-| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Must match an existing `Work/<Org>/Projects/<slug>.md` or preflight fails with exit 2. | `obsidian-memory` |
-| `section_title` | `str` | Required | Heading text; rendered as `## YYYY-MM-DD — <section_title>`. | `"session-end-helper shipped"` |
-| `section_date` | `date` | Required | ISO 8601 date for the section heading. | `2026-05-09` |
-| `body` | `str` | Required | Section body. Appended verbatim after the heading. | `"All 15 tasks complete. PR opened."` |
+| `slug` | `str` | Required | **work** (default): pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. **personal**: same rules as `ProjectTouched.slug`. Target file must exist or preflight fails with exit 2. | `obsidian-memory` |
+| `category` | `Literal["work", "personal"]` | Optional (default `"work"`) | Determines the target file path. Same path rules as `ProjectTouched`. | `personal` |
+| `status` | `Optional[str]` | Optional (default `null`) | Replaces the entire body of the `## Status` section verbatim. Section is created at end of file if missing. | `"🟡 In review — PR #50 open"` |
+| `recent_activity` | `Optional[RecentActivityEntry]` | Optional (default `null`) | Prepends a dated `### YYYY-MM-DD — <title>` subsection under `## Recent activity` (case-insensitive match on `activity\|Work`). Trims the section to the last 3 entries after insertion. Section is created at end of file if missing. | See `RecentActivityEntry` below. |
+| `next_steps` | `Optional[str]` | Optional (default `null`) | Replaces the entire body of the `## Next Steps` section (case-insensitive on `Steps/steps`) verbatim. Section is created at end of file if missing. | `"- Wait for CodeRabbit review.\n- Merge once clean."` |
+| `related_session` | `Optional[str]` | Optional (default `null`) | Appends one `- {value}` bullet to `## Related Sessions`. Section is created at end of file if missing. Expected value is a wikilink string. | `"[[Sessions/2026-05/2026-05-09-session-end-helper]]"` |
+| `section_title` | `Optional[str]` | Optional (legacy) | Legacy free-form mode: heading text for the appended section. Must be provided with `section_date` AND `body` (all-or-none). | `"session-end-helper shipped"` |
+| `section_date` | `Optional[date]` | Optional (legacy) | Legacy free-form mode: date for the section heading. Must be provided with `section_title` AND `body`. | `2026-05-09` |
+| `body` | `Optional[str]` | Optional (legacy) | Legacy free-form mode: section body appended after `## YYYY-MM-DD — <section_title>`. Must be provided with `section_title` AND `section_date`. | `"All 15 tasks complete. PR opened."` |
+
+**Validation rules:**
+- At least one of `status`, `recent_activity`, `next_steps`, `related_session`, or the complete legacy triple (`section_title + section_date + body`) must be set.
+- Legacy fields are all-or-none: providing any one without the other two is a validation error (exit 1).
+- Structured and legacy updates can coexist in the same entry; operations run in order: status → recent_activity → next_steps → related_session → legacy append.
+
+### RecentActivityEntry
+
+| Field | Type | Req/Opt | Validation | Example |
+|---|---|---|---|---|
+| `date` | `date` | Required | ISO 8601 date. | `2026-05-09` |
+| `title` | `str` | Required | Short title for the subsection heading. Rendered as `### YYYY-MM-DD — <title>`. | `"session-end-helper shipped"` |
+| `body` | `str` | Required | Body text below the subsection heading. Preserved verbatim. | `"All 15 tasks complete. PR #50 open."` |
 
 ---
 
@@ -185,9 +242,10 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 
 | Field | Type | Req/Opt | Validation | Example |
 |---|---|---|---|---|
-| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Must NOT exist in the vault or preflight fails with exit 2. | `new-initiative` |
+| `slug` | `str` | Required | **work** (default): pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. **personal**: same rules as `ProjectTouched.slug`. Target path must NOT exist in the vault or preflight fails with exit 2. | `new-initiative` (work) or `InBloom Early Learning` (personal) |
 | `frontmatter` | `dict` | Required | Arbitrary key-value pairs serialized to YAML frontmatter. | `{status: active, owner: "[[Mohannad Arbaji]]"}` |
 | `body` | `str` | Required | Document body below the frontmatter. | `"# New Initiative\n\nKickoff notes."` |
+| `category` | `Literal["work", "personal"]` | Optional (default `"work"`) | Controls the target path. `"personal"` writes to `Personal/Projects/<slug>/overview.md`; parent directory created if absent. | `personal` |
 
 ---
 
@@ -198,8 +256,9 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 | `remove` | `list[str]` | Optional (default `[]`) | Project slugs whose entry blocks are deleted from `current-focus.md`. | `[old-project]` |
 | `upsert` | `list[FocusUpsert]` | Optional (default `[]`) | Entries to insert or replace at the top of `## Active Projects`. | See `FocusUpsert` below. |
 | `move_to_complete` | `list[str]` | Optional (default `[]`) | Project slugs whose blocks are moved to `## Complete` with a `✅` suffix appended to the heading line. | `[finished-project]` |
+| `priorities` | `Optional[str]` | Optional (default `null`) | If set, replaces the entire body of the `## Priorities` section in `current-focus.md` verbatim. Section is appended at end of body if the heading is missing. | `"1. Ship renewal helper\n2. Review PR #50"` |
 
-Operations are applied in order: removes first, then move-to-complete, then upserts.
+Operations are applied in order: removes first, then move-to-complete, then upserts, then priorities replacement.
 
 ---
 
@@ -216,14 +275,18 @@ Operations are applied in order: removes first, then move-to-complete, then upse
 
 | Manifest field(s) | Section name | What gets written / where |
 |---|---|---|
+| `sources_captured[]` (written first, before session log) | `session_log` | `Sources/YYYY-MM-DD-<slug>.md` — one file per entry. Written before the session log. Skip-with-warning on collision; no overwrite. Session log bullets reference these via `[[Sources/<date>-<slug>\|<title>]]`. |
 | `summary`, `projects_touched`, `streams`, `key_decisions`, `learnings`, `files_modified`, `sources_captured`, `next_steps` | `session_log` | `Sessions/YYYY-MM/YYYY-MM-DD-<topic>.md` — new file; parent directory created if absent. |
 | `extractions.decisions[]` | `extractions` | `Work/<Org>/Decisions/<slug>.md` — one file per entry (dated slug used verbatim; undated slug prefixed with session date). Skip-with-warning on collision; no overwrite. |
 | `extractions.shipping_log[]` | `extractions` | `Work/<Org>/Shipping Log.md` — one bullet inserted immediately after the `## YYYY-MM` heading. Heading is created at top of first `## ` block if absent. File must exist or preflight fails. |
 | `extractions.brag[]` | `extractions` | `Personal/Brag Doc.md` — one bullet inserted immediately after the `## YYYY Q<N>` heading. Heading created if absent. File must exist or preflight fails. |
 | `extractions.new_people[]` | `extractions` | Stdout only — flag printed, no file written. Operator creates People notes manually. |
-| `project_doc_updates[]` | `project_doc_updates` | Append `## YYYY-MM-DD — <section_title>` section to `Work/<Org>/Projects/<slug>.md`. Preflight fails with exit 2 if file does not exist. |
-| `new_project_docs[]` | `new_project_docs` | Write new `Work/<Org>/Projects/<slug>.md` with YAML frontmatter + body. Preflight fails with exit 2 if file already exists. |
-| `focus_updates.*` | `focus_updates` | Edit `Context/current-focus.md`: remove blocks, move blocks to `## Complete` (with `✅`), upsert at top of `## Active Projects`. Always bumps `last-updated:` frontmatter field from `last_updated_slug`. File must exist or preflight fails. |
+| `project_doc_updates[]` (work) | `project_doc_updates` | Structured updates (status / recent_activity / next_steps / related_session) and/or legacy free-form append to `Work/<Org>/Projects/<slug>.md`. Preflight fails with exit 2 if file does not exist. |
+| `project_doc_updates[]` (personal) | `project_doc_updates` | Same structured operations applied to `Personal/Projects/<slug>/overview.md`. Requires `category: personal`. Preflight fails with exit 2 if file does not exist. |
+| `new_project_docs[]` (work) | `new_project_docs` | Write new `Work/<Org>/Projects/<slug>.md` with YAML frontmatter + body. Preflight fails with exit 2 if file already exists. |
+| `new_project_docs[]` (personal) | `new_project_docs` | Write new `Personal/Projects/<slug>/overview.md`; parent directory created if absent. Requires `category: personal`. Preflight fails with exit 2 if file already exists. |
+| `focus_updates.remove`, `focus_updates.upsert`, `focus_updates.move_to_complete` | `focus_updates` | Edit `Context/current-focus.md`: remove blocks, move blocks to `## Complete` (with `✅`), upsert at top of `## Active Projects`. Always bumps `last-updated:` frontmatter field from `last_updated_slug`. File must exist or preflight fails. |
+| `focus_updates.priorities` | `focus_updates` | Replace body of `## Priorities` in `current-focus.md` verbatim. Section appended at end of body if heading is missing. Runs after remove / move-to-complete / upsert operations. |
 
 ---
 
@@ -270,7 +333,7 @@ Artifacts written:
 
 ---
 
-### Example 2: Full coverage (multi-stream, all extractions, project changes, focus update)
+### Example 2: Full coverage (multi-stream, all extractions, structured project updates, sources, priorities)
 
 ```yaml
 date: 2026-05-09
@@ -279,7 +342,7 @@ tags: [obsidian-memory, architecture, shipping]
 last_updated_slug: 2026-05-09-session-end-helper-full
 summary: |
   Completed the session-end CLI helper (Tasks 1-15): Pydantic schema, vault write
-  engine, preflight validation, 47 tests, and this reference doc.
+  engine, preflight validation, 88 tests, and this reference doc.
 projects_touched:
   - slug: obsidian-memory
     note: "All 15 tasks complete; PR #50 open."
@@ -299,9 +362,10 @@ streams:
       Implemented 8 write functions: `render_session_log`, `write_decision_files`,
       `append_to_shipping_log`, `append_to_brag_doc`, `append_to_project_doc`,
       `write_new_project_doc`, `process_focus_updates`, and the preflight gate.
+      Also added `write_source_files` and `render_source_file` for Sources/ writes.
   - title: Test suite
     body: |
-      47 tests across 6 files. All passing on Python 3.11 and 3.12.
+      88 tests across 6 files. All passing on Python 3.11 and 3.12.
 key_decisions: |
   - Preflight runs before any write, making the helper all-or-nothing on common failures.
   - Decision-file collisions are warned (not blocked) at write time; same-run
@@ -326,9 +390,20 @@ files_modified:
 sources_captured:
   - url: https://docs.pydantic.dev/latest/concepts/fields/#field-aliases
     title: "Pydantic v2 — Field aliases"
+    slug: pydantic-v2-field-aliases
+    type: documentation
+    tags: [pydantic, python]
+    summary: "Official Pydantic v2 reference for field aliases and populate_by_name."
+    takeaways:
+      - "alias + populate_by_name must be used together to accept both YAML and Python forms"
     why: "Verified alias + populate_by_name behavior for marbaji-claude field."
   - url: https://docs.python.org/3/library/argparse.html
     title: "Python argparse docs"
+    slug: python-argparse
+    type: documentation
+    tags: [python, cli]
+    summary: "Python stdlib docs for argparse — argument parsing for CLI tools."
+    takeaways: []
     why: "Confirmed argparse.ArgumentTypeError usage for --only validation."
 next_steps: |
   - Wait for CodeRabbit review on PR #50.
@@ -370,21 +445,28 @@ extractions:
       consequences: "Operator must rename the slug if the collision was unintentional."
   shipping_log:
     - date: 2026-05-09
-      label: "session_end.py helper — 47 tests, full vault write engine"
+      label: "session_end.py helper — 88 tests, full vault write engine"
       project_slug: obsidian-memory
       context: "Tasks 1-15 of the session-end CLI plan"
   brag:
     - quarter: 2026 Q2
       date: 2026-05-09
-      body: "Shipped session_end.py (15 tasks, 47 tests) — obsidian-memory vault write engine"
+      body: "Shipped session_end.py (15 tasks, 88 tests) — obsidian-memory vault write engine"
   new_people: []
 project_doc_updates:
   - slug: obsidian-memory
-    section_title: "session-end CLI helper shipped"
-    section_date: 2026-05-09
-    body: |
-      All 15 tasks complete. session_end.py is fully functional with 47 passing tests.
-      PR #50 open for review. Reference doc at references/session-end-helper.md.
+    status: "🟡 In review — PR #50 open"
+    recent_activity:
+      date: 2026-05-09
+      title: "session-end CLI helper shipped"
+      body: |
+        All 15 tasks complete. session_end.py is fully functional with 88 passing tests.
+        PR #50 open for review. Reference doc at references/session-end-helper.md.
+    next_steps: |
+      - Wait for CodeRabbit review on PR #50.
+      - Address review comments and re-request review.
+      - Merge once clean.
+    related_session: "[[Sessions/2026-05/2026-05-09-session-end-helper-full]]"
 new_project_docs: []
 focus_updates:
   remove: []
@@ -392,6 +474,9 @@ focus_updates:
     - slug: obsidian-memory
       status_line: "session_end.py PR #50 open — awaiting CodeRabbit review."
   move_to_complete: []
+  priorities: |
+    1. Merge obsidian-memory PR #50
+    2. Start Phase 3 planning
 ```
 
 Invocation (all sections, normal run):
@@ -402,17 +487,19 @@ python3 ~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/hel
 ```
 
 Artifacts written:
+- `Sources/2026-05-09-pydantic-v2-field-aliases.md` — source file (written before session log)
+- `Sources/2026-05-09-python-argparse.md` — source file
 - `Sessions/2026-05/2026-05-09-session-end-helper-full.md`
 - `Work/Chalktalk/Decisions/2026-05-09-preflight-before-writes.md`
 - `Work/Chalktalk/Decisions/2026-05-09-skip-collision-with-warning.md`
 - `Work/Chalktalk/Shipping Log.md` — one bullet appended under `## 2026-05`
 - `Personal/Brag Doc.md` — one bullet appended under `## 2026 Q2`
-- `Work/Chalktalk/Projects/obsidian-memory.md` — one section appended
-- `Context/current-focus.md` — `obsidian-memory` block upserted, `last-updated:` bumped
+- `Work/Chalktalk/Projects/obsidian-memory.md` — structured updates: status replaced, recent_activity prepended, next_steps replaced, related_session bullet appended
+- `Context/current-focus.md` — `obsidian-memory` block upserted, priorities replaced, `last-updated:` bumped
 
 ---
 
-### Example 3: Project-doc-only partial run
+### Example 3: Project-doc-only partial run (legacy free-form append)
 
 Use `--only project_doc_updates` to append a section to an existing project doc without touching the session log, extractions, or focus file. Useful when a post-session update arrives after the main session-end run has already completed.
 
@@ -454,9 +541,65 @@ python3 ~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/hel
 ```
 
 Artifacts written:
-- `Work/Chalktalk/Projects/obsidian-memory.md` — one section appended
+- `Work/Chalktalk/Projects/obsidian-memory.md` — one section appended (legacy free-form)
 
 Nothing else is touched. If `obsidian-memory.md` does not exist, preflight exits with code 2 before any write.
+
+---
+
+### Example 4: Personal project — create and update
+
+Demonstrates `category: personal` for both creating a new personal project doc and updating an existing one. Also shows `focus_updates.priorities`.
+
+```yaml
+date: 2026-05-09
+topic: inbloom-vendor-quotes
+tags: [personal, inbloom]
+last_updated_slug: 2026-05-09-inbloom-vendor-quotes
+summary: |
+  Collected vendor quotes for InBloom Early Learning space renovation.
+  Three vendors contacted; two responded with quotes.
+projects_touched:
+  - slug: InBloom Early Learning
+    category: personal
+    note: "Added vendor quotes from Reno Co and SpaceWorks."
+streams:
+  - title: Vendor outreach
+    body: |
+      Sent RFQ to Reno Co, SpaceWorks, and BuildRight. Reno Co and SpaceWorks responded.
+      BuildRight asked for a site visit first.
+key_decisions: Going with SpaceWorks for the quote review meeting on 2026-05-15.
+learnings: Always ask for itemized quotes — Reno Co's lump-sum made comparison hard.
+files_modified:
+  local: "Added quotes to ~/Documents/InBloom/Vendor Quotes 2026.pdf"
+next_steps: |
+  - Schedule site visit with BuildRight for week of 2026-05-12.
+  - Review SpaceWorks quote in detail before the 2026-05-15 meeting.
+project_doc_updates:
+  - slug: InBloom Early Learning
+    category: personal
+    status: "🟡 Active — vendor review phase"
+    recent_activity:
+      date: 2026-05-09
+      title: "Vendor quotes collected"
+      body: |
+        Reno Co quote: $42k. SpaceWorks quote: $38k. BuildRight pending site visit.
+    next_steps: |
+      - BuildRight site visit (week of 2026-05-12)
+      - SpaceWorks quote review meeting (2026-05-15)
+    related_session: "[[Sessions/2026-05/2026-05-09-inbloom-vendor-quotes]]"
+focus_updates:
+  priorities: |
+    1. InBloom vendor decision by 2026-05-20
+    2. obsidian-memory PR #50 review
+```
+
+Artifacts written:
+- `Sessions/2026-05/2026-05-09-inbloom-vendor-quotes.md`
+- `Personal/Projects/InBloom Early Learning/overview.md` — structured updates applied (status replaced, recent_activity prepended, next_steps replaced, related_session appended)
+- `Context/current-focus.md` — priorities section replaced, `last-updated:` bumped
+
+**Note:** The wikilink in the session log reads `[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]]` (pipe alias). The slug `InBloom Early Learning` is used verbatim because `category: personal` disables the kebab-case constraint.
 
 ---
 
@@ -465,7 +608,11 @@ Nothing else is touched. If `obsidian-memory.md` does not exist, preflight exits
 - **Manifest path:** Use `/tmp/session-end-<timestamp>.yaml` (e.g. `/tmp/session-end-20260509T143000.yaml`). The file is ephemeral — the helper reads it once and exits; the agent may delete it after a successful run.
 - **Vault path:** Resolved in priority order: (1) `--vault-path` CLI flag, (2) contents of `~/.claude/obsidian-vault-path` (canonical, post-2026-05), (3) `~/Documents/<name>` where `<name>` comes from `~/.claude/obsidian-vault-name` (legacy fallback).
 - **Org name:** Read from `~/.claude/obsidian-org-name`. Defaults to `Chalktalk` if the file is absent. Used in all `Work/<Org>/...` paths.
+- **Personal projects:** Set `category: "personal"` on `ProjectTouched`, `ProjectDocUpdate`, or `NewProjectDoc`. The slug then becomes the Display Name — spaces and Title Case are allowed (e.g. `InBloom Early Learning`). The helper resolves the path to `Personal/Projects/<slug>/overview.md` and emits wikilinks in the pipe-alias form `[[Personal/Projects/<slug>/overview|<slug>]]`. The kebab-case constraint on slug is lifted; however, empty slugs, leading/trailing whitespace, `/`, and newlines are still rejected.
 - **`current-focus.md` upsert insertion point:** New upsert blocks are inserted immediately after the `## Active Projects` heading line (at index `active_idx + 1`), pushing any existing content down. If the heading does not exist, it is appended at end of file.
+- **`focus_updates.priorities`:** If set, the body of `## Priorities` in `current-focus.md` is replaced verbatim. The section is appended at end of body if the heading is absent. Runs after remove / move-to-complete / upsert operations in the same `focus_updates` object.
+- **Structured project-doc updates:** `ProjectDocUpdate` supports four targeted operations — `status` (replace section body), `recent_activity` (prepend dated subsection, trim to last 3), `next_steps` (replace section body), `related_session` (append wikilink bullet). Any missing section is auto-created at the end of the file. The legacy `section_title + section_date + body` triple is still supported for free-form appends; all three must be set together (all-or-none).
+- **Sources — from `sources_captured[]` only:** Source files (`Sources/YYYY-MM-DD-<slug>.md`) are written by the helper; the agent must NOT write them separately. Each entry in `sources_captured[]` requires `url`, `title`, `slug`, `type`, `summary`, and `why`. The session log references sources via `[[Sources/<date>-<slug>|<title>]]` (wikilink form, not markdown link). Collision behavior: skip-with-warning, no overwrite.
 - **Decision-file collision:** An existing file at the resolved path is skipped with a stderr warning. The helper never overwrites a decision file. Same-run path collisions (two slugs resolving to the same path) are noted in preflight as informational, and the later entry wins.
 - **`streams[*].body`:** Any markdown is preserved verbatim — `###`, `####` sub-headings, code blocks, lists. The stream title is emitted as `### <title>` under `## What We Did`; stream body follows directly.
 - **Preflight is all-or-nothing:** If any preflight check fails, the helper exits with code 2 and no writes occur. Fix the manifest and retry safely. `--only` limits preflight to the active sections only.

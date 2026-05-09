@@ -8,7 +8,7 @@ Since 2026-05-09 the ritual is **helper-driven**: the agent emits one YAML manif
 
 The helper templates the **scaffold** — frontmatter, section headers, wikilink path conventions, bullet formats — never the **substance**. Length on summary, stream bodies, decision context/reasoning, etc. is unbounded; the agent decides how much prose to emit. Don't compress prose to "fit a manifest format."
 
-If the helper isn't available (no Python 3.11+, no Pydantic, etc.) or the work is a `Personal/Projects/<SubfolderName>/...` overview update (the helper only writes flat `Work/<Org>/Projects/<slug>.md`), fall back to the prose-driven flow at the bottom of this file.
+If the helper isn't available (no Python 3.11+, no Pydantic, etc.), fall back to the prose-driven flow at the bottom of this file.
 
 ---
 
@@ -16,13 +16,13 @@ If the helper isn't available (no Python 3.11+, no Pydantic, etc.) or the work i
 
 Look at what was worked on during the session. For each distinct project, determine:
 - **Project name**: short, descriptive
-- **Category**: `Work/$ORG_NAME/Projects` (your configured org) or `Personal/Projects/<SubfolderName>` (subfolder layout, fallback flow only)
+- **Category**: `Work/$ORG_NAME/Projects` (your configured org) or `Personal/Projects/<DisplayName>` (personal subfolder layout)
 - **Status**: `active`, `ongoing`, `complete`, `blocked`
 - Whether a project doc already exists
 
 `$ORG_NAME` is read from `~/.claude/obsidian-org-name` (defaults to `Chalktalk`). Resolve once at session start and use throughout this ritual.
 
-**Default category is your configured org** (`Work/$ORG_NAME/Projects`). Only use `Personal/Projects` for clearly personal work.
+**Default category is your configured org** (`Work/$ORG_NAME/Projects`). Only use `Personal/Projects` for clearly personal work. Personal projects are now fully supported by the helper — set `category: personal` in the manifest; no fallback required.
 
 ## Step 2: Present summary for approval
 
@@ -33,7 +33,7 @@ Look at what was worked on during the session. For each distinct project, determ
 
 1. **Adaptivity Algorithm** (ChalkTalk) — Update: added 2PL comparison results
 2. **New: Renewal Storytelling** (ChalkTalk) — Create new project doc
-3. **InBloom** (Personal) — Update: added vendor quotes  ← personal/subfolder, fallback flow
+3. **InBloom Early Learning** (Personal) — Update: added vendor quotes  ← category: personal, helper handles this
 
 Does this look right? Any category corrections?
 ```
@@ -91,15 +91,34 @@ Write the approved content to `/tmp/session-end-<unix-timestamp>.yaml`. The full
 
 | Field | Type | Notes |
 |---|---|---|
-| `sources_captured` | list of `{url, title, why}` | URLs encountered during the session. Empty by default. |
+| `sources_captured` | list of `Source` objects | URLs encountered during the session. Empty by default. The helper writes one `Sources/YYYY-MM-DD-<slug>.md` per entry before the session log. **Required fields per entry:** `url`, `title`, `slug` (kebab-case), `type` (one of `article`, `github-gist`, `video`, `documentation`, `social-post`, `tool`), `summary`, `why`. Optional: `tags[]`, `takeaways[]`. Session log emits `[[Sources/<date>-<slug>\|<title>]]` wikilinks — do NOT use markdown link form. |
 | `extractions` | object | `decisions[]`, `shipping_log[]`, `brag[]`, `new_people[]` — populated from the Step 3 approvals. |
-| `project_doc_updates` | list | Append a `## YYYY-MM-DD — <title>` section to an existing `Work/<Org>/Projects/<slug>.md`. Preflight fails if the file is missing. |
-| `new_project_docs` | list | Write a brand-new `Work/<Org>/Projects/<slug>.md`. Preflight fails on collision. |
-| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]` for `current-focus.md`. |
+| `project_doc_updates` | list | Update an existing project doc. Supports four structured operations (`status`, `recent_activity`, `next_steps`, `related_session`) and the legacy free-form append (`section_title + section_date + body`, all-or-none). Add `category: personal` to target `Personal/Projects/<slug>/overview.md`. Preflight fails if the file is missing. |
+| `new_project_docs` | list | Write a brand-new project doc. Add `category: personal` to write `Personal/Projects/<slug>/overview.md` (parent directory created if absent). Preflight fails on collision. |
+| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, and `priorities` for `current-focus.md`. Set `priorities` to a string to replace the `## Priorities` section verbatim (section auto-created if missing). |
+
+**Structured project-doc update fields (`project_doc_updates[]`):**
+
+| Field | Effect |
+|---|---|
+| `status` | Replaces body of `## Status` verbatim. Section auto-created if absent. |
+| `recent_activity` | `{date, title, body}` — prepends `### YYYY-MM-DD — <title>` under `## Recent activity`; trims to last 3 entries. Section auto-created if absent. |
+| `next_steps` | Replaces body of `## Next Steps` verbatim (case-insensitive on Steps/steps). Section auto-created if absent. |
+| `related_session` | Appends one `- <value>` bullet to `## Related Sessions`. Section auto-created if absent. Use a wikilink string as the value. |
+| `section_title + section_date + body` | Legacy: appends a `## YYYY-MM-DD — <title>` section at end of file. All three must be set together (all-or-none). Can coexist with structured fields. |
+
+At least one of the above must be set per entry (validation error otherwise).
+
+**Personal project notes:**
+- Set `category: personal` on `projects_touched[]`, `project_doc_updates[]`, or `new_project_docs[]`.
+- The `slug` becomes the Display Name — spaces and Title Case are allowed (e.g. `InBloom Early Learning`).
+- Path resolves to `Personal/Projects/<slug>/overview.md`.
+- Wikilinks use pipe-alias form: `[[Personal/Projects/<slug>/overview|<slug>]]`.
+- No fallback to prose flow needed — the helper handles personal projects natively.
 
 **Critical invariants:**
 - `streams[*].body`, `summary`, `key_decisions`, `learnings`, `next_steps`, decision file `context` / `options_considered` / `chosen` / `reasoning` / `consequences`, project doc `body` text — all preserved verbatim. Length unbounded. Don't compress to fit.
-- `project_doc_updates[]` and `new_project_docs[]` only handle `Work/<Org>/Projects/<slug>.md` (flat layout). For `Personal/Projects/<SubfolderName>/overview.md` use the fallback flow.
+- Sources MUST come from `sources_captured[]`. The helper writes `Sources/` files; don't write them separately or use markdown link form in the session log.
 - Inline competency tagging (e.g. `Demonstrated [[Work/Chalktalk/Competencies/.../X|X]] (Name) when …`) goes inside `learnings:` or `key_decisions:` verbatim. No structured competency field in v0.1.
 
 ## Step 5: (Recommended) Dry-run first
@@ -145,18 +164,20 @@ Valid section names: `session_log`, `extractions`, `project_doc_updates`, `new_p
 ```
 ✅ Session saved (helper):
   - Session log: Sessions/2026-03/2026-03-22-<topic>.md
-  - Project docs updated: Adaptivity Algorithm, Renewal Storytelling
-  - current-focus.md: bumped + 1 upsert
+  - Sources written: 2 files under Sources/
+  - Project docs updated: Adaptivity Algorithm (structured), Renewal Storytelling (new)
+  - Personal project updated: Personal/Projects/InBloom Early Learning/overview.md
+  - current-focus.md: bumped + 1 upsert + priorities replaced
   - Extracted: 1 decision, 2 shipping events, 1 brag entry
   - Flagged: 1 new person (<First Last>) — confirm before creating People note?
 ```
 
-If a fallback was needed (Personal subfolder updates, etc.), note it in the confirmation:
+If a fallback was needed (helper unavailable), note it in the confirmation:
 
 ```
-✅ Session saved (helper + prose fallback):
-  - Helper-driven: Work/Chalktalk/* artifacts, current-focus.md, session log, extractions
-  - Prose fallback: Personal/Projects/InBloom Early Learning/overview.md (subfolder layout)
+✅ Session saved (prose fallback):
+  - Prose fallback used: Python/Pydantic not available.
+  - Work/Chalktalk/* artifacts, current-focus.md, session log, extractions — written manually.
 ```
 
 ## Why helper-driven
@@ -171,15 +192,15 @@ Measured numbers from the prose flow vs. the helper-driven design:
 | Raw billed input (cumulative) | ~200k tokens | ~25k tokens |
 | Wall-clock | 8–10 minutes | <1 minute |
 
-Same files written either way. Same artifacts. Only the path changes.
+Same files written either way. Same artifacts. Only the path changes. The helper also writes `Sources/` files automatically — no separate agent tool calls needed for source logging.
 
 Full pattern walkthrough: [[Work/Chalktalk/Knowledge/cli-helpers-walkthrough]] in the vault.
 
 ---
 
-## Fallback: prose-driven flow (helper unavailable, or Personal subfolder updates)
+## Fallback: prose-driven flow (helper unavailable)
 
-Use this section when the helper isn't installed, Python 3.11+ / Pydantic isn't available, or the artifact you need to update is a `Personal/Projects/<SubfolderName>/...` overview that the helper doesn't handle.
+Use this section when the helper isn't installed or Python 3.11+ / Pydantic isn't available. Personal projects, structured doc updates, sources, and priorities are all handled by the helper — the prose fallback is only needed when Python itself is absent.
 
 ### Fallback Step A: Create or update project docs
 
@@ -203,7 +224,7 @@ obsidian create \
 
 New project docs include: frontmatter (type, status, started date, tags), Overview (what and why), Status (emoji + label), key details, Next Steps, Related Sessions.
 
-For personal projects, create inside the appropriate subfolder:
+For personal projects (prose fallback only — the helper handles personal projects natively when Python is available):
 
 ```bash
 mkdir -p "<vault-path>/Personal/Projects/<ProjectName>"
@@ -289,4 +310,4 @@ For each item from Step 3 the user approved:
 
 ---
 
-**Note:** Source logging runs alongside this ritual and any other save (mid-session save, "log progress"). Whenever URLs were shared during the session, create source files and include them in `sources_captured` (helper flow) or in the Sources Captured section of the session log (fallback flow). See [`references/source-logging-rules.md`](source-logging-rules.md).
+**Note:** Source logging runs alongside this ritual and any other save (mid-session save, "log progress"). Whenever URLs were shared during the session, include them in `sources_captured[]` (helper flow) — the helper writes `Sources/YYYY-MM-DD-<slug>.md` files automatically and emits `[[Sources/<date>-<slug>|<title>]]` wikilinks in the session log. In the prose fallback flow, write source files manually and reference them with the same wikilink form. See [`references/source-logging-rules.md`](source-logging-rules.md).
