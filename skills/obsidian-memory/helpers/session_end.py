@@ -217,6 +217,76 @@ def session_log_path(manifest: SessionEndManifest) -> str:
     return f"Sessions/{yyyy_mm}/{manifest.date.isoformat()}-{manifest.topic}.md"
 
 
+def decision_file_path(decision: Decision, session_date: Date, org_name: str = "Chalktalk") -> str:
+    """Resolve vault-relative path for a Decision file.
+
+    Slug may be dated (2026-05-09-foo) or undated (foo); undated inherits session_date.
+    """
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", decision.slug):
+        filename = f"{decision.slug}.md"
+    else:
+        filename = f"{session_date.isoformat()}-{decision.slug}.md"
+    return f"Work/{org_name}/Decisions/{filename}"
+
+
+def render_decision_file(
+    decision: Decision,
+    source_session_wikilink: str,
+    session_date: Date,
+) -> str:
+    """Render a single Decision file's markdown text.
+
+    The frontmatter `date:` field is always emitted: from the slug prefix if dated,
+    otherwise inheriting from the session date. This keeps filename and frontmatter
+    consistent for undated slugs (Codex adversarial-review finding #2, 2026-05-09).
+    """
+    if m := re.match(r"^(\d{4}-\d{2}-\d{2})-", decision.slug):
+        decision_date = m.group(1)
+    else:
+        decision_date = session_date.isoformat()
+
+    lines: list[str] = [
+        "---",
+        "type: decision",
+        f"date: {decision_date}",
+        f"status: {decision.status}",
+    ]
+    lines.append(f'owner: "{decision.owner}"')
+    lines.append("stakeholders:")
+    for sh in decision.stakeholders:
+        lines.append(f'  - "{sh}"')
+    if decision.supersedes:
+        lines.append(f'supersedes: "{decision.supersedes}"')
+    else:
+        lines.append("supersedes:")
+    tags_inline = "[" + ", ".join(decision.tags) + "]"
+    lines.append(f"tags: {tags_inline}")
+    lines.append("---")
+    lines.append("")
+    lines.append(f"# {decision.title}")
+    lines.append("")
+    lines.append("## Context")
+    lines.append(decision.context.rstrip())
+    lines.append("")
+    lines.append("## Options Considered")
+    lines.append(decision.options_considered.rstrip())
+    lines.append("")
+    lines.append("## Chosen")
+    lines.append(decision.chosen.rstrip())
+    lines.append("")
+    lines.append("## Reasoning")
+    lines.append(decision.reasoning.rstrip())
+    lines.append("")
+    lines.append("## Consequences")
+    lines.append(decision.consequences.rstrip())
+    lines.append("")
+    lines.append("## Source Session")
+    lines.append(f"- {source_session_wikilink}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 

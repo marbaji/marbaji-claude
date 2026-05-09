@@ -1,4 +1,5 @@
 """Tests for session_end.py helper."""
+from datetime import date as Date
 from pathlib import Path
 
 import pytest
@@ -103,3 +104,81 @@ class TestSessionLogRender:
         manifest = self._minimal_manifest()
         text = session_end.render_session_log(manifest, org_name="Chalktalk")
         assert "### Stream 1: Did stuff\nBody of stream 1." in text
+
+
+class TestDecisionFile:
+    def _decision(self, **overrides):
+        defaults = dict(
+            slug="2026-05-09-test-decision",
+            title="Test Decision",
+            status="accepted",
+            owner="[[Work/Chalktalk/People/Mo Arbaji]]",
+            stakeholders=["[[Work/Chalktalk/People/Mo Arbaji]]"],
+            supersedes=None,
+            tags=["decision", "test"],
+            context="Why the decision needed making.",
+            options_considered=(
+                "1. **Option A.** Trade-off: lower complexity.\n"
+                "2. **Option B.** Trade-off: more features."
+            ),
+            chosen="**Option A**",
+            reasoning="- Simpler to maintain.",
+            consequences="- New constraint X applies.",
+        )
+        defaults.update(overrides)
+        return session_end.Decision(**defaults)
+
+    def test_decision_frontmatter(self):
+        decision = self._decision()
+        text = session_end.render_decision_file(
+            decision,
+            source_session_wikilink="[[Sessions/2026-05/2026-05-09-test-session]]",
+            session_date=Date(2026, 5, 9),
+        )
+        assert text.startswith("---\n")
+        assert "type: decision\n" in text
+        assert "date: 2026-05-09\n" in text
+        assert "status: accepted\n" in text
+        assert 'owner: "[[Work/Chalktalk/People/Mo Arbaji]]"\n' in text
+        assert "stakeholders:\n" in text
+        assert '  - "[[Work/Chalktalk/People/Mo Arbaji]]"\n' in text
+        assert "supersedes:\n" in text
+        assert "tags: [decision, test]\n" in text
+
+    def test_undated_slug_emits_session_date_in_frontmatter(self):
+        # Codex adversarial-review finding #2: filename and frontmatter must agree.
+        decision = self._decision(slug="undated-foo")
+        text = session_end.render_decision_file(
+            decision,
+            source_session_wikilink="[[Sessions/2026-05/2026-05-09-test-session]]",
+            session_date=Date(2026, 5, 9),
+        )
+        assert "date: 2026-05-09\n" in text
+
+    def test_decision_sections_in_order(self):
+        decision = self._decision()
+        text = session_end.render_decision_file(
+            decision,
+            source_session_wikilink="[[Sessions/2026-05/2026-05-09-test-session]]",
+            session_date=Date(2026, 5, 9),
+        )
+        positions = [
+            text.index("# Test Decision"),
+            text.index("## Context"),
+            text.index("## Options Considered"),
+            text.index("## Chosen"),
+            text.index("## Reasoning"),
+            text.index("## Consequences"),
+            text.index("## Source Session"),
+        ]
+        assert positions == sorted(positions)
+
+    def test_undated_slug_inherits_session_date(self):
+        decision = self._decision(slug="test-decision")
+        path = session_end.decision_file_path(decision, session_date=Date(2026, 5, 9))
+        assert path == "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
+
+    def test_dated_slug_used_directly(self):
+        decision = self._decision(slug="2026-05-09-test-decision")
+        path = session_end.decision_file_path(decision, session_date=Date(2026, 5, 9))
+        assert path == "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
