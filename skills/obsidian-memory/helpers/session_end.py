@@ -499,6 +499,13 @@ def append_to_shipping_log(
             heading_idx = i
             break
 
+    if bullet in lines:
+        print(
+            f"warning: shipping bullet already present at {log_path}; skipped (idempotent retry)",
+            file=sys.stderr,
+        )
+        return
+
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
@@ -537,6 +544,13 @@ def append_to_brag_doc(
         if line.strip() == target_heading:
             heading_idx = i
             break
+
+    if bullet in lines:
+        print(
+            f"warning: brag bullet already present at {log_path}; skipped (idempotent retry)",
+            file=sys.stderr,
+        )
+        return
 
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)

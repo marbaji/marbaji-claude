@@ -1713,3 +1713,117 @@ class TestSourceFiles:
         )
         for slug in ["src-one", "src-two", "src-three"]:
             assert (tmp_path / "Sources" / f"2026-05-09-{slug}.md").exists()
+
+
+class TestAppendIdempotency:
+    """Enrichment #2: Shipping Log and Brag Doc appends are idempotent on retry."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_shipping_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="Already shipped",
+            context="existing ctx",
+        )
+        # Build the bullet that the function would insert
+        bullet = session_end.format_shipping_bullet(entry, "2026-05-09-test")
+
+        # Pre-write the bullet into the shipping log
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        original = log_path.read_text()
+        log_path.write_text(original + bullet + "\n")
+        before = log_path.read_text()
+
+        # Call append_to_shipping_log -- should detect duplicate and skip
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        assert after == before, "File should be unchanged on idempotent retry"
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err
+
+    def test_brag_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body="already bragged about this.",
+        )
+        # Build the bullet that the function would insert
+        bullet = session_end.format_brag_bullet(entry, "2026-05-09-test")
+
+        # Pre-write the bullet into the brag doc
+        brag_path = vault / "Personal/Brag Doc.md"
+        original = brag_path.read_text()
+        brag_path.write_text(original + bullet + "\n")
+        before = brag_path.read_text()
+
+        # Call append_to_brag_doc -- should detect duplicate and skip
+        session_end.append_to_brag_doc(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+        )
+
+        after = brag_path.read_text()
+        assert after == before, "File should be unchanged on idempotent retry"
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err
+
+    def test_shipping_append_normal_when_bullet_differs(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="A fresh new entry",
+        )
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        before = log_path.read_text()
+
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        assert after != before, "A new bullet should have been appended"
+        assert "A fresh new entry" in after
+
+    def test_idempotency_doesnt_match_partial_substring(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        # Write a partial substring of what the bullet would look like into the log
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        original = log_path.read_text()
+        # Only a fragment of the bullet, NOT the full line
+        log_path.write_text(original + "partial fragment of the label\n")
+
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="partial fragment of the label but this is a full new bullet",
+        )
+        before = log_path.read_text()
+
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        # The full bullet line differs from the fragment -- append should have happened
+        assert after != before, "A distinct bullet should have been appended"
+        captured = capsys.readouterr()
+        assert "skipped" not in captured.err
