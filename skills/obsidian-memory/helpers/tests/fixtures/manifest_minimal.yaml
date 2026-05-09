@@ -1,0 +1,17 @@
+date: 2026-05-09
+topic: minimal
+tags: [session]
+last_updated_slug: 2026-05-09-minimal
+summary: |
+  Minimal manifest, no extractions.
+projects_touched: []
+streams:
+  - title: "Stream 1"
+    body: "body."
+key_decisions: |
+  none
+learnings: |
+  none
+files_modified: {}
+next_steps: |
+  none

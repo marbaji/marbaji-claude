@@ -742,6 +742,70 @@ class TestDryRun:
             assert needle in captured.out.lower(), f"dry-run preview missing: {needle}"
 
 
+class TestEdgeCases:
+    def _setup_vault(self, tmp_path, vault_subdir="vault"):
+        vault = tmp_path / vault_subdir
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_vault_path_with_spaces(self, tmp_path):
+        vault = self._setup_vault(tmp_path, vault_subdir="My Vault With Spaces")
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_minimal.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        assert (vault / "Sessions/2026-05/2026-05-09-minimal.md").exists()
+
+    def test_frontmatter_preserved_in_shipping_log(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        before = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        before_fm = before.split("---\n", 2)[1]
+
+        manifest_path = tmp_path / "m.yaml"
+        manifest_path.write_text("""
+date: 2026-05-09
+topic: fm-test
+tags: [session]
+last_updated_slug: x
+summary: x
+projects_touched: []
+streams: [{title: x, body: x}]
+key_decisions: x
+learnings: x
+files_modified: {}
+next_steps: x
+extractions:
+  shipping_log:
+    - date: 2026-05-09
+      label: thing
+      context: ctx
+""")
+        rc = session_end.main([
+            "--manifest", str(manifest_path),
+            "--vault-path", str(vault),
+            "--only", "extractions",
+        ])
+        assert rc == 0
+        after = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        after_fm = after.split("---\n", 2)[1]
+        assert before_fm == after_fm
+
+    def test_empty_extractions_lists_no_op(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_minimal.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        log = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        assert "minimal" not in log
+        assert not list((vault / "Work/Chalktalk/Decisions").glob("2026-05-09-*"))
+
+
 class TestCLI:
     VALID_SECTIONS = {
         "session_log", "extractions", "project_doc_updates",
