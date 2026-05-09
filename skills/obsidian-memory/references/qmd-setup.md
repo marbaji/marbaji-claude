@@ -1,8 +1,8 @@
 # QMD Semantic Search Setup
 
-QMD is the recommended semantic-search backend for vault retrieval. It registers as an MCP server, exposing `mcp__qmd__query`, `mcp__qmd__get`, and `mcp__qmd__multi_get` to the agent. Without QMD, the skill falls back to `obsidian search` (BM25-only) which works fine but is less precise.
+QMD is the recommended semantic-search backend for vault retrieval. Once installed and registered as an MCP server, the agent gains `mcp__qmd__query`, `mcp__qmd__get`, and `mcp__qmd__multi_get` for chunked semantic recall. Without QMD, the skill falls back to `obsidian search:context` (BM25 only) — works fine, just less precise on conceptual queries.
 
-This is the same backend used by the breferrari/obsidian-mind reference architecture.
+Same backend used by the breferrari/obsidian-mind reference architecture.
 
 ---
 
@@ -13,11 +13,13 @@ This is the same backend used by the breferrari/obsidian-mind reference architec
 | Lexical match | Yes | Yes (BM25) |
 | Semantic match | No | Yes (embeddings) |
 | Returns matching chunks (not whole files) | `search:context` only | Always |
-| Reranking | No | Optional LLM rerank |
+| Reranking | No | Optional LLM rerank (large model) |
 | Persistent index | No (greps each query) | Yes (SQLite) |
 | Per-query cost | File scan of vault | Embedding lookup |
 
-For a vault that grows past ~50-100 sessions, semantic match meaningfully improves recall — finding "what did we decide about caching" even when the note is titled "Redis Migration ADR."
+For a vault past ~50-100 sessions, semantic match meaningfully improves recall — finds "what did we decide about caching" even when the note is titled "Redis Migration ADR."
+
+---
 
 ## Installation (one-time)
 
@@ -25,61 +27,62 @@ For a vault that grows past ~50-100 sessions, semantic match meaningfully improv
 npm install -g @tobilu/qmd
 ```
 
-First-time `qmd embed` downloads a ~328MB embedding model. `qmd query` (with LLM reranking) downloads an additional ~1.28GB model on first use. Use `qmd search` (BM25) or `qmd vsearch` (semantic only) to skip the larger download if you want to stay lightweight.
-
-## Bootstrap the vault index
-
-QMD needs to know what to index. Create or edit a `vault-manifest.json` at your vault root:
-
-```json
-{
-  "qmd_index": "obsidian-memory",
-  "qmd_context": [
-    "Sessions/**/*.md",
-    "Work/**/*.md",
-    "Personal/**/*.md",
-    "Context/**/*.md",
-    "Sources/**/*.md"
-  ]
-}
-```
-
-Then build the index:
+QMD ships as the binary `qmd`. Verify:
 
 ```bash
-cd ~/Documents/<VAULT_NAME>
-qmd --index obsidian-memory embed
+qmd --version
+# qmd 2.1.0 (or later)
 ```
 
-This creates a SQLite store and embeds the listed files. Re-run after bulk edits or many new notes:
+## Add your vault as a collection
 
 ```bash
-qmd --index obsidian-memory update   # incremental
-qmd --index obsidian-memory embed    # full rebuild
+qmd collection add "$HOME/Documents/$(cat ~/.claude/obsidian-vault-name)" --name obsidian-memory
 ```
 
-## Register as an MCP server
-
-Add to `~/.claude/.mcp.json` (or your shell-level Claude Code MCP config):
-
-```json
-{
-  "mcpServers": {
-    "qmd": {
-      "command": "qmd",
-      "args": ["--index", "obsidian-memory", "mcp"]
-    }
-  }
-}
-```
-
-Restart Claude Code. Verify registration:
+This indexes every `**/*.md` file under the vault path. Verify:
 
 ```bash
-claude mcp list | grep qmd
+qmd status
+# Documents
+#   Total:    288 files indexed
+#   Vectors:  0 embedded
+#   Pending:  288 need embedding (run 'qmd embed')
 ```
 
-The agent should now see `mcp__qmd__query`, `mcp__qmd__get`, `mcp__qmd__multi_get` in its tool menu alongside Read, Edit, etc.
+## Build embeddings
+
+```bash
+qmd embed
+```
+
+First-time embed downloads the embedding model (about 333MB) and embeds every chunk. On Apple Silicon with Metal GPU, ~880 chunks across ~300 files completes in under a minute.
+
+**Optional: download the larger query-expansion / rerank model** (about 1.28GB) if you want `qmd query` (hybrid expand + rerank). Use `qmd search` (BM25 only) or `qmd vsearch` (semantic only) to skip the larger download.
+
+## Register as an MCP server in Claude Code
+
+```bash
+claude mcp add --scope user qmd qmd mcp
+```
+
+This adds an entry to `~/.claude.json` (Claude Code's user-scope MCP config). Verify:
+
+```bash
+claude mcp get qmd
+# qmd:
+#   Scope: User config (available in all your projects)
+#   Status: ✓ Connected
+#   Type: stdio
+#   Command: qmd
+#   Args: mcp
+```
+
+> Note: `~/.claude/.mcp.json` is **not** read by Claude Code. The actual user config lives at `~/.claude.json` and is managed by `claude mcp add`. Project-scoped `.mcp.json` files in a repo root work, but for vault retrieval you want user scope.
+
+Restart Claude Code so the new MCP tools (`mcp__qmd__query`, `mcp__qmd__get`, `mcp__qmd__multi_get`) appear in the agent's tool menu.
+
+---
 
 ## Using QMD from the skill
 
@@ -88,21 +91,36 @@ The retrieval rule in SKILL.md instructs the agent to prefer `mcp__qmd__query` o
 Example query:
 
 ```
-mcp__qmd__query(
-  query="what did we decide about caching",
-  limit=5
-)
+mcp__qmd__query(query="what did we decide about caching")
 ```
 
 Returns ranked chunks with file paths and surrounding context. The agent may then `mcp__qmd__get` (or `Read`) a specific file only if it needs to edit it.
 
+---
+
 ## Re-indexing cadence
 
-- After bulk edits to existing files: `qmd update`
-- After adding many new notes (>20): `qmd embed` (full rebuild) or `qmd update`
+- After bulk edits to existing files: `qmd update` (incremental)
+- After adding many new notes: `qmd update` is usually sufficient; `qmd embed -f` for a full rebuild
 - One-shot updates (single file edited): no action needed; QMD re-checks on query if the index is older than the file
 
-You can wire this into the SessionStart hook if you want auto-updates, but be aware `qmd update` can take 10-30 seconds on a large vault — slowing every session start.
+You can wire this into the SessionStart hook if you want auto-updates, but `qmd update` can take 10-30 seconds on a large vault — slowing every session start.
+
+---
+
+## Multiple collections
+
+You can index more than one folder. Common pattern: vault as one collection, codebase as another.
+
+```bash
+qmd collection add ~/code/some-repo --name some-repo
+qmd collection list
+qmd collection exclude some-repo   # exclude from default queries
+```
+
+When `mcp__qmd__query` runs without a collection filter, it searches all included collections. Use the `-c <name>` flag from the CLI to restrict.
+
+---
 
 ## Fallback behavior
 
