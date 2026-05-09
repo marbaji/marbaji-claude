@@ -2192,3 +2192,120 @@ class TestChangeReport:
         assert "created (" not in captured.out
         assert "## Status: replaced" not in captured.out
         assert "frontmatter last-updated:" not in captured.out
+
+
+class TestChangeReportPolish:
+    """Polish: merge same-path blocks, suppress no-op last-updated, brag preview."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_change_report_merges_same_path_blocks(self, tmp_path, capsys):
+        """Two shipping entries to the same file print under one path heading."""
+        vault = self._setup_vault(tmp_path)
+        manifest_path = tmp_path / "m.yaml"
+        manifest_path.write_text("""
+date: 2026-05-09
+topic: merge-test
+tags: [session]
+last_updated_slug: 2026-05-09-merge-test
+summary: x
+projects_touched: []
+streams: [{title: x, body: x}]
+key_decisions: x
+learnings: x
+files_modified: {}
+next_steps: x
+extractions:
+  shipping_log:
+    - { date: 2026-05-09, label: First thing, context: ctx1 }
+    - { date: 2026-05-09, label: Second thing, context: ctx2 }
+""")
+        rc = session_end.main([
+            "--manifest", str(manifest_path),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        captured = capsys.readouterr()
+        # Path appears exactly once at column 0 (start of line) followed by indented summaries.
+        out = captured.out
+        path_count = sum(
+            1 for line in out.splitlines()
+            if line == "Work/Chalktalk/Shipping Log.md"
+        )
+        assert path_count == 1, f"expected path once, saw {path_count} times in:\n{out}"
+        # Both bullet lines indented under it (first creates the heading; second appends)
+        assert '## 2026-05: heading created; prepended 1 bullet "First thing"' in out
+        assert '## 2026-05: prepended 1 bullet "Second thing"' in out
+
+    def test_change_report_skips_noop_last_updated(self, tmp_path, capsys):
+        """When last-updated slug already matches, no frontmatter line in report."""
+        vault = self._setup_vault(tmp_path)
+        # Pre-set the fixture's last-updated to match what we'll send
+        focus_path = vault / "Context/current-focus.md"
+        text = focus_path.read_text()
+        text = text.replace(
+            "last-updated: 2026-04-30-old-session",
+            "last-updated: 2026-05-09-noop-test",
+        )
+        focus_path.write_text(text)
+
+        rpt = session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(),
+            last_updated_slug="2026-05-09-noop-test",
+            org_name="Chalktalk",
+        )
+        assert not any("frontmatter last-updated:" in s for s in rpt.summary), (
+            f"expected no frontmatter line, got: {rpt.summary}"
+        )
+
+    def test_change_report_emits_last_updated_line_when_changed(self, tmp_path):
+        """When slug differs, frontmatter line IS in report with old to new."""
+        vault = self._setup_vault(tmp_path)
+        rpt = session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(),
+            last_updated_slug="2026-05-09-new-session",
+            org_name="Chalktalk",
+        )
+        assert any(
+            "frontmatter last-updated: 2026-04-30-old-session to 2026-05-09-new-session"
+            in s for s in rpt.summary
+        ), f"expected old-to-new line, got: {rpt.summary}"
+
+    def test_brag_change_report_includes_preview(self, tmp_path):
+        """Brag append's report contains a body preview, matching shipping's style."""
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body="did the thing",
+        )
+        rpt = session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-05-09-test",
+        )
+        assert any('prepended 1 entry "did the thing"' in s for s in rpt.summary), (
+            f"expected preview in summary, got: {rpt.summary}"
+        )
+
+    def test_brag_change_report_truncates_long_body(self, tmp_path):
+        """Brag preview truncates bodies longer than 60 chars, matching shipping rule."""
+        vault = self._setup_vault(tmp_path)
+        long_body = "x" * 100
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body=long_body,
+        )
+        rpt = session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-05-09-test",
+        )
+        # Truncation produces 60 chars + "..." — same rule as shipping
+        expected_preview = ("x" * 60) + "..."
+        assert any(f'prepended 1 entry "{expected_preview}"' in s for s in rpt.summary), (
+            f"expected truncated preview, got: {rpt.summary}"
+        )

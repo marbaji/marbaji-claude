@@ -590,14 +590,20 @@ def append_to_brag_doc(
             summary=[f"## {entry.quarter}: skipped (bullet already present)"],
         )
 
+    # Truncate body for display (matches shipping's rule: 60 chars + "...")
+    body_first_line = entry.body.strip().split("\n", 1)[0]
+    body_display = (
+        body_first_line[:60] + "..." if len(body_first_line) > 60 else body_first_line
+    )
+
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
         lines = lines[:insert_idx] + new_block + lines[insert_idx:]
-        summary_msg = f"## {entry.quarter}: heading created; prepended 1 entry"
+        summary_msg = f'## {entry.quarter}: heading created; prepended 1 entry "{body_display}"'
     else:
         lines.insert(heading_idx + 1, bullet)
-        summary_msg = f"## {entry.quarter}: prepended 1 entry"
+        summary_msg = f'## {entry.quarter}: prepended 1 entry "{body_display}"'
 
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
     return ChangeReport(path=rel_path, summary=[summary_msg])
@@ -866,8 +872,9 @@ def process_focus_updates(
     lines = body.splitlines()
     report_summary: list[str] = []
 
-    # Frontmatter bump
-    report_summary.append(f"frontmatter last-updated: {old_slug} to {last_updated_slug}")
+    # Frontmatter bump (only report when the value actually changed)
+    if old_slug != last_updated_slug:
+        report_summary.append(f"frontmatter last-updated: {old_slug} to {last_updated_slug}")
 
     # 1. Removes
     removed_slugs: list[str] = []
@@ -1166,11 +1173,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def print_change_report(reports: list[ChangeReport], vault: Path) -> None:
-    """Print per-file change blocks. Path is vault-relative."""
+    """Print per-file change blocks. Path is vault-relative.
+
+    Multiple ChangeReport instances that share the same path are merged into a
+    single block; their summary lines are concatenated in operation order.
+    """
+    by_path: dict[str, list[str]] = {}
     for r in reports:
+        by_path.setdefault(r.path, []).extend(r.summary)
+    for path, summaries in by_path.items():
         print()
-        print(r.path)
-        for line in r.summary:
+        print(path)
+        for line in summaries:
             print(f"  {line}")
 
 
