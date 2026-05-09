@@ -130,6 +130,11 @@ class FilesModified(BaseModel):
 class Source(BaseModel):
     url: str
     title: str
+    slug: str = Field(pattern=SLUG_RE)
+    type: Literal["article", "github-gist", "video", "documentation", "social-post", "tool"]
+    tags: list[str] = Field(default_factory=list)
+    summary: str
+    takeaways: list[str] = Field(default_factory=list)
     why: str
 
 
@@ -289,7 +294,8 @@ def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
     if manifest.sources_captured:
         lines.append("## Sources Captured")
         for src in manifest.sources_captured:
-            lines.append(f"- [{src.title}]({src.url}) — {src.why}")
+            link = f"[[Sources/{manifest.date.isoformat()}-{src.slug}|{src.title}]]"
+            lines.append(f"- {link} — {src.why}")
         lines.append("")
 
     lines.append("## Next Steps")
@@ -303,6 +309,66 @@ def session_log_path(manifest: SessionEndManifest) -> str:
     """Vault-relative path for the session log."""
     yyyy_mm = manifest.date.strftime("%Y-%m")
     return f"Sessions/{yyyy_mm}/{manifest.date.isoformat()}-{manifest.topic}.md"
+
+
+def render_source_file(source: Source, session_date: Date, session_log_filename: str) -> str:
+    """Render the markdown text for a Sources/ file matching the template."""
+    yyyy_mm = session_date.strftime("%Y-%m")
+    tags_inline = "[" + ", ".join(source.tags) + "]"
+
+    lines: list[str] = [
+        "---",
+        f"date: {session_date.isoformat()}",
+        f"url: {source.url}",
+        f"type: {source.type}",
+        f"tags: {tags_inline}",
+        "---",
+        "",
+        f"# {source.title}",
+        "",
+        "## Summary",
+        source.summary.rstrip(),
+        "",
+        "## Takeaways",
+    ]
+    for takeaway in source.takeaways:
+        lines.append(f"- {takeaway}")
+    lines.append("")
+    lines.append("## Context")
+    lines.append(f"Discussed in [[Sessions/{yyyy_mm}/{session_log_filename}]]")
+    lines.append(source.why.rstrip())
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def source_file_path(source: Source, session_date: Date) -> str:
+    """Return vault-relative path for a Source file: Sources/YYYY-MM-DD-<slug>.md."""
+    return f"Sources/{session_date.isoformat()}-{source.slug}.md"
+
+
+def write_source_files(
+    vault: Path,
+    sources: list[Source],
+    session_date: Date,
+    session_log_filename: str,
+) -> None:
+    """Write each Source file into vault Sources/ directory.
+
+    Skips (with stderr warning) if the file already exists. Does not raise on
+    collision, matching the Decision-file behavior.
+    """
+    for source in sources:
+        rel_path = source_file_path(source, session_date)
+        path = vault / rel_path
+        if path.exists():
+            print(
+                f"warning: source file {path} already exists; skipped (no overwrite)",
+                file=sys.stderr,
+            )
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_source_file(source, session_date, session_log_filename))
 
 
 def decision_file_path(decision: Decision, session_date: Date, org_name: str = "Chalktalk") -> str:
@@ -988,6 +1054,17 @@ def run(
 
     try:
         if "session_log" in sections:
+            if dry_run:
+                for src in manifest.sources_captured:
+                    rel = source_file_path(src, manifest.date)
+                    print(f"[dry-run] would write source: {vault / rel}")
+            else:
+                write_source_files(
+                    vault=vault,
+                    sources=manifest.sources_captured,
+                    session_date=manifest.date,
+                    session_log_filename=session_log_filename,
+                )
             log_text = render_session_log(manifest, org_name)
             log_path = vault / session_log_path(manifest)
             if dry_run:

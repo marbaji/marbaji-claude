@@ -1481,3 +1481,235 @@ class TestPrioritiesUpdate:
         # Priorities replaced
         assert "1. Updated priority" in text
         assert "Ship the helper" not in text
+
+
+class TestSourceFiles:
+    """Tests for Source file writing (render_source_file, source_file_path, write_source_files)."""
+
+    def _make_source(self, **overrides):
+        defaults = dict(
+            url="https://example.com/article",
+            title="Example Article",
+            slug="example-article",
+            type="article",
+            tags=["python", "testing"],
+            summary="A two-sentence objective summary. It covers key points.",
+            takeaways=["Takeaway one.", "Takeaway two."],
+            why="Came up while discussing source file writing.",
+        )
+        defaults.update(overrides)
+        return session_end.Source(**defaults)
+
+    def _session_date(self):
+        return Date(2026, 5, 9)
+
+    def _session_log_filename(self):
+        return "2026-05-09-my-session"
+
+    # --- render_source_file ---
+
+    def test_writes_source_file_with_full_template(self):
+        source = self._make_source()
+        text = session_end.render_source_file(
+            source, self._session_date(), self._session_log_filename()
+        )
+        # Frontmatter
+        assert "---\n" in text
+        assert "date: 2026-05-09\n" in text
+        assert f"url: {source.url}\n" in text
+        assert f"type: {source.type}\n" in text
+        assert "tags: [python, testing]\n" in text
+        # Title heading
+        assert f"# {source.title}\n" in text
+        # Summary section
+        assert "## Summary\n" in text
+        assert source.summary in text
+        # Takeaways section
+        assert "## Takeaways\n" in text
+        assert "- Takeaway one.\n" in text
+        assert "- Takeaway two.\n" in text
+        # Context section
+        assert "## Context\n" in text
+        assert "[[Sessions/2026-05/2026-05-09-my-session]]" in text
+        assert source.why in text
+
+    def test_source_file_filename_uses_session_date_and_slug(self):
+        source = self._make_source(slug="my-source")
+        path = session_end.source_file_path(source, self._session_date())
+        assert path == "Sources/2026-05-09-my-source.md"
+
+    def test_existing_source_file_skipped_with_warning(self, tmp_path, capsys):
+        source = self._make_source(slug="my-source")
+        # Pre-create the file
+        sources_dir = tmp_path / "Sources"
+        sources_dir.mkdir(parents=True, exist_ok=True)
+        existing_file = sources_dir / "2026-05-09-my-source.md"
+        existing_file.write_text("---\nexisting: true\n---\n")
+
+        session_end.write_source_files(
+            vault=tmp_path,
+            sources=[source],
+            session_date=self._session_date(),
+            session_log_filename=self._session_log_filename(),
+        )
+
+        # File must be unchanged
+        assert existing_file.read_text() == "---\nexisting: true\n---\n"
+        # Warning on stderr
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err.lower() or "exists" in captured.err.lower()
+
+    def test_session_log_renders_wikilink_not_markdown_link(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[
+                self._make_source(slug="my-source"),
+            ],
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        # Must contain wikilink form
+        assert "[[Sources/2026-05-09-my-source|Example Article]]" in text
+        # Must NOT contain raw markdown link form
+        assert "[Example Article](https://example.com/article)" not in text
+
+    def test_sources_skipped_when_session_log_section_excluded(self, tmp_path):
+        source = self._make_source(slug="skipped-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        # Copy vault fixture
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=False,
+            sections={"extractions"},  # session_log excluded
+        )
+        assert rc == 0
+        assert not (vault / "Sources" / "2026-05-09-skipped-source.md").exists()
+
+    def test_sources_written_with_session_log_section(self, tmp_path):
+        source = self._make_source(slug="written-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=False,
+            sections={"session_log"},
+        )
+        assert rc == 0
+        source_file = vault / "Sources" / "2026-05-09-written-source.md"
+        assert source_file.exists()
+        # Session log also written
+        assert (vault / "Sessions/2026-05/2026-05-09-my-session.md").exists()
+        # Session log references source via wikilink
+        log_text = (vault / "Sessions/2026-05/2026-05-09-my-session.md").read_text()
+        assert "[[Sources/2026-05-09-written-source|Example Article]]" in log_text
+
+    def test_dry_run_does_not_write_sources_but_previews_them(self, tmp_path, capsys):
+        source = self._make_source(slug="dry-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=True,
+            sections={"session_log"},
+        )
+        assert rc == 0
+        # No file created
+        assert not (vault / "Sources" / "2026-05-09-dry-source.md").exists()
+        # Preview line in stdout
+        captured = capsys.readouterr()
+        assert "would write source" in captured.out.lower()
+
+    def test_takeaways_empty_renders_section_with_no_bullets(self):
+        source = self._make_source(takeaways=[])
+        text = session_end.render_source_file(
+            source, self._session_date(), self._session_log_filename()
+        )
+        assert "## Takeaways\n" in text
+        # No bullet lines between Takeaways and Context
+        takeaways_idx = text.index("## Takeaways\n")
+        context_idx = text.index("## Context\n")
+        between = text[takeaways_idx + len("## Takeaways\n"):context_idx]
+        # Only whitespace/newlines between the two headings (no bullet items)
+        assert not any(line.startswith("- ") for line in between.splitlines())
+
+    def test_multiple_sources_all_written(self, tmp_path):
+        sources = [
+            self._make_source(slug="src-one", title="Source One"),
+            self._make_source(slug="src-two", title="Source Two"),
+            self._make_source(slug="src-three", title="Source Three"),
+        ]
+        session_end.write_source_files(
+            vault=tmp_path,
+            sources=sources,
+            session_date=self._session_date(),
+            session_log_filename=self._session_log_filename(),
+        )
+        for slug in ["src-one", "src-two", "src-three"]:
+            assert (tmp_path / "Sources" / f"2026-05-09-{slug}.md").exists()
