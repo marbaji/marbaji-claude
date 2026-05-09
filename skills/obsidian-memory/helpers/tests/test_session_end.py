@@ -1827,3 +1827,53 @@ class TestAppendIdempotency:
         assert after != before, "A distinct bullet should have been appended"
         captured = capsys.readouterr()
         assert "skipped" not in captured.err
+
+
+class TestTagDedup:
+    """Enrichment #3: Frontmatter tags are deduplicated with stable (first-seen) order."""
+
+    def _minimal_manifest(self, tags):
+        return session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=tags,
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+
+    def _decision(self, tags):
+        return session_end.Decision(
+            slug="2026-05-09-test-decision",
+            title="Test",
+            owner="Mo",
+            tags=tags,
+            context="ctx",
+            options_considered="opt",
+            chosen="A",
+            reasoning="r",
+            consequences="c",
+        )
+
+    def test_session_log_tags_deduped(self):
+        manifest = self._minimal_manifest(tags=["a", "b", "a", "c", "b"])
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "tags: [a, b, c]\n" in text
+
+    def test_decision_tags_deduped(self):
+        decision = self._decision(tags=["decision", "work", "decision", "test", "work"])
+        text = session_end.render_decision_file(
+            decision,
+            source_session_wikilink="[[Sessions/2026-05/2026-05-09-test]]",
+            session_date=Date(2026, 5, 9),
+        )
+        assert "tags: [decision, work, test]\n" in text
+
+    def test_dedup_preserves_first_seen_order(self):
+        result = session_end._dedup_preserve_order(["c", "a", "c", "b", "a"])
+        assert result == ["c", "a", "b"]

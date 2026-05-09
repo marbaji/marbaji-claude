@@ -25,6 +25,17 @@ DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
 _SLUG_RE_COMPILED = re.compile(SLUG_RE)
 
 
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    """Return items deduplicated, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
 def _validate_slug_for_category(slug: str, category: str) -> str:
     """Validate slug based on category.
 
@@ -229,7 +240,7 @@ class SessionEndManifest(BaseModel):
 
 def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
     """Render the full session-log markdown text from the manifest."""
-    tags_inline = "[" + ", ".join(manifest.tags) + "]"
+    tags_inline = "[" + ", ".join(_dedup_preserve_order(manifest.tags)) + "]"
 
     lines: list[str] = [
         "---",
@@ -413,7 +424,7 @@ def render_decision_file(
         lines.append(f'supersedes: "{decision.supersedes}"')
     else:
         lines.append("supersedes:")
-    tags_inline = "[" + ", ".join(decision.tags) + "]"
+    tags_inline = "[" + ", ".join(_dedup_preserve_order(decision.tags)) + "]"
     lines.append(f"tags: {tags_inline}")
     lines.append("---")
     lines.append("")
