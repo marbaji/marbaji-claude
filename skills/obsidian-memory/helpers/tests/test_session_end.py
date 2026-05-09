@@ -244,3 +244,50 @@ class TestShippingLogAppend:
         )
         log = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
         assert "- **2026-05-09** — May thing — extra detail. [[Sessions/2026-05/2026-05-09-may]]" in log
+
+
+class TestBragDocAppend:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_create_new_quarter(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body="codified the cross-model review pattern.",
+        )
+        session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-05-09-may",
+        )
+        log = (vault / "Personal/Brag Doc.md").read_text()
+        assert "## 2026 Q2" in log
+        assert log.index("## 2026 Q2") < log.index("## 2026 Q1")
+        assert "codified the cross-model review pattern." in log
+
+    def test_append_under_existing_quarter(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q1",
+            date="2026-03-20",
+            body="another Q1 brag.",
+        )
+        session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-03-20-thing",
+        )
+        log = (vault / "Personal/Brag Doc.md").read_text()
+        assert log.index("another Q1 brag.") < log.index("old brag entry")
+
+    def test_bullet_format(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q2", date="2026-05-09", body="did the thing.",
+        )
+        session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-05-09-test",
+        )
+        log = (vault / "Personal/Brag Doc.md").read_text()
+        assert "- **2026-05-09** — did the thing. [[Sessions/2026-05/2026-05-09-test]]" in log

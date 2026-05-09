@@ -337,6 +337,45 @@ def append_to_shipping_log(
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
 
 
+def format_brag_bullet(entry: BragEntry, session_log_filename: str) -> str:
+    yyyy_mm = entry.date.strftime("%Y-%m")
+    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+    body = entry.body.rstrip(".")
+    return f"- **{entry.date.isoformat()}** — {body}. {sess_link}"
+
+
+def append_to_brag_doc(
+    vault: Path,
+    entry: BragEntry,
+    session_log_filename: str,
+) -> None:
+    """Insert one bullet under the correct ## YYYY Q<N> heading. Newest at top of quarter."""
+    log_path = vault / "Personal/Brag Doc.md"
+    if not log_path.exists():
+        raise FileNotFoundError(f"Brag Doc not found at {log_path}")
+
+    bullet = format_brag_bullet(entry, session_log_filename)
+    target_heading = f"## {entry.quarter}"
+
+    text = log_path.read_text()
+    lines = text.splitlines()
+
+    heading_idx = None
+    for i, line in enumerate(lines):
+        if line.strip() == target_heading:
+            heading_idx = i
+            break
+
+    if heading_idx is None:
+        insert_idx = _find_first_h2(lines)
+        new_block = [target_heading, bullet, ""]
+        lines = lines[:insert_idx] + new_block + lines[insert_idx:]
+    else:
+        lines.insert(heading_idx + 1, bullet)
+
+    log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 
