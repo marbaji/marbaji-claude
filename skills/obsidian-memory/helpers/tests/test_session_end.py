@@ -678,6 +678,42 @@ class TestEndToEnd:
         assert "last-updated: 2026-05-09-full-example" in focus
 
 
+class TestPartialRun:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_only_extractions_skips_session_log(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--only", "extractions",
+        ])
+        assert rc == 0
+        assert not (vault / "Sessions/2026-05/2026-05-09-full-example.md").exists()
+        focus = (vault / "Context/current-focus.md").read_text()
+        assert "🟢 Existing project active." not in focus
+        assert (vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md").exists()
+
+    def test_only_session_log_focus_skips_extractions(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--only", "session_log,focus_updates",
+        ])
+        assert rc == 0
+        assert (vault / "Sessions/2026-05/2026-05-09-full-example.md").exists()
+        focus = (vault / "Context/current-focus.md").read_text()
+        assert "🟢 Existing project active." in focus
+        assert not (vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md").exists()
+
+
 class TestCLI:
     VALID_SECTIONS = {
         "session_log", "extractions", "project_doc_updates",
