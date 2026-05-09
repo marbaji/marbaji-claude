@@ -48,16 +48,33 @@ Once they provide the path:
    echo "$VAULT_NAME"  # e.g. "Claude Code Obsidian"
    ```
 
-2. **Save the vault name** so future sessions don't need setup:
+2. **Save the vault path AND name** so future sessions don't need setup. The path file is the canonical source of truth (the name file is kept for back-compat with older installs):
    ```bash
-   echo "Claude Code Obsidian" > ~/.claude/obsidian-vault-name
+   mkdir -p ~/.claude
+   echo "$VAULT_PATH" > ~/.claude/obsidian-vault-path
+   echo "$VAULT_NAME" > ~/.claude/obsidian-vault-name
    ```
 
-3. **Create the folder structure** the skill expects:
+   The path file is what the SessionStart hook and downstream skills read; the name file is a legacy fallback only used if the path file is missing.
+
+3. **Ask the user for their org name** (the folder under `Work/` for org-specific notes — projects, people, decisions, etc.). If they say "skip" or are an individual user, default to `Personal` and skip the next mkdir line:
+   ```
+   What's your org name? This becomes the folder Work/<OrgName>/Projects/ etc.
+   Examples: "Acme", "Stripe", "MyConsulting". Hit enter or say "skip" if
+   you don't have one — I'll use Personal.
+   ```
+
+   Then save it:
+   ```bash
+   ORG_NAME="${ORG_NAME:-Personal}"  # the value the user provided, or Personal
+   echo "$ORG_NAME" > ~/.claude/obsidian-org-name
+   ```
+
+4. **Create the folder structure** the skill expects, parameterized by org name so adopters get their own folders (not "Chalktalk"):
    ```bash
    VAULT="$VAULT_PATH"
    mkdir -p "$VAULT/Sessions/$(date +%Y-%m)"
-   mkdir -p "$VAULT/Work/Chalktalk/Projects"
+   mkdir -p "$VAULT/Work/$ORG_NAME/Projects"
    mkdir -p "$VAULT/Personal/Projects"
    mkdir -p "$VAULT/Technical/Learnings"
    mkdir -p "$VAULT/Context"
@@ -65,19 +82,24 @@ Once they provide the path:
    touch "$VAULT/Context/preferences.md"
    touch "$VAULT/Context/about-me.md"
    touch "$VAULT/Context/work-context.md"
+   # Project Backlog is referenced by session-start.md; create empty so the
+   # first session-start ritual doesn't error on a missing-file read.
+   touch "$VAULT/Context/Project Backlog.md"
    ```
 
-4. Print confirmation:
+5. Print confirmation:
    ```
    ✅ Obsidian Memory configured.
       Vault: <VAULT_NAME>
+      Vault path: <VAULT_PATH>
+      Org folder: Work/<ORG_NAME>/
       Folder structure created.
 
    Claude will now load context from your vault at the
    start of each session and save session logs at the end.
    ```
 
-5. **Tell the user about the two recommended next steps** (one-time, both are token-cost wins). Skill works fine without either; both fall back gracefully.
+6. **Tell the user about the two recommended next steps** (one-time, both are token-cost wins). Skill works fine without either; both fall back gracefully.
 
    ```
    📌 Recommended next steps (one-time, both optional but recommended):

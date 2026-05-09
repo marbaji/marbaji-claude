@@ -36,7 +36,13 @@ Whichever you choose, use it consistently. The session-end ritual and the four i
 Create the folder skeleton and the two top-level files. Adjust `<YourOrg>` to whatever you picked in Step 1:
 
 ```bash
-VAULT="$HOME/Documents/$(cat ~/.claude/obsidian-vault-name)"
+# Resolve vault path from the canonical config (path-file preferred,
+# name-file legacy fallback for pre-2026-05 setups).
+VAULT="$(cat ~/.claude/obsidian-vault-path 2>/dev/null)"
+if [[ -z "$VAULT" ]]; then
+  VAULT_NAME="$(cat ~/.claude/obsidian-vault-name 2>/dev/null)"
+  [[ -n "$VAULT_NAME" ]] && VAULT="$HOME/Documents/$VAULT_NAME"
+fi
 ORG="<YourOrg>"  # e.g. "Work/Acme"
 
 mkdir -p "$VAULT/$ORG/People"
@@ -157,23 +163,39 @@ Keep the vault in sync as your org changes:
 
 ## What's private vs public
 
-| Lives in your vault (private — never committed to a public skill repo) | Lives in this skill repo (public) |
-|---|---|
-| `<YourOrg>/People/*.md` (all People notes) | `references/people-template.md` (the schema) |
-| `<YourOrg>/Competencies/*.md` (your scorecard mirror) | `references/competency-template.md` |
-| `<YourOrg>/1-on-1s/*.md` (every 1:1 note) | `references/one-on-one-template.md` |
-| `<YourOrg>/Decisions/*.md` | `references/decision-template.md` |
-| `<YourOrg>/Reviews/*` | `skills/employee-review/SKILL.md` |
-| `<YourOrg>/Values.md` (your company's values content) | `references/extraction-rules.md` |
-| `<YourOrg>/Shipping Log.md` | `references/org-chart-source.md` (the schema, not your YAML) |
-| `Personal/Brag Doc.md` | `references/future-1on1-import.md` |
-| `Personal/Quarterly Reviews/*` | `references/adopting-this-skill.md` (this file) |
-| `org-chart.yaml` (your private YAML) | `skills/obsidian-memory/SKILL.md` (the session-end ritual) |
-| `Sessions/*` (session logs) | `skills/board-update/SKILL.md` |
-|  | `skills/investor-update/SKILL.md` |
-|  | `skills/quarterly-review/SKILL.md` |
+These are two **independent** lists, not 1-to-1 mappings. They're laid out side by side for visual reference only — don't read row N of the left column as "the schema for" row N of the right column.
 
-If you fork this skill repo, never commit anything from the left column. Keep the vault and the skill repo in separate directories — there's no need for the skill repo to know about your vault contents.
+### Lives in your vault (private — never committed to a public skill repo)
+
+- `<YourOrg>/People/*.md` (all People notes)
+- `<YourOrg>/Competencies/*.md` (your scorecard mirror)
+- `<YourOrg>/1-on-1s/*.md` (every 1:1 note)
+- `<YourOrg>/Decisions/*.md`
+- `<YourOrg>/Reviews/*`
+- `<YourOrg>/Values.md` (your company's values content)
+- `<YourOrg>/Shipping Log.md`
+- `Personal/Brag Doc.md`
+- `Personal/Quarterly Reviews/*`
+- `org-chart.yaml` (your private YAML — the schema is in `references/org-chart-source.md`)
+- `Sessions/*` (session logs)
+
+### Lives in this skill repo (public — fork-safe)
+
+- `references/people-template.md` (schema for People notes)
+- `references/competency-template.md` (schema for Competency notes)
+- `references/one-on-one-template.md` (schema for 1:1 notes)
+- `references/decision-template.md` (schema for Decision notes)
+- `references/extraction-rules.md` (rules for what gets extracted from session logs)
+- `references/org-chart-source.md` (schema for `org-chart.yaml`, NOT the YAML itself)
+- `references/future-1on1-import.md`
+- `references/adopting-this-skill.md` (this file)
+- `skills/obsidian-memory/SKILL.md` (the session-end ritual)
+- `skills/board-update/SKILL.md`
+- `skills/investor-update/SKILL.md`
+- `skills/quarterly-review/SKILL.md`
+- `skills/employee-review/SKILL.md`
+
+If you fork this skill repo, never commit anything from the first list. Keep the vault and the skill repo in separate directories — there's no need for the skill repo to know about your vault contents.
 
 ---
 

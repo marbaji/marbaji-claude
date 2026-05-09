@@ -16,30 +16,35 @@ Persistent memory and context management for Claude Code via an Obsidian vault.
 Before doing anything else, check if this skill has been configured:
 
 ```bash
-cat ~/.claude/obsidian-vault-name 2>/dev/null
+cat ~/.claude/obsidian-vault-path 2>/dev/null || cat ~/.claude/obsidian-vault-name 2>/dev/null
 ```
 
-- **File exists** → read the vault name, use it as `<VAULT_NAME>` throughout. Proceed.
-- **File does not exist** → read `references/installation-flow.md` and run the setup wizard before proceeding.
+- **Either file exists** → read the vault path / name, use it throughout. Proceed.
+- **Neither file exists** → read `references/installation-flow.md` and run the setup wizard before proceeding.
 
 ---
 
 ## Vault Location
 
-Read `<VAULT_NAME>` from `~/.claude/obsidian-vault-name`.
-
-**Resolving the full filesystem path** (needed for the Write tool):
-
-The Write tool **does not expand `~`**. You must pass a fully-resolved absolute path. Resolve once at session start:
+Resolve the vault's full filesystem path once at session start. The skill stores configuration in two files; read whichever is available:
 
 ```bash
-echo "$HOME/Documents/<VAULT_NAME>"
-# e.g. /Users/mohannadarbaji/Documents/Claude Code Obsidian
+# Preferred: full path (set by the installer post-2026-05)
+VAULT_PATH="$(cat ~/.claude/obsidian-vault-path 2>/dev/null)"
+# Legacy fallback: name only, derived path under ~/Documents/
+if [[ -z "$VAULT_PATH" ]]; then
+  VAULT_NAME="$(cat ~/.claude/obsidian-vault-name 2>/dev/null)"
+  [[ -n "$VAULT_NAME" ]] && VAULT_PATH="$HOME/Documents/$VAULT_NAME"
+fi
+VAULT_NAME="$(basename "$VAULT_PATH")"
+echo "$VAULT_PATH"   # e.g. /Users/mohannadarbaji/Documents/Claude Code Obsidian
 ```
 
-Use that absolute path for every Write call this session. `~/Documents/...` looks fine in conversation prose but the Write tool will fail with a generic "Error writing file" if you actually pass it. The `obsidian` CLI tolerates `~`; the Write tool does not.
+The Write tool **does not expand `~`** — pass the fully-resolved `$VAULT_PATH` for every Write call this session. `~/Documents/...` looks fine in conversation prose but the Write tool will fail with a generic "Error writing file" if you actually pass it. The `obsidian` CLI tolerates `~`; the Write tool does not.
 
-Use `obsidian` CLI commands with `vault="<VAULT_NAME>"` for read/create/append. Use the Write tool with the **resolved absolute filesystem path** for overwrites — and Read the file first in this session (Write blocks unread files).
+Use `obsidian` CLI commands with `vault="$VAULT_NAME"` for read/create/append. Use the Write tool with the **resolved absolute filesystem path** for overwrites — and Read the file first in this session (Write blocks unread files).
+
+Org folder: the installer also writes `~/.claude/obsidian-org-name` (defaults to `Chalktalk` for back-compat with pre-2026-05 setups; new installs prompt the user). Read it at session start the same way and use `$ORG_NAME` wherever procedures reference `Work/<YourOrg>/...`.
 
 ---
 
@@ -64,7 +69,13 @@ If the agent is reading whole files for retrieval rather than searching, it's bu
 
 ## Session-Start Hook
 
-The skill ships a SessionStart hook (`scripts/session-start-context.sh`) that injects vault context (current focus, recent sessions, project listing, git activity) procedurally — no LLM tokens for that work. Wire-up: `references/session-start-hook.md`. With the hook active, the agent should NOT re-read those files unless it needs deeper content.
+The skill ships a SessionStart hook (`scripts/session-start-context.sh`) that injects vault context (current focus, recent sessions, project listing, git activity) procedurally — no LLM tokens for that work. Wire-up: `references/session-start-hook.md`.
+
+**Hook supplies context. Ritual supplies behavior.** The two are complementary, not redundant:
+
+- If the hook fired this session (you'll see a `## obsidian-memory session-start context` block in the system reminders), the read-context steps are already done — skip steps 1–5 of `references/session-start.md`.
+- The behavioral parts (step 6 summary, step 7 weekly vault lint) are NOT covered by the hook. Run those when due.
+- If the hook did NOT fire (no context block in the system reminders, or the user didn't wire it up), execute the full `references/session-start.md` ritual including the read steps.
 
 ---
 
@@ -99,7 +110,7 @@ For specific operations, read the matching reference. References load on-demand;
 
 ## When to Invoke This Skill
 
-**At session start** (every new conversation): read `references/session-start.md` and execute the ritual. Do **not** ask permission — just do it.
+**At session start** (every new conversation): read `references/session-start.md` and execute the ritual. If the SessionStart hook injected context (you'll see the block in the system reminders), skip steps 1–5 (read-context) and execute steps 6–7 (summarize, weekly lint) only. Do **not** ask permission — just do it.
 
 **At session end** (when user says "done", "exit", "that's all", "wrap up", or similar): read `references/session-end.md` and execute the ritual. The session-end ritual includes a mandatory approval step before writing project docs.
 

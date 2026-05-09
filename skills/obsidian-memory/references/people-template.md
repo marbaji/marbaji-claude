@@ -104,7 +104,9 @@ If Mo wants a curated subset (e.g. "the three most consequential 1:1s of the yea
 
 ### Recent Interactions
 
-**Auto-filled by the session-end ritual.** When a session log mentions this person by name, the ritual appends a one-line entry:
+> **STATUS: future work — not yet implemented as of 2026-05-08.** The intent is for the session-end ritual to scan the session log for People wikilinks and auto-append a one-liner here. As of this writing, neither `references/extraction-rules.md` nor `references/session-end.md` defines that scan. Until the rule ships, this section is **manually maintained** like `## Notes`.
+
+When implemented, the format will be:
 
 ```markdown
 - [[Sessions/2026-05/2026-05-08-renewal-storytelling]] — flagged YAML status-field pollution; pushed back on adding `verified_by`
@@ -112,7 +114,7 @@ If Mo wants a curated subset (e.g. "the three most consequential 1:1s of the yea
 
 Format: `- [[Sessions/...]] — <one-line summary of the interaction>`. Newest at the top. Cap at ~30 entries — older entries roll into `## Notes` as a compressed prose summary every quarter (manual cleanup).
 
-Never edit this section by hand during a session. The session-end ritual owns it.
+For now, treat this section as optional. If you do hand-edit, expect the eventual auto-fill to merge with your manual entries (de-dupe by Sessions/... wikilink).
 
 ### Notes
 
@@ -121,6 +123,6 @@ Catch-all. Quotes, anecdotes, things Mo wants to remember. Manually maintained. 
 ## Cross-references
 
 - Org-chart YAML schema and refresh flow → `org-chart-source.md`
-- Extraction triggers (new-person flag, Recent Interactions append) → `extraction-rules.md`
+- Extraction triggers (new-person flag) → `extraction-rules.md`. Recent Interactions auto-append is future work; not currently defined there.
 - 1:1 note schema (linked via Recent 1:1s backlinks) → `one-on-one-template.md`
 - Competency note schema (linked via Competency Evidence backlinks) → `competency-template.md`

@@ -37,7 +37,15 @@ qmd --version
 ## Add your vault as a collection
 
 ```bash
-qmd collection add "$HOME/Documents/$(cat ~/.claude/obsidian-vault-name)" --name obsidian-memory
+# Resolve the vault path from the canonical config (path-file preferred,
+# name-file legacy fallback for pre-2026-05 setups).
+VAULT_PATH="$(cat ~/.claude/obsidian-vault-path 2>/dev/null)"
+if [[ -z "$VAULT_PATH" ]]; then
+  VAULT_NAME="$(cat ~/.claude/obsidian-vault-name 2>/dev/null)"
+  [[ -n "$VAULT_NAME" ]] && VAULT_PATH="$HOME/Documents/$VAULT_NAME"
+fi
+
+qmd collection add "$VAULT_PATH" --name obsidian-memory
 ```
 
 This indexes every `**/*.md` file under the vault path. Verify:
