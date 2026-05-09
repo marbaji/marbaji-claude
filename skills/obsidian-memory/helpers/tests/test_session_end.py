@@ -50,3 +50,56 @@ class TestVaultResolution:
         home.mkdir()
         result = session_end.resolve_vault_path(arg=None, home=home)
         assert result is None
+
+
+class TestSessionLogRender:
+    def _minimal_manifest(self):
+        return session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=["session", "work/chalktalk"],
+            last_updated_slug="2026-05-09-test-session",
+            summary="One-line summary.",
+            projects_touched=[
+                session_end.ProjectTouched(slug="foo-bar", note="did stuff"),
+            ],
+            streams=[
+                session_end.Stream(title="Stream 1: Did stuff", body="Body of stream 1."),
+            ],
+            key_decisions="- Picked option A.",
+            learnings="- Learned X.",
+            files_modified=session_end.FilesModified(),
+            next_steps="- Next: Y.",
+        )
+
+    def test_session_log_has_frontmatter(self):
+        manifest = self._minimal_manifest()
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert text.startswith("---\n")
+        assert "date: 2026-05-09\n" in text
+        assert "tags: [session, work/chalktalk]\n" in text
+
+    def test_session_log_has_required_sections(self):
+        manifest = self._minimal_manifest()
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        for header in [
+            "# Session: test-session",
+            "## Summary",
+            "## Projects Touched",
+            "## What We Did",
+            "## Key Decisions",
+            "## Learnings",
+            "## Files Created/Modified",
+            "## Next Steps",
+        ]:
+            assert header in text, f"missing: {header!r}"
+
+    def test_projects_touched_uses_org_wikilink(self):
+        manifest = self._minimal_manifest()
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "[[Work/Chalktalk/Projects/foo-bar]] — did stuff" in text
+
+    def test_stream_body_preserved_verbatim(self):
+        manifest = self._minimal_manifest()
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "### Stream 1: Did stuff\nBody of stream 1." in text

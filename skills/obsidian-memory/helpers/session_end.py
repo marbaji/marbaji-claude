@@ -138,6 +138,85 @@ class SessionEndManifest(BaseModel):
     focus_updates: FocusUpdates = Field(default_factory=FocusUpdates)
 
 
+def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
+    """Render the full session-log markdown text from the manifest."""
+    tags_inline = "[" + ", ".join(manifest.tags) + "]"
+
+    lines: list[str] = [
+        "---",
+        f"date: {manifest.date.isoformat()}",
+        f"tags: {tags_inline}",
+        "---",
+        "",
+        f"# Session: {manifest.topic}",
+        "",
+        "## Summary",
+        manifest.summary.rstrip(),
+        "",
+        "## Projects Touched",
+    ]
+    for proj in manifest.projects_touched:
+        lines.append(f"- [[Work/{org_name}/Projects/{proj.slug}]] — {proj.note}")
+    lines.append("")
+
+    lines.append("## What We Did")
+    for stream in manifest.streams:
+        lines.append("")
+        lines.append(f"### {stream.title}")
+        lines.append(stream.body.rstrip())
+    lines.append("")
+
+    lines.append("## Key Decisions")
+    lines.append(manifest.key_decisions.rstrip())
+    lines.append("")
+
+    lines.append("## Learnings")
+    lines.append(manifest.learnings.rstrip())
+    lines.append("")
+
+    lines.append("## Files Created/Modified")
+    fm = manifest.files_modified
+    repo_blocks = [
+        ("chalktalk", fm.chalktalk),
+        ("marbaji-claude", fm.marbaji_claude),
+    ]
+    for repo_name, items in repo_blocks:
+        if items:
+            lines.append(f"### {repo_name}")
+            for item in items:
+                pr_part = f" (PR #{item.pr})" if item.pr else ""
+                sha_part = f"`{item.sha}` — " if item.sha else ""
+                lines.append(f"- {sha_part}{item.message}{pr_part}")
+    for other_repo, items in fm.other.items():
+        lines.append(f"### {other_repo}")
+        for item in items:
+            pr_part = f" (PR #{item.pr})" if item.pr else ""
+            sha_part = f"`{item.sha}` — " if item.sha else ""
+            lines.append(f"- {sha_part}{item.message}{pr_part}")
+    if fm.local:
+        lines.append("### local")
+        lines.append(fm.local.rstrip())
+    lines.append("")
+
+    if manifest.sources_captured:
+        lines.append("## Sources Captured")
+        for src in manifest.sources_captured:
+            lines.append(f"- [{src.title}]({src.url}) — {src.why}")
+        lines.append("")
+
+    lines.append("## Next Steps")
+    lines.append(manifest.next_steps.rstrip())
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def session_log_path(manifest: SessionEndManifest) -> str:
+    """Vault-relative path for the session log."""
+    yyyy_mm = manifest.date.strftime("%Y-%m")
+    return f"Sessions/{yyyy_mm}/{manifest.date.isoformat()}-{manifest.topic}.md"
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 
