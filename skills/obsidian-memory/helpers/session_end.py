@@ -577,6 +577,82 @@ def write_decision_files(
         path.write_text(render_decision_file(decision, source_session_link, session_date))
 
 
+def preflight_validate(
+    manifest: SessionEndManifest,
+    vault: Path,
+    org_name: str,
+    sections: set[str],
+) -> list[str]:
+    """Walk every target the manifest will touch; return a list of problem strings.
+
+    An empty list means safe to proceed. A non-empty list means abort BEFORE any
+    write happens. This guarantees that a partially-completed run cannot leave
+    the vault in an inconsistent state on ordinary failures (Codex
+    adversarial-review finding #4, 2026-05-09).
+
+    Only checks sections present in `sections` (so `--only` partial runs don't
+    fail on issues in skipped sections).
+    """
+    problems: list[str] = []
+
+    if "project_doc_updates" in sections:
+        for upd in manifest.project_doc_updates:
+            target = vault / f"Work/{org_name}/Projects/{upd.slug}.md"
+            if not target.exists():
+                problems.append(
+                    f"project_doc_updates: target missing for slug "
+                    f"{upd.slug!r} at {target} (use new_project_docs[] instead)"
+                )
+
+    if "new_project_docs" in sections:
+        for doc in manifest.new_project_docs:
+            target = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+            if target.exists():
+                problems.append(
+                    f"new_project_docs: collision for slug {doc.slug!r} at "
+                    f"{target} (use project_doc_updates[] to append, not "
+                    f"new_project_docs[])"
+                )
+
+    if "extractions" in sections:
+        # Decision-file collisions are warned, not blocked (skip-with-warning is
+        # the documented behavior). But same-run path collisions (two slugs that
+        # map to the same resolved path) are surfaced here so the operator sees
+        # them before any write.
+        seen_paths: dict[str, str] = {}
+        for d in manifest.extractions.decisions:
+            resolved = decision_file_path(d, manifest.date, org_name)
+            if resolved in seen_paths and seen_paths[resolved] != d.slug:
+                problems.append(
+                    f"extractions.decisions: slugs {seen_paths[resolved]!r} and "
+                    f"{d.slug!r} both resolve to {resolved}; later wins"
+                )
+            seen_paths[resolved] = d.slug
+
+    if "focus_updates" in sections:
+        if not (vault / "Context/current-focus.md").exists():
+            problems.append(
+                f"focus_updates: vault is missing Context/current-focus.md at "
+                f"{vault / 'Context/current-focus.md'}"
+            )
+
+    if "extractions" in sections:
+        if manifest.extractions.shipping_log:
+            shipping_path = vault / f"Work/{org_name}/Shipping Log.md"
+            if not shipping_path.exists():
+                problems.append(
+                    f"extractions.shipping_log: target missing at {shipping_path}"
+                )
+        if manifest.extractions.brag:
+            brag_path = vault / "Personal/Brag Doc.md"
+            if not brag_path.exists():
+                problems.append(
+                    f"extractions.brag: target missing at {brag_path}"
+                )
+
+    return problems
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 

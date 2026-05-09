@@ -541,6 +541,103 @@ class TestDecisionExtraction:
         assert "resolve" in captured.err.lower()
 
 
+class TestPreflightValidation:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_preflight_passes_clean_manifest(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="ok",
+            tags=["session"],
+            last_updated_slug="2026-05-09-ok",
+            summary="x",
+            projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "extractions", "project_doc_updates",
+                      "new_project_docs", "focus_updates"},
+        )
+        assert problems == []
+
+    def test_preflight_flags_missing_project_doc_for_update(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="does-not-exist",
+                    section_title="x", section_date="2026-05-09", body="x",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"project_doc_updates"},
+        )
+        assert any("does-not-exist" in p for p in problems)
+
+    def test_preflight_flags_collision_for_new_project_doc(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            new_project_docs=[
+                session_end.NewProjectDoc(
+                    slug="existing-project",  # already exists in fixture vault
+                    frontmatter={"type": "project", "status": "active"},
+                    body="x",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"new_project_docs"},
+        )
+        assert any("existing-project" in p for p in problems)
+
+    def test_preflight_only_checks_active_sections(self, tmp_path):
+        # If a section is excluded via --only, its problems should be ignored.
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="does-not-exist",
+                    section_title="x", section_date="2026-05-09", body="x",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"session_log"},  # project_doc_updates NOT included
+        )
+        assert problems == []
+
+
 class TestCLI:
     VALID_SECTIONS = {
         "session_log", "extractions", "project_doc_updates",
