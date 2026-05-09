@@ -14,19 +14,57 @@ import re
 import sys
 from datetime import date as Date
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+_SLUG_RE_COMPILED = re.compile(SLUG_RE)
+
+
+def _validate_slug_for_category(slug: str, category: str) -> str:
+    """Validate slug based on category.
+
+    work: must match SLUG_RE (kebab-case lowercase).
+    personal: any non-empty string; no leading/trailing whitespace, no '/' or newlines.
+    """
+    if category == "personal":
+        if not slug or slug != slug.strip() or "/" in slug or "\n" in slug:
+            raise ValueError(
+                f"personal slug must be non-empty, no leading/trailing whitespace, "
+                f"no '/' or newline characters; got {slug!r}"
+            )
+    else:
+        if not _SLUG_RE_COMPILED.match(slug):
+            raise ValueError(
+                f"work slug must match {SLUG_RE}; got {slug!r}"
+            )
+    return slug
+
+
+def project_doc_path(slug: str, category: str, org_name: str) -> str:
+    """Return the vault-relative path for a project doc.
+
+    work:     Work/{org_name}/Projects/{slug}.md
+    personal: Personal/Projects/{slug}/overview.md
+    """
+    if category == "personal":
+        return f"Personal/Projects/{slug}/overview.md"
+    return f"Work/{org_name}/Projects/{slug}.md"
 
 
 class ProjectTouched(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     note: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "ProjectTouched":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class Stream(BaseModel):
@@ -96,16 +134,28 @@ class Source(BaseModel):
 
 
 class ProjectDocUpdate(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     section_title: str
     section_date: Date
     body: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "ProjectDocUpdate":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class NewProjectDoc(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     frontmatter: dict
     body: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "NewProjectDoc":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class FocusUpsert(BaseModel):
@@ -156,7 +206,11 @@ def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
         "## Projects Touched",
     ]
     for proj in manifest.projects_touched:
-        lines.append(f"- [[Work/{org_name}/Projects/{proj.slug}]] — {proj.note}")
+        if proj.category == "personal":
+            wikilink = f"[[Personal/Projects/{proj.slug}/overview|{proj.slug}]]"
+        else:
+            wikilink = f"[[Work/{org_name}/Projects/{proj.slug}]]"
+        lines.append(f"- {wikilink} — {proj.note}")
     lines.append("")
 
     lines.append("## What We Did")
@@ -382,7 +436,7 @@ def append_to_project_doc(
     org_name: str = "Chalktalk",
 ) -> None:
     """Append a dated section to an existing project doc."""
-    path = vault / f"Work/{org_name}/Projects/{update.slug}.md"
+    path = vault / project_doc_path(update.slug, update.category, org_name)
     if not path.exists():
         raise FileNotFoundError(
             f"Project doc not found at {path}. "
@@ -405,7 +459,7 @@ def write_new_project_doc(
     org_name: str = "Chalktalk",
 ) -> None:
     """Write a brand-new project doc. Fails if file exists."""
-    path = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+    path = vault / project_doc_path(doc.slug, doc.category, org_name)
     if path.exists():
         raise FileExistsError(
             f"Project doc already exists at {path}. "
@@ -603,19 +657,19 @@ def preflight_validate(
 
     if "project_doc_updates" in sections:
         for upd in manifest.project_doc_updates:
-            target = vault / f"Work/{org_name}/Projects/{upd.slug}.md"
+            target = vault / project_doc_path(upd.slug, upd.category, org_name)
             if not target.exists():
                 problems.append(
-                    f"project_doc_updates: target missing for slug "
+                    f"project_doc_updates: target missing for {upd.category} slug "
                     f"{upd.slug!r} at {target} (use new_project_docs[] instead)"
                 )
 
     if "new_project_docs" in sections:
         for doc in manifest.new_project_docs:
-            target = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+            target = vault / project_doc_path(doc.slug, doc.category, org_name)
             if target.exists():
                 problems.append(
-                    f"new_project_docs: collision for slug {doc.slug!r} at "
+                    f"new_project_docs: collision for {doc.category} slug {doc.slug!r} at "
                     f"{target} (use project_doc_updates[] to append, not "
                     f"new_project_docs[])"
                 )

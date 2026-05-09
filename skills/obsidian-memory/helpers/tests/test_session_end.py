@@ -871,3 +871,186 @@ class TestCLI:
         parser = session_end.build_parser()
         args = parser.parse_args(["--manifest", "/tmp/m.yaml", "--dry-run"])
         assert args.dry_run is True
+
+
+class TestPersonalProjects:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    # --- Model validation ---
+
+    def test_personal_slug_with_spaces_validates(self):
+        pt = session_end.ProjectTouched(slug="InBloom Early Learning", note="kick-off", category="personal")
+        assert pt.slug == "InBloom Early Learning"
+        assert pt.category == "personal"
+
+    def test_work_slug_with_spaces_rejects(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            session_end.ProjectTouched(slug="has spaces", note="x")  # default category="work"
+
+    def test_work_slug_default_category_kebab_passes(self):
+        pt = session_end.ProjectTouched(slug="foo-bar", note="x")
+        assert pt.category == "work"
+
+    # --- Wikilink rendering ---
+
+    def test_projects_touched_personal_renders_pipe_alias_wikilink(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[
+                session_end.ProjectTouched(
+                    slug="InBloom Early Learning",
+                    note="kick-off meeting",
+                    category="personal",
+                ),
+            ],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]] — kick-off meeting" in text
+
+    def test_session_log_mixes_work_and_personal_projects_touched(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[
+                session_end.ProjectTouched(slug="foo-bar", note="work note"),
+                session_end.ProjectTouched(
+                    slug="InBloom Early Learning",
+                    note="personal note",
+                    category="personal",
+                ),
+            ],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "[[Work/Chalktalk/Projects/foo-bar]] — work note" in text
+        assert "[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]] — personal note" in text
+
+    # --- append_to_project_doc ---
+
+    def test_append_to_personal_project_doc(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Test Project",
+            section_title="First session",
+            section_date="2026-05-09",
+            body="Got started.",
+            category="personal",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = (vault / "Personal/Projects/Test Project/overview.md").read_text()
+        assert "## 2026-05-09 — First session" in text
+        assert "Got started." in text
+        assert "Existing personal project for tests." in text
+
+    def test_personal_project_doc_missing_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Does Not Exist",
+            section_title="x",
+            section_date="2026-05-09",
+            body="x",
+            category="personal",
+        )
+        with pytest.raises(FileNotFoundError):
+            session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+
+    # --- write_new_project_doc ---
+
+    def test_write_new_personal_project_doc_creates_subfolder(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        doc = session_end.NewProjectDoc(
+            slug="My Garden",
+            frontmatter={"type": "project", "status": "active", "tags": ["project", "personal"]},
+            body="# My Garden\n\n## Overview\nTracking the garden.",
+            category="personal",
+        )
+        session_end.write_new_project_doc(vault=vault, doc=doc, org_name="Chalktalk")
+        path = vault / "Personal/Projects/My Garden/overview.md"
+        assert path.exists()
+        text = path.read_text()
+        assert text.startswith("---\n")
+        assert "type: project" in text
+        assert "# My Garden" in text
+
+    def test_personal_new_project_doc_collision_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        doc = session_end.NewProjectDoc(
+            slug="Test Project",  # fixture overview.md already exists
+            frontmatter={"type": "project", "status": "active"},
+            body="# Test Project",
+            category="personal",
+        )
+        with pytest.raises(FileExistsError):
+            session_end.write_new_project_doc(vault=vault, doc=doc, org_name="Chalktalk")
+
+    # --- preflight ---
+
+    def test_preflight_personal_project_update_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="Nonexistent Personal",
+                    section_title="x",
+                    section_date="2026-05-09",
+                    body="x",
+                    category="personal",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"project_doc_updates"},
+        )
+        assert any("Nonexistent Personal" in p for p in problems)
+        assert any("personal" in p.lower() for p in problems)
+
+    def test_preflight_personal_new_project_doc_collision(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            new_project_docs=[
+                session_end.NewProjectDoc(
+                    slug="Test Project",  # fixture already has this overview.md
+                    frontmatter={"type": "project", "status": "active"},
+                    body="x",
+                    category="personal",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"new_project_docs"},
+        )
+        assert any("Test Project" in p for p in problems)
+        assert any("personal" in p.lower() for p in problems)
