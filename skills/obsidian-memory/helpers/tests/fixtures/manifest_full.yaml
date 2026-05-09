@@ -53,6 +53,14 @@ project_doc_updates:
     section_title: "Today's work"
     section_date: 2026-05-09
     body: "Did the work."
+  - slug: existing-project
+    status: "🟢 **Active.** End-to-end test updated status."
+    recent_activity:
+      date: 2026-05-09
+      title: "Full manifest test run"
+      body: "- Validated all four structured modes."
+    next_steps: "- Verify PR passes CI.\n- Merge when green."
+    related_session: "[[Sessions/2026-05/2026-05-09-full-example]] — full manifest e2e"
 
 focus_updates:
   upsert:

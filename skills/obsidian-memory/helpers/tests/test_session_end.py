@@ -709,6 +709,11 @@ class TestEndToEnd:
 
         proj = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
         assert "## 2026-05-09 — Today's work" in proj
+        # Structured update also landed
+        assert "End-to-end test updated status." in proj
+        assert "Full manifest test run" in proj
+        assert "Verify PR passes CI." in proj
+        assert "2026-05-09-full-example]] — full manifest e2e" in proj
 
         focus = (vault / "Context/current-focus.md").read_text()
         assert "🟢 Existing project active." in focus
@@ -1054,3 +1059,332 @@ class TestPersonalProjects:
         )
         assert any("Test Project" in p for p in problems)
         assert any("personal" in p.lower() for p in problems)
+
+
+class TestStructuredProjectDocUpdates:
+    """Tests for the four structured update modes on project docs."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def _proj_path(self, vault):
+        return vault / "Work/Chalktalk/Projects/existing-project.md"
+
+    def _personal_proj_path(self, vault):
+        return vault / "Personal/Projects/Test Project/overview.md"
+
+    # -- Status --
+
+    def test_status_replace_replaces_status_body_only(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🔴 **Blocked.** Waiting on infra team.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        # New status body present
+        assert "🔴 **Blocked.** Waiting on infra team." in text
+        # Old status body gone
+        assert "Running smoothly" not in text
+        # Other sections untouched
+        assert "## Overview" in text
+        assert "Pre-existing description." in text
+        assert "## Next Steps" in text
+        assert "Ship v1 by end of month." in text
+
+    def test_status_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # Write a project doc without ## Status
+        proj = self._proj_path(vault)
+        proj.write_text(
+            "---\ntype: project\n---\n\n# No Status\n\n## Overview\nContent here.\n"
+        )
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🟢 **Active.** Newly added.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Status\n" in text
+        assert "🟢 **Active.** Newly added." in text
+        assert "## Overview" in text
+
+    # -- Recent activity --
+
+    def test_recent_activity_prepends_at_top_of_section(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="New hardening pass",
+                body="- Fixed 5 bugs.\n- Deployed.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        new_idx = text.index("New hardening pass")
+        old_idx = text.index("Second session")
+        assert new_idx < old_idx, "New entry should appear before existing entries"
+
+    def test_recent_activity_trims_to_three_when_overflow(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # First add a 3rd entry to make 3 total in the section
+        proj = self._proj_path(vault)
+        text = proj.read_text()
+        # Insert a 3rd entry right after the ## Recent activity heading
+        text = text.replace(
+            "## Recent activity\n\n### 2026-04-20",
+            "## Recent activity\n\n### 2026-04-30 — Third entry\n- Added before overflow test.\n\n### 2026-04-20",
+        )
+        proj.write_text(text)
+
+        # Now add a 4th entry via structured update
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Fourth entry causes trim",
+                body="- This should be entry 1 of 3.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = self._proj_path(vault).read_text()
+
+        # Count ### entries in the Recent activity section
+        lines = result.splitlines()
+        in_section = False
+        h3_count = 0
+        for line in lines:
+            if line.strip() == "## Recent activity":
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if in_section and line.startswith("### "):
+                h3_count += 1
+
+        assert h3_count == 3, f"Expected 3 entries after trim, got {h3_count}"
+        # The oldest entry (First session) should be dropped
+        assert "First session" not in result
+        # The new entry should be present
+        assert "Fourth entry causes trim" in result
+
+    def test_recent_activity_under_three_no_trim(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # Fixture has 2 entries; adding 1 more => 3 total, no trim
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Third entry no trim",
+                body="- Should coexist with both existing entries.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = self._proj_path(vault).read_text()
+
+        lines = result.splitlines()
+        in_section = False
+        h3_count = 0
+        for line in lines:
+            if line.strip() == "## Recent activity":
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if in_section and line.startswith("### "):
+                h3_count += 1
+
+        assert h3_count == 3
+        assert "Third entry no trim" in result
+        assert "Second session" in result
+        assert "First session" in result
+
+    def test_recent_activity_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Activity\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="First entry ever",
+                body="- Bootstrap.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Recent activity" in text
+        assert "### 2026-05-09 — First entry ever" in text
+        assert "Bootstrap." in text
+
+    # -- Next Steps --
+
+    def test_next_steps_replace_replaces_body(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            next_steps="- Deploy to prod.\n- Write release notes.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        # New body present
+        assert "Deploy to prod." in text
+        assert "Write release notes." in text
+        # Old body gone
+        assert "Ship v1 by end of month." not in text
+        assert "Write docs." not in text
+
+    def test_next_steps_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Steps\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            next_steps="- Do the thing.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Next Steps" in text
+        assert "Do the thing." in text
+
+    # -- Related Sessions --
+
+    def test_related_session_appends_bullet(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            related_session="[[Sessions/2026-05/2026-05-09-test]] — new work",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "- [[Sessions/2026-05/2026-05-09-test]] — new work" in text
+        # Old bullet still there
+        assert "2026-04-10-initial-setup" in text
+        # New bullet should appear after old one (appended at end of section)
+        assert text.index("2026-05-09-test") > text.index("2026-04-10-initial-setup")
+
+    def test_related_session_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Sessions\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            related_session="[[Sessions/2026-05/2026-05-09-test]] — first session",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Related Sessions" in text
+        assert "- [[Sessions/2026-05/2026-05-09-test]] — first session" in text
+
+    # -- Legacy --
+
+    def test_legacy_free_form_append_still_works(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            section_title="Legacy section",
+            section_date="2026-05-09",
+            body="Legacy body text.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "## 2026-05-09 — Legacy section" in text
+        assert "Legacy body text." in text
+        # Frontmatter and existing sections untouched
+        assert "type: project" in text
+        assert "Pre-existing description." in text
+
+    # -- Combined --
+
+    def test_combined_update_all_four_structured_modes(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🔵 **Review.** Under code review.",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Combined update test",
+                body="- Ran all four modes.",
+            ),
+            next_steps="- Merge PR.\n- Tag release.",
+            related_session="[[Sessions/2026-05/2026-05-09-combined]] — combined test",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "🔵 **Review.** Under code review." in text
+        assert "Combined update test" in text
+        assert "Merge PR." in text
+        assert "[[Sessions/2026-05/2026-05-09-combined]] — combined test" in text
+        # Old status gone
+        assert "Running smoothly" not in text
+        # Old next steps gone
+        assert "Ship v1 by end of month." not in text
+
+    # -- Personal project --
+
+    def test_personal_project_supports_structured_updates(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Test Project",
+            category="personal",
+            status="🟢 **Active.** Good progress.",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Personal session",
+                body="- Made progress.",
+            ),
+            next_steps="- Finish prototype.",
+            related_session="[[Sessions/2026-05/2026-05-09-personal]] — personal work",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._personal_proj_path(vault).read_text()
+        assert "🟢 **Active.** Good progress." in text
+        assert "Personal session" in text
+        assert "Finish prototype." in text
+        assert "[[Sessions/2026-05/2026-05-09-personal]] — personal work" in text
+
+    # -- Validation --
+
+    def test_validator_rejects_empty_update(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            session_end.ProjectDocUpdate(slug="existing-project")
+        assert "at least one update field" in str(exc.value)
+
+    def test_validator_rejects_partial_legacy(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            session_end.ProjectDocUpdate(
+                slug="existing-project",
+                section_title="Only title, no date or body",
+            )
+        assert "section_title, section_date, AND body" in str(exc.value)
+
+    # -- Recent Work alias --
+
+    def test_recent_work_alias(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        # Replace "Recent activity" with "Recent Work" alias in the fixture
+        text = proj.read_text().replace("## Recent activity", "## Recent Work")
+        proj.write_text(text)
+
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Found via alias",
+                body="- Used Recent Work heading.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = proj.read_text()
+        assert "Found via alias" in result
+        # New entry should be at the top
+        assert result.index("Found via alias") < result.index("Second session")

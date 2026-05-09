@@ -133,16 +133,49 @@ class Source(BaseModel):
     why: str
 
 
+class RecentActivityEntry(BaseModel):
+    date: Date
+    title: str
+    body: str
+
+
 class ProjectDocUpdate(BaseModel):
     slug: str
-    section_title: str
-    section_date: Date
-    body: str
     category: Literal["work", "personal"] = "work"
 
+    # Structured updates (matching prose ritual). All optional.
+    status: Optional[str] = None
+    recent_activity: Optional[RecentActivityEntry] = None
+    next_steps: Optional[str] = None
+    related_session: Optional[str] = None
+
+    # Legacy free-form append (back-compat with existing manifests).
+    section_title: Optional[str] = None
+    section_date: Optional[Date] = None
+    body: Optional[str] = None
+
     @model_validator(mode="after")
-    def _validate_slug(self) -> "ProjectDocUpdate":
+    def _validate_slug_and_fields(self) -> "ProjectDocUpdate":
         _validate_slug_for_category(self.slug, self.category)
+
+        has_structured = any(
+            v is not None
+            for v in (self.status, self.recent_activity, self.next_steps, self.related_session)
+        )
+        legacy_fields = (self.section_title, self.section_date, self.body)
+        has_any_legacy = any(v is not None for v in legacy_fields)
+        has_all_legacy = all(v is not None for v in legacy_fields)
+
+        if has_any_legacy and not has_all_legacy:
+            raise ValueError(
+                "legacy free-form append requires section_title, section_date, AND body together"
+            )
+
+        if not has_structured and not has_all_legacy:
+            raise ValueError(
+                "ProjectDocUpdate requires at least one update field"
+            )
+
         return self
 
 
@@ -358,6 +391,24 @@ def _find_first_h2(lines: list[str]) -> int:
     return len(lines)
 
 
+def _find_h2_section(
+    lines: list[str], heading_re: re.Pattern[str]
+) -> Optional[tuple[int, int]]:
+    """Find a section by heading regex. Returns (heading_idx, body_end_idx_exclusive).
+
+    body_end_idx is the index of the next ``## `` heading or len(lines).
+    """
+    for i, line in enumerate(lines):
+        if heading_re.match(line):
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].startswith("## "):
+                    end = j
+                    break
+            return (i, end)
+    return None
+
+
 def append_to_shipping_log(
     vault: Path,
     entry: ShippingEntry,
@@ -430,12 +481,26 @@ def append_to_brag_doc(
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
 
 
+_RE_STATUS = re.compile(r"^## Status\s*$")
+_RE_RECENT = re.compile(r"^## Recent (?:activity|Work)\s*$", re.IGNORECASE)
+_RE_NEXT_STEPS = re.compile(r"^## Next [Ss]teps\s*$")
+_RE_RELATED_SESSIONS = re.compile(r"^## Related Sessions\s*$")
+
+
 def append_to_project_doc(
     vault: Path,
     update: ProjectDocUpdate,
     org_name: str = "Chalktalk",
 ) -> None:
-    """Append a dated section to an existing project doc."""
+    """Apply structured and/or legacy updates to an existing project doc.
+
+    Operations run in deterministic order:
+      1. status         -- replace body of ## Status
+      2. recent_activity -- prepend entry under ## Recent activity, trim to 3
+      3. next_steps     -- replace body of ## Next Steps
+      4. related_session -- append bullet to ## Related Sessions
+      5. legacy (section_title + section_date + body) -- append ## YYYY-MM-DD — title at end
+    """
     path = vault / project_doc_path(update.slug, update.category, org_name)
     if not path.exists():
         raise FileNotFoundError(
@@ -444,13 +509,113 @@ def append_to_project_doc(
         )
 
     text = path.read_text()
-    section = (
-        f"\n## {update.section_date.isoformat()} — {update.section_title}\n"
-        f"{update.body.rstrip()}\n"
-    )
-    if not text.endswith("\n"):
-        text += "\n"
-    path.write_text(text + section)
+    lines = text.splitlines()
+
+    # 1. Status
+    if update.status is not None:
+        result = _find_h2_section(lines, _RE_STATUS)
+        new_body_lines = [update.status.rstrip(), ""]
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_body_lines
+        else:
+            # Append at end
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Status", *new_body_lines])
+
+    # 2. Recent activity
+    if update.recent_activity is not None:
+        ra = update.recent_activity
+        new_entry_lines = [
+            f"### {ra.date.isoformat()} — {ra.title}",
+            ra.body.rstrip(),
+            "",
+        ]
+        result = _find_h2_section(lines, _RE_RECENT)
+        if result is not None:
+            heading_idx, body_end = result
+            # Insert new entry right after the heading (and its blank line if present)
+            insert_at = heading_idx + 1
+            # Skip a single blank line immediately after the heading, if present
+            if insert_at < body_end and lines[insert_at].strip() == "":
+                insert_at += 1
+            lines[insert_at:insert_at] = new_entry_lines
+
+            # Recompute body_end after insertion
+            new_body_end = body_end + len(new_entry_lines)
+
+            # Count ### headings in the section
+            h3_indices = [
+                i for i in range(heading_idx + 1, new_body_end)
+                if i < len(lines) and lines[i].startswith("### ")
+            ]
+            if len(h3_indices) > 3:
+                # Drop oldest entries (those lower in the section, beyond index 3)
+                # Find the start of the 4th (0-indexed: [3]) h3 entry
+                drop_from = h3_indices[3]
+                # Find end of section (next ## or end of file)
+                drop_to = len(lines)
+                for j in range(drop_from, len(lines)):
+                    if j != drop_from and lines[j].startswith("## "):
+                        drop_to = j
+                        break
+                del lines[drop_from:drop_to]
+        else:
+            # Append new section at end
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([
+                f"## Recent activity",
+                "",
+                *new_entry_lines,
+            ])
+
+    # 3. Next Steps
+    if update.next_steps is not None:
+        result = _find_h2_section(lines, _RE_NEXT_STEPS)
+        new_body_lines = [update.next_steps.rstrip(), ""]
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_body_lines
+        else:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Next Steps", *new_body_lines])
+
+    # 4. Related Sessions
+    if update.related_session is not None:
+        bullet = f"- {update.related_session}"
+        result = _find_h2_section(lines, _RE_RELATED_SESSIONS)
+        if result is not None:
+            heading_idx, body_end = result
+            # Find insertion point: last non-blank line within the section body
+            insert_at = body_end
+            for j in range(body_end - 1, heading_idx, -1):
+                if lines[j].strip() != "":
+                    insert_at = j + 1
+                    break
+            else:
+                insert_at = heading_idx + 1
+            lines.insert(insert_at, bullet)
+        else:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Related Sessions", bullet, ""])
+
+    # 5. Legacy
+    if update.section_title is not None:
+        legacy_block = [
+            "",
+            f"## {update.section_date.isoformat()} — {update.section_title}",
+            update.body.rstrip(),
+        ]
+        lines.extend(legacy_block)
+
+    new_text = "\n".join(lines)
+    if not new_text.endswith("\n"):
+        new_text += "\n"
+    path.write_text(new_text)
 
 
 def write_new_project_doc(
