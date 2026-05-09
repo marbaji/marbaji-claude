@@ -534,20 +534,24 @@ def append_to_shipping_log(
             summary=[f"## {month_label}: skipped (bullet already present)"],
         )
 
-    # Truncate label for display
-    label_display = entry.label[:60] + "..." if len(entry.label) > 60 else entry.label
-
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
         lines = lines[:insert_idx] + new_block + lines[insert_idx:]
-        summary_msg = f'## {month_label}: heading created; prepended 1 bullet "{label_display}"'
+        summary = [
+            f"## {month_label}: heading created; prepended 1 bullet",
+            f"+ {target_heading}",
+            f"+ {bullet}",
+        ]
     else:
         lines.insert(heading_idx + 1, bullet)
-        summary_msg = f'## {month_label}: prepended 1 bullet "{label_display}"'
+        summary = [
+            f"## {month_label}: prepended 1 bullet",
+            f"+ {bullet}",
+        ]
 
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
-    return ChangeReport(path=rel_path, summary=[summary_msg])
+    return ChangeReport(path=rel_path, summary=summary)
 
 
 def format_brag_bullet(entry: BragEntry, session_log_filename: str) -> str:
@@ -590,23 +594,24 @@ def append_to_brag_doc(
             summary=[f"## {entry.quarter}: skipped (bullet already present)"],
         )
 
-    # Truncate body for display (matches shipping's rule: 60 chars + "...")
-    body_first_line = entry.body.strip().split("\n", 1)[0]
-    body_display = (
-        body_first_line[:60] + "..." if len(body_first_line) > 60 else body_first_line
-    )
-
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
         lines = lines[:insert_idx] + new_block + lines[insert_idx:]
-        summary_msg = f'## {entry.quarter}: heading created; prepended 1 entry "{body_display}"'
+        summary = [
+            f"## {entry.quarter}: heading created; prepended 1 entry",
+            f"+ {target_heading}",
+            f"+ {bullet}",
+        ]
     else:
         lines.insert(heading_idx + 1, bullet)
-        summary_msg = f'## {entry.quarter}: prepended 1 entry "{body_display}"'
+        summary = [
+            f"## {entry.quarter}: prepended 1 entry",
+            f"+ {bullet}",
+        ]
 
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
-    return ChangeReport(path=rel_path, summary=[summary_msg])
+    return ChangeReport(path=rel_path, summary=summary)
 
 
 _RE_STATUS = re.compile(r"^## Status\s*$")
@@ -641,22 +646,32 @@ def append_to_project_doc(
     lines = text.splitlines()
     report_summary: list[str] = []
 
+    def _diff_lines(removed: list[str], added: list[str]) -> list[str]:
+        out: list[str] = []
+        for ln in removed:
+            out.append(f"- {ln}")
+        for ln in added:
+            out.append(f"+ {ln}")
+        return out
+
     # 1. Status
     if update.status is not None:
         result = _find_h2_section(lines, _RE_STATUS)
         new_body_lines = [update.status.rstrip(), ""]
         if result is not None:
             heading_idx, body_end = result
-            old_count = body_end - (heading_idx + 1)
-            new_count = len(new_body_lines)
+            old_body = lines[heading_idx + 1 : body_end]
             lines[heading_idx + 1 : body_end] = new_body_lines
-            report_summary.append(f"## Status: replaced ({old_count} to {new_count} lines)")
+            report_summary.append(
+                f"## Status: replaced ({len(old_body)} to {len(new_body_lines)} lines)"
+            )
+            report_summary.extend(_diff_lines(old_body, new_body_lines))
         else:
-            # Append at end
             if lines and lines[-1] != "":
                 lines.append("")
             lines.extend([f"## Status", *new_body_lines])
             report_summary.append(f"## Status: created with {len(new_body_lines)} lines")
+            report_summary.extend(_diff_lines([], ["## Status", *new_body_lines]))
 
     # 2. Recent activity
     if update.recent_activity is not None:
@@ -669,14 +684,10 @@ def append_to_project_doc(
         result = _find_h2_section(lines, _RE_RECENT)
         if result is not None:
             heading_idx, body_end = result
-            # Insert new entry right after the heading (and its blank line if present)
             insert_at = heading_idx + 1
-            # Skip a single blank line immediately after the heading, if present
             if insert_at < body_end and lines[insert_at].strip() == "":
                 insert_at += 1
             lines[insert_at:insert_at] = new_entry_lines
-
-            # Recompute body_end after insertion
             new_body_end = body_end + len(new_entry_lines)
 
             # Count ### headings in the section
@@ -684,34 +695,32 @@ def append_to_project_doc(
                 i for i in range(heading_idx + 1, new_body_end)
                 if i < len(lines) and lines[i].startswith("### ")
             ]
+            trimmed_lines: list[str] = []
             trimmed = 0
             if len(h3_indices) > 3:
-                # Drop oldest entries (those lower in the section, beyond index 3)
-                # Find the start of the 4th (0-indexed: [3]) h3 entry
                 drop_from = h3_indices[3]
-                # Find end of section (next ## or end of file)
                 drop_to = len(lines)
                 for j in range(drop_from, len(lines)):
                     if j != drop_from and lines[j].startswith("## "):
                         drop_to = j
                         break
                 trimmed = len(h3_indices) - 3
+                trimmed_lines = lines[drop_from:drop_to]
                 del lines[drop_from:drop_to]
             report_summary.append(
-                f'## Recent activity: prepended 1 entry "{ra.title}" (trimmed {trimmed} oldest)'
+                f'## Recent activity: prepended 1 entry "{ra.title}"'
+                + (f" (trimmed {trimmed} oldest)" if trimmed else "")
             )
+            report_summary.extend(_diff_lines(trimmed_lines, new_entry_lines))
         else:
-            # Append new section at end
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.extend([
-                f"## Recent activity",
-                "",
-                *new_entry_lines,
-            ])
+            new_section = [f"## Recent activity", "", *new_entry_lines]
+            lines.extend(new_section)
             report_summary.append(
                 f'## Recent activity: heading created; prepended 1 entry "{ra.title}"'
             )
+            report_summary.extend(_diff_lines([], new_section))
 
     # 3. Next Steps
     if update.next_steps is not None:
@@ -719,15 +728,19 @@ def append_to_project_doc(
         new_body_lines = [update.next_steps.rstrip(), ""]
         if result is not None:
             heading_idx, body_end = result
-            old_count = body_end - (heading_idx + 1)
-            new_count = len(new_body_lines)
+            old_body = lines[heading_idx + 1 : body_end]
             lines[heading_idx + 1 : body_end] = new_body_lines
-            report_summary.append(f"## Next Steps: replaced ({old_count} to {new_count} lines)")
+            report_summary.append(
+                f"## Next Steps: replaced ({len(old_body)} to {len(new_body_lines)} lines)"
+            )
+            report_summary.extend(_diff_lines(old_body, new_body_lines))
         else:
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.extend([f"## Next Steps", *new_body_lines])
+            new_section = [f"## Next Steps", *new_body_lines]
+            lines.extend(new_section)
             report_summary.append(f"## Next Steps: created with {len(new_body_lines)} lines")
+            report_summary.extend(_diff_lines([], new_section))
 
     # 4. Related Sessions
     if update.related_session is not None:
@@ -735,7 +748,6 @@ def append_to_project_doc(
         result = _find_h2_section(lines, _RE_RELATED_SESSIONS)
         if result is not None:
             heading_idx, body_end = result
-            # Find insertion point: last non-blank line within the section body
             insert_at = body_end
             for j in range(body_end - 1, heading_idx, -1):
                 if lines[j].strip() != "":
@@ -745,25 +757,29 @@ def append_to_project_doc(
                 insert_at = heading_idx + 1
             lines.insert(insert_at, bullet)
             report_summary.append("## Related Sessions: appended 1 wikilink")
+            report_summary.extend(_diff_lines([], [bullet]))
         else:
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.extend([f"## Related Sessions", bullet, ""])
+            new_section = [f"## Related Sessions", bullet, ""]
+            lines.extend(new_section)
             report_summary.append("## Related Sessions: heading created; appended 1 wikilink")
+            report_summary.extend(_diff_lines([], new_section))
 
     # 5. Legacy
     if update.section_title is not None:
         body_lines = update.body.rstrip().splitlines()
         legacy_block = [
-            "",
             f"## {update.section_date.isoformat()} — {update.section_title}",
-            update.body.rstrip(),
+            *body_lines,
         ]
+        lines.append("")
         lines.extend(legacy_block)
         report_summary.append(
             f"appended section ## {update.section_date.isoformat()} — {update.section_title}"
             f" ({len(body_lines)} lines body)"
         )
+        report_summary.extend(_diff_lines([], legacy_block))
 
     new_text = "\n".join(lines)
     if not new_text.endswith("\n"):
@@ -872,44 +888,57 @@ def process_focus_updates(
     lines = body.splitlines()
     report_summary: list[str] = []
 
+    def _diff_lines(removed: list[str], added: list[str]) -> list[str]:
+        out: list[str] = []
+        for ln in removed:
+            out.append(f"- {ln}")
+        for ln in added:
+            out.append(f"+ {ln}")
+        return out
+
     # Frontmatter bump (only report when the value actually changed)
     if old_slug != last_updated_slug:
-        report_summary.append(f"frontmatter last-updated: {old_slug} to {last_updated_slug}")
+        report_summary.append(
+            f"frontmatter last-updated: {old_slug} to {last_updated_slug}"
+        )
+        report_summary.extend(
+            _diff_lines(
+                [f"last-updated: {old_slug}"],
+                [f"last-updated: {last_updated_slug}"],
+            )
+        )
 
     # 1. Removes
-    removed_slugs: list[str] = []
     for slug in updates.remove:
         block = _find_entry_block(lines, slug, org_name)
         if block is None:
             continue
         start, end = block
+        removed_block = lines[start:end]
         del lines[start:end]
-        removed_slugs.append(slug)
-    if removed_slugs:
-        report_summary.append(f"removed {len(removed_slugs)}: {removed_slugs}")
+        report_summary.append(f"removed: {slug}")
+        report_summary.extend(_diff_lines(removed_block, []))
 
     # 2. Move to complete
-    moved_slugs: list[str] = []
     for slug in updates.move_to_complete:
         block = _find_entry_block(lines, slug, org_name)
         if block is None:
             continue
         start, end = block
-        block_lines = lines[start:end]
-        if " ✅" not in block_lines[0]:
-            block_lines[0] = block_lines[0].rstrip() + " ✅"
+        old_block_lines = list(lines[start:end])
+        new_block_lines = list(old_block_lines)
+        if " ✅" not in new_block_lines[0]:
+            new_block_lines[0] = new_block_lines[0].rstrip() + " ✅"
         del lines[start:end]
         complete_idx = _find_section_index(lines, "## Complete")
         if complete_idx is None:
-            lines.extend(["", "## Complete", *block_lines])
+            lines.extend(["", "## Complete", *new_block_lines])
         else:
-            lines[complete_idx + 1 : complete_idx + 1] = block_lines
-        moved_slugs.append(slug)
-    if moved_slugs:
-        report_summary.append(f"## Complete: moved {len(moved_slugs)}: {moved_slugs}")
+            lines[complete_idx + 1 : complete_idx + 1] = new_block_lines
+        report_summary.append(f"moved to ## Complete: {slug}")
+        report_summary.extend(_diff_lines(old_block_lines, new_block_lines))
 
     # 3. Upsert
-    upserted_slugs: list[str] = []
     for upsert in updates.upsert:
         existing = _find_entry_block(lines, upsert.slug, org_name)
         new_block = [
@@ -919,37 +948,41 @@ def process_focus_updates(
         ]
         if existing is not None:
             start, end = existing
+            old_block = list(lines[start:end])
             lines[start:end] = new_block
+            report_summary.append(f"## Active Projects: upserted {upsert.slug} (replaced existing)")
+            report_summary.extend(_diff_lines(old_block, new_block))
         else:
             active_idx = _find_section_index(lines, "## Active Projects")
             if active_idx is None:
                 lines.extend(["", "## Active Projects", *new_block])
             else:
                 lines[active_idx + 1 : active_idx + 1] = ["", *new_block]
-        upserted_slugs.append(upsert.slug)
-    if upserted_slugs:
-        report_summary.append(f"## Active Projects: upserted {len(upserted_slugs)}: {upserted_slugs}")
+            report_summary.append(f"## Active Projects: upserted {upsert.slug} (new)")
+            report_summary.extend(_diff_lines([], new_block))
 
     # 4. Priorities
     if updates.priorities is not None:
         _RE_PRIORITIES = re.compile(r"^## Priorities\s*$")
         result = _find_h2_section(lines, _RE_PRIORITIES)
         new_prio_lines = updates.priorities.splitlines()
-        # Ensure section body ends with a trailing blank line
         if new_prio_lines and new_prio_lines[-1] != "":
             new_prio_lines.append("")
         if result is not None:
             heading_idx, body_end = result
-            old_count = body_end - (heading_idx + 1)
-            new_count = len(new_prio_lines)
+            old_prio = lines[heading_idx + 1 : body_end]
             lines[heading_idx + 1 : body_end] = new_prio_lines
-            report_summary.append(f"## Priorities: replaced ({old_count} to {new_count} lines)")
+            report_summary.append(
+                f"## Priorities: replaced ({len(old_prio)} to {len(new_prio_lines)} lines)"
+            )
+            report_summary.extend(_diff_lines(old_prio, new_prio_lines))
         else:
-            # Append section at end of body
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.extend(["## Priorities", *new_prio_lines])
+            new_section = ["## Priorities", *new_prio_lines]
+            lines.extend(new_section)
             report_summary.append(f"## Priorities: created with {len(new_prio_lines)} lines")
+            report_summary.extend(_diff_lines([], new_section))
 
     new_body = "\n".join(lines)
     if not new_body.endswith("\n"):

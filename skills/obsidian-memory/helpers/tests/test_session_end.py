@@ -2238,8 +2238,12 @@ extractions:
         )
         assert path_count == 1, f"expected path once, saw {path_count} times in:\n{out}"
         # Both bullet lines indented under it (first creates the heading; second appends)
-        assert '## 2026-05: heading created; prepended 1 bullet "First thing"' in out
-        assert '## 2026-05: prepended 1 bullet "Second thing"' in out
+        # New diff format: header line + "+ <full bullet content>" line per op
+        assert "## 2026-05: heading created; prepended 1 bullet" in out
+        assert "## 2026-05: prepended 1 bullet" in out
+        # Full bullet content shown on "+ " lines
+        assert "+ - **2026-05-09** — First thing — ctx1." in out
+        assert "+ - **2026-05-09** — Second thing — ctx2." in out
 
     def test_change_report_skips_noop_last_updated(self, tmp_path, capsys):
         """When last-updated slug already matches, no frontmatter line in report."""
@@ -2277,8 +2281,8 @@ extractions:
             in s for s in rpt.summary
         ), f"expected old-to-new line, got: {rpt.summary}"
 
-    def test_brag_change_report_includes_preview(self, tmp_path):
-        """Brag append's report contains a body preview, matching shipping's style."""
+    def test_brag_change_report_includes_full_body_in_diff(self, tmp_path):
+        """Brag append's report shows the full bullet line (no truncation) on a + line."""
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
             quarter="2026 Q2",
@@ -2288,12 +2292,16 @@ extractions:
         rpt = session_end.append_to_brag_doc(
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
-        assert any('prepended 1 entry "did the thing"' in s for s in rpt.summary), (
-            f"expected preview in summary, got: {rpt.summary}"
+        # Header line names the op, "+ " line carries full bullet content
+        assert any("## 2026 Q2:" in s and "prepended 1 entry" in s for s in rpt.summary), (
+            f"expected header line, got: {rpt.summary}"
         )
+        assert any(
+            s.startswith("+ ") and "did the thing" in s for s in rpt.summary
+        ), f"expected + line with full body, got: {rpt.summary}"
 
-    def test_brag_change_report_truncates_long_body(self, tmp_path):
-        """Brag preview truncates bodies longer than 60 chars, matching shipping rule."""
+    def test_brag_change_report_shows_full_body_no_truncation(self, tmp_path):
+        """Long bodies appear in full on the + line (no 60-char truncation in diff format)."""
         vault = self._setup_vault(tmp_path)
         long_body = "x" * 100
         entry = session_end.BragEntry(
@@ -2304,8 +2312,115 @@ extractions:
         rpt = session_end.append_to_brag_doc(
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
-        # Truncation produces 60 chars + "..." — same rule as shipping
-        expected_preview = ("x" * 60) + "..."
-        assert any(f'prepended 1 entry "{expected_preview}"' in s for s in rpt.summary), (
-            f"expected truncated preview, got: {rpt.summary}"
+        # Full 100-char body should appear verbatim on a + line, no "..." truncation
+        plus_lines = [s for s in rpt.summary if s.startswith("+ ")]
+        joined = "\n".join(plus_lines)
+        assert ("x" * 100) in joined, f"expected full 100-char body, got: {plus_lines}"
+        assert "..." not in joined, f"expected no truncation, got: {plus_lines}"
+
+
+class TestUnifiedDiffFormat:
+    """The change report shows full content with '- ' for removed and '+ ' for added lines."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_status_replace_shows_old_and_new_content(self, tmp_path):
+        """Status replace emits '- <old>' lines AND '+ <new>' lines."""
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🟢 Brand new status line.",
         )
+        rpt = session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        minus_lines = [s for s in rpt.summary if s.startswith("- ")]
+        plus_lines = [s for s in rpt.summary if s.startswith("+ ")]
+        assert minus_lines, f"expected at least one '- ' removed line, got: {rpt.summary}"
+        assert plus_lines, f"expected at least one '+ ' added line, got: {rpt.summary}"
+        assert any("🟢 Brand new status line." in s for s in plus_lines), (
+            f"expected new status text on + line, got: {plus_lines}"
+        )
+
+    def test_focus_upsert_replace_shows_old_block_removed_and_new_added(self, tmp_path):
+        """Upsert against an existing slug emits both old block and new block."""
+        vault = self._setup_vault(tmp_path)
+        rpt = session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(
+                upsert=[session_end.FocusUpsert(slug="foo", status_line="**🔴 Now blocked.** Reason here.")],
+            ),
+            last_updated_slug="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        minus_lines = [s for s in rpt.summary if s.startswith("- ")]
+        plus_lines = [s for s in rpt.summary if s.startswith("+ ")]
+        assert any("Foo is active" in s for s in minus_lines), (
+            f"expected old foo block on - lines, got: {minus_lines}"
+        )
+        assert any("🔴 Now blocked" in s for s in plus_lines), (
+            f"expected new status_line on + lines, got: {plus_lines}"
+        )
+
+    def test_focus_remove_shows_only_minus_lines(self, tmp_path):
+        """Pure remove emits '- ' lines for the deleted block, no '+ ' lines."""
+        vault = self._setup_vault(tmp_path)
+        rpt = session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(remove=["foo"]),
+            last_updated_slug="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        # Find the section about the remove (skip frontmatter bump if present)
+        remove_idx = next(
+            i for i, s in enumerate(rpt.summary) if s.startswith("removed: foo")
+        )
+        # Lines after the header, before any next header (no header here, all minus to end of slice)
+        diff_lines = [s for s in rpt.summary[remove_idx + 1:] if s.startswith(("- ", "+ "))]
+        assert diff_lines, f"expected diff lines after remove header, got: {rpt.summary}"
+        assert all(s.startswith("- ") for s in diff_lines[:2]), (
+            f"expected first lines after 'removed:' to be '- ' lines, got: {diff_lines}"
+        )
+
+    def test_focus_move_to_complete_shows_old_and_new_with_checkmark(self, tmp_path):
+        """move_to_complete shows old block (no checkmark) on - lines and new block (with checkmark) on + lines."""
+        vault = self._setup_vault(tmp_path)
+        rpt = session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(move_to_complete=["foo"]),
+            last_updated_slug="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        minus_lines = [s for s in rpt.summary if s.startswith("- ")]
+        plus_lines = [s for s in rpt.summary if s.startswith("+ ")]
+        # Old block heading appears in - lines (no checkmark)
+        assert any(
+            "[[Work/Chalktalk/Projects/foo]]" in s and "✅" not in s
+            for s in minus_lines
+        ), f"expected old block (no checkmark) on - lines, got: {minus_lines}"
+        # New block heading appears in + lines (with checkmark)
+        assert any(
+            "[[Work/Chalktalk/Projects/foo]] ✅" in s for s in plus_lines
+        ), f"expected new block with ✅ on + lines, got: {plus_lines}"
+
+    def test_shipping_prepend_shows_full_bullet_on_plus_line(self, tmp_path):
+        """Shipping append shows the full bullet (no 60-char truncation) on a + line."""
+        vault = self._setup_vault(tmp_path)
+        long_label = "y" * 80
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label=long_label,
+            context="ctx",
+        )
+        rpt = session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        plus_lines = [s for s in rpt.summary if s.startswith("+ ")]
+        joined = "\n".join(plus_lines)
+        assert ("y" * 80) in joined, f"expected full 80-char label verbatim, got: {plus_lines}"
+        assert "..." not in joined, f"expected no truncation, got: {plus_lines}"
