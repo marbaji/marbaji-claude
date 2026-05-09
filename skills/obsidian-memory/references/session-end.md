@@ -159,6 +159,8 @@ python3 ~/.../session_end.py --manifest /tmp/session-end-<ts>.yaml --only extrac
 
 Valid section names: `session_log`, `extractions`, `project_doc_updates`, `new_project_docs`, `focus_updates`.
 
+On exit 0, the helper prints a per-file change report showing what each mutator did at the section level (e.g. `## Status: replaced (2 to 4 lines)`, `created (30 lines)`, `skipped (already exists)`). This is visible in the terminal immediately after the run. Pass `--quiet` to suppress the per-file blocks if you only need the trailing `Wrote ...` confirmation line.
+
 ## Step 7: Confirm to user
 
 ```
