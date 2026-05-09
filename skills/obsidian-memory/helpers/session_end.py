@@ -138,6 +138,33 @@ class SessionEndManifest(BaseModel):
     focus_updates: FocusUpdates = Field(default_factory=FocusUpdates)
 
 
+def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
+    """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
+
+    Priority:
+        1. arg (highest)
+        2. ~/.claude/obsidian-vault-path (canonical, post-2026-05)
+        3. ~/.claude/obsidian-vault-name + ~/Documents/<name> (legacy fallback)
+        4. None (caller exits with code 3)
+    """
+    if arg is not None:
+        return arg
+
+    canonical = home / ".claude" / "obsidian-vault-path"
+    if canonical.exists():
+        path_str = canonical.read_text().strip()
+        if path_str:
+            return Path(path_str)
+
+    legacy = home / ".claude" / "obsidian-vault-name"
+    if legacy.exists():
+        name = legacy.read_text().strip()
+        if name:
+            return home / "Documents" / name
+
+    return None
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """Entry point. Returns process exit code."""
     raise NotImplementedError("Wired up in later tasks.")
