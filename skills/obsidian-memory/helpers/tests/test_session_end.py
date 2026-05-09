@@ -539,3 +539,33 @@ class TestDecisionExtraction:
         assert "# Undated" not in text
         captured = capsys.readouterr()
         assert "resolve" in captured.err.lower()
+
+
+class TestCLI:
+    VALID_SECTIONS = {
+        "session_log", "extractions", "project_doc_updates",
+        "new_project_docs", "focus_updates",
+    }
+
+    def test_parse_only_valid_sections(self):
+        parser = session_end.build_parser()
+        args = parser.parse_args([
+            "--manifest", "/tmp/m.yaml",
+            "--only", "session_log,extractions",
+        ])
+        assert args.only == ["session_log", "extractions"]
+
+    def test_invalid_only_section_exits_nonzero(self, tmp_path):
+        manifest_path = tmp_path / "m.yaml"
+        manifest_path.write_text("date: 2026-05-09\ntopic: x\n")
+        with pytest.raises(SystemExit) as exc:
+            session_end.main([
+                "--manifest", str(manifest_path),
+                "--only", "session_log,nonsense",
+            ])
+        assert exc.value.code != 0
+
+    def test_dry_run_flag_present(self):
+        parser = session_end.build_parser()
+        args = parser.parse_args(["--manifest", "/tmp/m.yaml", "--dry-run"])
+        assert args.dry_run is True

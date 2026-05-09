@@ -604,9 +604,88 @@ def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     return None
 
 
+VALID_SECTIONS = {
+    "session_log", "extractions", "project_doc_updates",
+    "new_project_docs", "focus_updates",
+}
+
+
+def _comma_list(value: str) -> list[str]:
+    items = [p.strip() for p in value.split(",") if p.strip()]
+    invalid = [s for s in items if s not in VALID_SECTIONS]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            f"unknown section(s): {invalid}. Valid: {sorted(VALID_SECTIONS)}"
+        )
+    return items
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="session_end.py",
+        description=(
+            "Render Obsidian-vault session-end artifacts from a YAML manifest. "
+            "See references/session-end-helper.md for the manifest schema."
+        ),
+    )
+    p.add_argument("--manifest", required=True, type=Path)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--vault-path", type=Path, default=None)
+    p.add_argument("--only", type=_comma_list, default=None)
+    return p
+
+
+def run(
+    manifest: SessionEndManifest,
+    vault: Path,
+    org_name: str,
+    dry_run: bool,
+    sections: set[str],
+) -> int:
+    """Stub for now; filled in by Task 11."""
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """Entry point. Returns process exit code."""
-    raise NotImplementedError("Wired up in later tasks.")
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        with args.manifest.open() as f:
+            raw = yaml.safe_load(f)
+    except (FileNotFoundError, yaml.YAMLError) as e:
+        print(f"error: cannot read manifest: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        manifest = SessionEndManifest.model_validate(raw)
+    except Exception as e:
+        print(f"error: manifest validation failed: {e}", file=sys.stderr)
+        return 1
+
+    home = Path.home()
+    vault = resolve_vault_path(args.vault_path, home)
+    if vault is None or not vault.exists():
+        print(
+            f"error: vault not found. Pass --vault-path or write "
+            f"~/.claude/obsidian-vault-path. Resolved: {vault}",
+            file=sys.stderr,
+        )
+        return 3
+
+    org_name_path = home / ".claude" / "obsidian-org-name"
+    org_name = org_name_path.read_text().strip() if org_name_path.exists() else "Chalktalk"
+
+    sections_to_run = set(args.only) if args.only else set(VALID_SECTIONS)
+
+    return run(
+        manifest=manifest,
+        vault=vault,
+        org_name=org_name,
+        dry_run=args.dry_run,
+        sections=sections_to_run,
+    )
 
 
 if __name__ == "__main__":
