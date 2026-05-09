@@ -376,6 +376,48 @@ def append_to_brag_doc(
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
 
 
+def append_to_project_doc(
+    vault: Path,
+    update: ProjectDocUpdate,
+    org_name: str = "Chalktalk",
+) -> None:
+    """Append a dated section to an existing project doc."""
+    path = vault / f"Work/{org_name}/Projects/{update.slug}.md"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Project doc not found at {path}. "
+            f"Use new_project_docs[] to create it instead of project_doc_updates[]."
+        )
+
+    text = path.read_text()
+    section = (
+        f"\n## {update.section_date.isoformat()} — {update.section_title}\n"
+        f"{update.body.rstrip()}\n"
+    )
+    if not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text + section)
+
+
+def write_new_project_doc(
+    vault: Path,
+    doc: NewProjectDoc,
+    org_name: str = "Chalktalk",
+) -> None:
+    """Write a brand-new project doc. Fails if file exists."""
+    path = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+    if path.exists():
+        raise FileExistsError(
+            f"Project doc already exists at {path}. "
+            f"Use project_doc_updates[] to append, not new_project_docs[]."
+        )
+
+    fm_yaml = yaml.safe_dump(doc.frontmatter, default_flow_style=False, sort_keys=False).rstrip()
+    text = f"---\n{fm_yaml}\n---\n\n{doc.body.rstrip()}\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 

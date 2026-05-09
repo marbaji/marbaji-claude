@@ -291,3 +291,65 @@ class TestBragDocAppend:
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
         assert "- **2026-05-09** — did the thing. [[Sessions/2026-05/2026-05-09-test]]" in log
+
+
+class TestProjectDocOps:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_append_section_to_existing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            section_title="Hardening pass",
+            section_date="2026-05-09",
+            body="Two rounds of review caught 11 bugs.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
+        assert "## 2026-05-09 — Hardening pass" in text
+        assert "Two rounds of review caught 11 bugs." in text
+        assert "type: project" in text
+        assert "Pre-existing description." in text
+
+    def test_append_to_missing_project_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="nonexistent-project",
+            section_title="Whatever",
+            section_date="2026-05-09",
+            body="Body.",
+        )
+        with pytest.raises(FileNotFoundError):
+            session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+
+    def test_write_new_project_doc(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        new_doc = session_end.NewProjectDoc(
+            slug="brand-new",
+            frontmatter={
+                "type": "project",
+                "status": "active",
+                "started": "2026-05-09",
+                "tags": ["project", "work/chalktalk"],
+            },
+            body="# Brand New\n\n## Overview\nWhat this is.",
+        )
+        session_end.write_new_project_doc(vault=vault, doc=new_doc, org_name="Chalktalk")
+        text = (vault / "Work/Chalktalk/Projects/brand-new.md").read_text()
+        assert text.startswith("---\n")
+        assert "type: project" in text
+        assert "# Brand New" in text
+
+    def test_new_project_doc_collision_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        new_doc = session_end.NewProjectDoc(
+            slug="existing-project",
+            frontmatter={"type": "project", "status": "active"},
+            body="# Existing Project",
+        )
+        with pytest.raises(FileExistsError):
+            session_end.write_new_project_doc(vault=vault, doc=new_doc, org_name="Chalktalk")
