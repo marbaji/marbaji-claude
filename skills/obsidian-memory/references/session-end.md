@@ -163,18 +163,25 @@ On exit 0, the helper prints a per-file change report showing what each mutator 
 
 ## Step 7: Confirm to user
 
-```
+**MANDATORY: quote the helper's per-file change report INLINE in your reply.** Claude Code's terminal collapses long Bash tool results by default (`+N lines (ctrl+o to expand)`), so the change report the helper printed is technically visible but practically buried. To surface it, take the stdout block from the helper invocation and paste it as a fenced code block in your confirmation message. Don't summarize it; quote it verbatim. The user gets the exact section-level view of what changed without expanding anything.
+
+Format:
+
+````markdown
 ✅ Session saved (helper):
-  - Session log: Sessions/2026-03/2026-03-22-<topic>.md
-  - Sources written: 2 files under Sources/
-  - Project docs updated: Adaptivity Algorithm (structured), Renewal Storytelling (new)
-  - Personal project updated: Personal/Projects/InBloom Early Learning/overview.md
-  - current-focus.md: bumped + 1 upsert + priorities replaced
-  - Extracted: 1 decision, 2 shipping events, 1 brag entry
-  - Flagged: 1 new person (<First Last>) — confirm before creating People note?
+
+```
+<paste the entire helper stdout block here, including the per-file path lines and indented summary lines, ending with the trailing `Wrote session-end artifacts under <vault>.` line>
 ```
 
-If a fallback was needed (helper unavailable), note it in the confirmation:
+- Flagged: <if any new-person flags from extractions, repeat them here so they're visible alongside the report>
+````
+
+If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote ...` line; the in-line block is short and you can summarize separately. Default (with the change report) is the recommended mode.
+
+The block typically runs ~20-30 lines and adds ~400-600 tokens to conversation history — a fixed cost per session-end well below the ~750k-token saving versus the prose flow.
+
+If a fallback was needed (helper unavailable), note it in the confirmation. The fallback path doesn't have a structured change report, so a manual summary is fine:
 
 ```
 ✅ Session saved (prose fallback):
