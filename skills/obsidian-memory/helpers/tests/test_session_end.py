@@ -1713,3 +1713,321 @@ class TestSourceFiles:
         )
         for slug in ["src-one", "src-two", "src-three"]:
             assert (tmp_path / "Sources" / f"2026-05-09-{slug}.md").exists()
+
+
+class TestAppendIdempotency:
+    """Enrichment #2: Shipping Log and Brag Doc appends are idempotent on retry."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_shipping_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="Already shipped",
+            context="existing ctx",
+        )
+        # Build the bullet that the function would insert
+        bullet = session_end.format_shipping_bullet(entry, "2026-05-09-test")
+
+        # Pre-write the bullet into the shipping log
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        original = log_path.read_text()
+        log_path.write_text(original + bullet + "\n")
+        before = log_path.read_text()
+
+        # Call append_to_shipping_log -- should detect duplicate and skip
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        assert after == before, "File should be unchanged on idempotent retry"
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err
+
+    def test_brag_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body="already bragged about this.",
+        )
+        # Build the bullet that the function would insert
+        bullet = session_end.format_brag_bullet(entry, "2026-05-09-test")
+
+        # Pre-write the bullet into the brag doc
+        brag_path = vault / "Personal/Brag Doc.md"
+        original = brag_path.read_text()
+        brag_path.write_text(original + bullet + "\n")
+        before = brag_path.read_text()
+
+        # Call append_to_brag_doc -- should detect duplicate and skip
+        session_end.append_to_brag_doc(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+        )
+
+        after = brag_path.read_text()
+        assert after == before, "File should be unchanged on idempotent retry"
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err
+
+    def test_shipping_append_normal_when_bullet_differs(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="A fresh new entry",
+        )
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        before = log_path.read_text()
+
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        assert after != before, "A new bullet should have been appended"
+        assert "A fresh new entry" in after
+
+    def test_idempotency_doesnt_match_partial_substring(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        # Write a partial substring of what the bullet would look like into the log
+        log_path = vault / "Work/Chalktalk/Shipping Log.md"
+        original = log_path.read_text()
+        # Only a fragment of the bullet, NOT the full line
+        log_path.write_text(original + "partial fragment of the label\n")
+
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="partial fragment of the label but this is a full new bullet",
+        )
+        before = log_path.read_text()
+
+        session_end.append_to_shipping_log(
+            vault=vault,
+            entry=entry,
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+
+        after = log_path.read_text()
+        # The full bullet line differs from the fragment -- append should have happened
+        assert after != before, "A distinct bullet should have been appended"
+        captured = capsys.readouterr()
+        assert "skipped" not in captured.err
+
+
+class TestTagDedup:
+    """Enrichment #3: Frontmatter tags are deduplicated with stable (first-seen) order."""
+
+    def _minimal_manifest(self, tags):
+        return session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=tags,
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+
+    def _decision(self, tags):
+        return session_end.Decision(
+            slug="2026-05-09-test-decision",
+            title="Test",
+            owner="Mo",
+            tags=tags,
+            context="ctx",
+            options_considered="opt",
+            chosen="A",
+            reasoning="r",
+            consequences="c",
+        )
+
+    def test_session_log_tags_deduped(self):
+        manifest = self._minimal_manifest(tags=["a", "b", "a", "c", "b"])
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "tags: [a, b, c]\n" in text
+
+    def test_decision_tags_deduped(self):
+        decision = self._decision(tags=["decision", "work", "decision", "test", "work"])
+        text = session_end.render_decision_file(
+            decision,
+            source_session_wikilink="[[Sessions/2026-05/2026-05-09-test]]",
+            session_date=Date(2026, 5, 9),
+        )
+        assert "tags: [decision, work, test]\n" in text
+
+    def test_dedup_preserves_first_seen_order(self):
+        result = session_end._dedup_preserve_order(["c", "a", "c", "b", "a"])
+        assert result == ["c", "a", "b"]
+
+
+class TestProjectsTouchedConsistency:
+    """Enrichment #4: preflight warns when projects_touched and project_doc_updates disagree."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def _base_manifest(self, **overrides):
+        defaults = dict(
+            date="2026-05-09",
+            topic="ok",
+            tags=["session"],
+            last_updated_slug="2026-05-09-ok",
+            summary="x",
+            projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            project_doc_updates=[],
+            new_project_docs=[],
+        )
+        defaults.update(overrides)
+        return session_end.SessionEndManifest(**defaults)
+
+    def test_warns_when_update_missing_from_projects_touched(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    status="active",
+                ),
+            ],
+            # projects_touched is empty -- existing-project not mentioned there
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == [], "Consistency mismatch should not block the run"
+        captured = capsys.readouterr()
+        assert "existing-project" in captured.err
+        assert "not in projects_touched" in captured.err
+
+    def test_warns_when_projects_touched_missing_from_updates(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            # No project_doc_updates or new_project_docs for existing-project
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == [], "Consistency mismatch should not block the run"
+        captured = capsys.readouterr()
+        assert "existing-project" in captured.err
+        assert "no matching project_doc_updates" in captured.err
+
+    def test_no_warning_when_consistent(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    status="active",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "project_doc_updates"},
+        )
+        assert problems == []
+        captured = capsys.readouterr()
+        # No consistency warnings
+        assert "not in projects_touched" not in captured.err
+        assert "no matching project_doc_updates" not in captured.err
+
+    def test_categories_distinguished(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        # projects_touched has (existing-project, work), new_project_docs has (existing-project, personal).
+        # The (slug, category) tuples differ so both directions should warn.
+        # Use new_project_docs to avoid the project_doc_updates file-existence preflight check.
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(
+                    slug="existing-project",
+                    note="work project",
+                    category="work",
+                ),
+            ],
+            new_project_docs=[
+                session_end.NewProjectDoc(
+                    slug="existing-project",
+                    category="personal",  # different category -- (slug, category) tuples differ
+                    frontmatter={"type": "project", "status": "active"},
+                    body="New personal project.",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"session_log", "new_project_docs"},
+        )
+        assert problems == [], "Category mismatch should be a warning, not a blocker"
+        captured = capsys.readouterr()
+        # Both directions warn: update not in touched, touched not in updates
+        assert "not in projects_touched" in captured.err
+        assert "no matching project_doc_updates" in captured.err
+
+    def test_no_warning_when_session_log_section_excluded(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        manifest = self._base_manifest(
+            projects_touched=[
+                session_end.ProjectTouched(slug="existing-project", note="did work"),
+            ],
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="existing-project",
+                    category="personal",  # intentionally inconsistent
+                    status="active",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            sections={"extractions"},  # session_log not included -- check should not run
+        )
+        assert problems == []
+        captured = capsys.readouterr()
+        assert "not in projects_touched" not in captured.err
+        assert "no matching project_doc_updates" not in captured.err

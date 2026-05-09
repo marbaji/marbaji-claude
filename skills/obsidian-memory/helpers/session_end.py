@@ -25,6 +25,17 @@ DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
 _SLUG_RE_COMPILED = re.compile(SLUG_RE)
 
 
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    """Return items deduplicated, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
 def _validate_slug_for_category(slug: str, category: str) -> str:
     """Validate slug based on category.
 
@@ -229,7 +240,7 @@ class SessionEndManifest(BaseModel):
 
 def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
     """Render the full session-log markdown text from the manifest."""
-    tags_inline = "[" + ", ".join(manifest.tags) + "]"
+    tags_inline = "[" + ", ".join(_dedup_preserve_order(manifest.tags)) + "]"
 
     lines: list[str] = [
         "---",
@@ -413,7 +424,7 @@ def render_decision_file(
         lines.append(f'supersedes: "{decision.supersedes}"')
     else:
         lines.append("supersedes:")
-    tags_inline = "[" + ", ".join(decision.tags) + "]"
+    tags_inline = "[" + ", ".join(_dedup_preserve_order(decision.tags)) + "]"
     lines.append(f"tags: {tags_inline}")
     lines.append("---")
     lines.append("")
@@ -499,6 +510,13 @@ def append_to_shipping_log(
             heading_idx = i
             break
 
+    if bullet in lines:
+        print(
+            f"warning: shipping bullet already present at {log_path}; skipped (idempotent retry)",
+            file=sys.stderr,
+        )
+        return
+
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
         new_block = [target_heading, bullet, ""]
@@ -537,6 +555,13 @@ def append_to_brag_doc(
         if line.strip() == target_heading:
             heading_idx = i
             break
+
+    if bullet in lines:
+        print(
+            f"warning: brag bullet already present at {log_path}; skipped (idempotent retry)",
+            file=sys.stderr,
+        )
+        return
 
     if heading_idx is None:
         insert_idx = _find_first_h2(lines)
@@ -958,6 +983,30 @@ def preflight_validate(
                 problems.append(
                     f"extractions.brag: target missing at {brag_path}"
                 )
+
+    # Cross-section consistency: warn when projects_touched and project_doc_updates/new_project_docs disagree.
+    # These are warnings only -- they do not block the run (not added to problems).
+    if "session_log" in sections and (
+        "project_doc_updates" in sections or "new_project_docs" in sections
+    ):
+        touched = {(p.slug, p.category) for p in manifest.projects_touched}
+        updated = (
+            {(u.slug, u.category) for u in manifest.project_doc_updates}
+            | {(d.slug, d.category) for d in manifest.new_project_docs}
+        )
+        for slug, category in sorted(updated - touched):
+            print(
+                f"warning: slug {slug!r} ({category}) in project_doc_updates/new_project_docs "
+                f"but not in projects_touched; the session log Projects Touched section won't mention it.",
+                file=sys.stderr,
+            )
+        for slug, category in sorted(touched - updated):
+            print(
+                f"warning: slug {slug!r} ({category}) in projects_touched but no matching "
+                f"project_doc_updates or new_project_docs; the session log will reference a project "
+                f"that won't be updated.",
+                file=sys.stderr,
+            )
 
     return problems
 
