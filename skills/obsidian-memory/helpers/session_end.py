@@ -530,6 +530,53 @@ def process_focus_updates(
     path.write_text(frontmatter + new_body)
 
 
+def write_decision_files(
+    vault: Path,
+    decisions: list[Decision],
+    session_date: Date,
+    session_log_filename: str,
+    org_name: str = "Chalktalk",
+) -> None:
+    """Write each Decision file.
+
+    Dedupe and collision detection both key on the resolved output path, not the
+    raw slug. Two slugs that map to the same destination (e.g. `foo` and
+    `2026-05-09-foo` for a 2026-05-09 session) are reconciled BEFORE any write,
+    with the LATER occurrence winning. This prevents input-order-dependent data
+    loss (Codex adversarial-review finding #3, 2026-05-09).
+    """
+    yyyy_mm = session_date.strftime("%Y-%m")
+    source_session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+
+    # Canonicalize: dict keyed by resolved path; later entries replace earlier.
+    seen: dict[str, Decision] = {}
+    for decision in decisions:
+        resolved = decision_file_path(decision, session_date, org_name)
+        if resolved in seen and seen[resolved].slug != decision.slug:
+            print(
+                f"warning: decisions {seen[resolved].slug!r} and {decision.slug!r} "
+                f"both resolve to {resolved}; later occurrence wins",
+                file=sys.stderr,
+            )
+        elif resolved in seen:
+            print(
+                f"warning: duplicate decision slug {decision.slug!r} in same run; second wins",
+                file=sys.stderr,
+            )
+        seen[resolved] = decision
+
+    for resolved, decision in seen.items():
+        path = vault / resolved
+        if path.exists():
+            print(
+                f"warning: decision file {path} already exists; skipped (no overwrite)",
+                file=sys.stderr,
+            )
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_decision_file(decision, source_session_link, session_date))
+
+
 def resolve_vault_path(arg: Optional[Path], home: Path) -> Optional[Path]:
     """Resolve vault path from --vault-path arg, then config files under ~/.claude/.
 

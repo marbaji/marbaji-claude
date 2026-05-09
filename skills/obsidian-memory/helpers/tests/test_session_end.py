@@ -432,3 +432,110 @@ class TestCurrentFocusUpdates:
         text = (vault / "Context/current-focus.md").read_text()
         assert "last-updated: 2026-05-09-test" in text
         assert "last-updated: 2026-04-30-old-session" not in text
+
+
+class TestDecisionExtraction:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_writes_decision_file(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        decision = session_end.Decision(
+            slug="2026-05-09-foo",
+            title="Foo Decision",
+            owner="[[Work/Chalktalk/People/Mo Arbaji]]",
+            stakeholders=["[[Work/Chalktalk/People/Mo Arbaji]]"],
+            tags=["decision"],
+            context="Why.",
+            options_considered="1. A.\n2. B.",
+            chosen="**A**",
+            reasoning="- Clearer.",
+            consequences="- Implies X.",
+        )
+        session_end.write_decision_files(
+            vault=vault,
+            decisions=[decision],
+            session_date=Date(2026, 5, 9),
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        path = vault / "Work/Chalktalk/Decisions/2026-05-09-foo.md"
+        assert path.exists()
+        text = path.read_text()
+        assert "type: decision" in text
+        assert "[[Sessions/2026-05/2026-05-09-test]]" in text
+
+    def test_existing_file_skipped_with_warning(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        existing = vault / "Work/Chalktalk/Decisions/2026-05-09-foo.md"
+        existing.parent.mkdir(parents=True, exist_ok=True)
+        existing.write_text("---\nexisting: true\n---\n")
+        decision = session_end.Decision(
+            slug="2026-05-09-foo",
+            title="Foo Decision",
+            owner="[[Work/Chalktalk/People/Mo Arbaji]]",
+            tags=["decision"],
+            context="x",
+            options_considered="x",
+            chosen="x",
+            reasoning="x",
+            consequences="x",
+        )
+        session_end.write_decision_files(
+            vault=vault,
+            decisions=[decision],
+            session_date=Date(2026, 5, 9),
+            session_log_filename="2026-05-09-test",
+            org_name="Chalktalk",
+        )
+        assert existing.read_text() == "---\nexisting: true\n---\n"
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err.lower() or "exists" in captured.err.lower()
+
+    def test_duplicate_slug_in_same_run_second_wins_with_warning(self, tmp_path, capsys):
+        vault = self._setup_vault(tmp_path)
+        d1 = session_end.Decision(
+            slug="2026-05-09-foo", title="First", owner="x", tags=["decision"],
+            context="x", options_considered="x", chosen="x", reasoning="x", consequences="x",
+        )
+        d2 = session_end.Decision(
+            slug="2026-05-09-foo", title="Second", owner="x", tags=["decision"],
+            context="x", options_considered="x", chosen="x", reasoning="x", consequences="x",
+        )
+        session_end.write_decision_files(
+            vault=vault, decisions=[d1, d2],
+            session_date=Date(2026, 5, 9),
+            session_log_filename="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Work/Chalktalk/Decisions/2026-05-09-foo.md").read_text()
+        assert "# Second" in text
+        captured = capsys.readouterr()
+        assert "duplicate" in captured.err.lower() or "second" in captured.err.lower()
+
+    def test_dated_and_undated_slugs_resolving_same_path_reconcile(self, tmp_path, capsys):
+        # Codex adversarial-review finding #3: dedupe must canonicalize on resolved path.
+        # `foo` and `2026-05-09-foo` both resolve to 2026-05-09-foo.md; the LATER one wins
+        # before any write happens, not after a stale "file exists" skip on the second.
+        vault = self._setup_vault(tmp_path)
+        d_undated = session_end.Decision(
+            slug="foo", title="Undated", owner="x", tags=["decision"],
+            context="x", options_considered="x", chosen="x", reasoning="x", consequences="x",
+        )
+        d_dated = session_end.Decision(
+            slug="2026-05-09-foo", title="Dated Wins", owner="x", tags=["decision"],
+            context="x", options_considered="x", chosen="x", reasoning="x", consequences="x",
+        )
+        session_end.write_decision_files(
+            vault=vault, decisions=[d_undated, d_dated],
+            session_date=Date(2026, 5, 9),
+            session_log_filename="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Work/Chalktalk/Decisions/2026-05-09-foo.md").read_text()
+        # Later entry (d_dated, "Dated Wins") survives, regardless of slug form
+        assert "# Dated Wins" in text
+        assert "# Undated" not in text
+        captured = capsys.readouterr()
+        assert "resolve" in captured.err.lower()
