@@ -200,6 +200,7 @@ class FocusUpdates(BaseModel):
     remove: list[str] = Field(default_factory=list)
     upsert: list[FocusUpsert] = Field(default_factory=list)
     move_to_complete: list[str] = Field(default_factory=list)
+    priorities: Optional[str] = None  # if set, replaces body of ## Priorities verbatim
 
 
 class SessionEndManifest(BaseModel):
@@ -748,6 +749,23 @@ def process_focus_updates(
                 lines.extend(["", "## Active Projects", *new_block])
             else:
                 lines[active_idx + 1 : active_idx + 1] = ["", *new_block]
+
+    # 4. Priorities
+    if updates.priorities is not None:
+        _RE_PRIORITIES = re.compile(r"^## Priorities\s*$")
+        result = _find_h2_section(lines, _RE_PRIORITIES)
+        new_prio_lines = updates.priorities.splitlines()
+        # Ensure section body ends with a trailing blank line
+        if new_prio_lines and new_prio_lines[-1] != "":
+            new_prio_lines.append("")
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_prio_lines
+        else:
+            # Append section at end of body
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend(["## Priorities", *new_prio_lines])
 
     new_body = "\n".join(lines)
     if not new_body.endswith("\n"):

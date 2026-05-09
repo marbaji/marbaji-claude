@@ -18,3 +18,8 @@ tags: [focus]
 
 ### [[Work/Chalktalk/Projects/legacy]] ✅
 Old completed project.
+
+## Priorities
+1. Ship the helper
+2. Wait for CodeRabbit
+3. Phase 2 ritual rewrite
