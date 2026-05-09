@@ -718,7 +718,119 @@ def run(
     dry_run: bool,
     sections: set[str],
 ) -> int:
-    """Stub for now; filled in by Task 11."""
+    """Orchestrate all writes per the manifest. Returns process exit code.
+
+    Preflight runs first (Codex adversarial-review finding #4): every target the
+    active sections will touch is validated, and if anything is wrong (missing
+    project doc for an update, collision for a new project doc, etc.) the helper
+    aborts with exit 2 BEFORE any write happens. This makes runs all-or-nothing
+    in the common-failure case so retries with a fixed manifest don't duplicate
+    appends.
+    """
+    session_log_filename = f"{manifest.date.isoformat()}-{manifest.topic}"
+
+    if dry_run:
+        print(f"[dry-run] would render to vault: {vault}")
+        print(f"[dry-run] sections to run: {sorted(sections)}")
+
+    # Preflight: surface every problem before mutating the vault.
+    problems = preflight_validate(
+        manifest=manifest, vault=vault, org_name=org_name, sections=sections,
+    )
+    if problems:
+        print("error: preflight validation failed; no writes performed.", file=sys.stderr)
+        for p in problems:
+            print(f"  - {p}", file=sys.stderr)
+        return 2
+
+    try:
+        if "session_log" in sections:
+            log_text = render_session_log(manifest, org_name)
+            log_path = vault / session_log_path(manifest)
+            if dry_run:
+                print(f"[dry-run] would write session_log: {log_path} ({len(log_text)} chars)")
+            else:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.write_text(log_text)
+
+        if "extractions" in sections:
+            if manifest.extractions.decisions:
+                if dry_run:
+                    for d in manifest.extractions.decisions:
+                        path = vault / decision_file_path(d, manifest.date, org_name)
+                        print(f"[dry-run] would write decision: {path}")
+                else:
+                    write_decision_files(
+                        vault=vault,
+                        decisions=manifest.extractions.decisions,
+                        session_date=manifest.date,
+                        session_log_filename=session_log_filename,
+                        org_name=org_name,
+                    )
+
+            for entry in manifest.extractions.shipping_log:
+                if dry_run:
+                    print(f"[dry-run] would append shipping bullet: {entry.label}")
+                else:
+                    append_to_shipping_log(
+                        vault=vault, entry=entry,
+                        session_log_filename=session_log_filename,
+                        org_name=org_name,
+                    )
+
+            for entry in manifest.extractions.brag:
+                if dry_run:
+                    print(f"[dry-run] would append brag bullet: {entry.body[:40]}...")
+                else:
+                    append_to_brag_doc(
+                        vault=vault, entry=entry,
+                        session_log_filename=session_log_filename,
+                    )
+
+            for person in manifest.extractions.new_people:
+                print(f"NEW PERSON FLAG: {person.name} — {person.why_flagged}")
+                print("  (Helper does not auto-create People notes; create manually.)")
+
+        if "project_doc_updates" in sections:
+            for upd in manifest.project_doc_updates:
+                if dry_run:
+                    print(f"[dry-run] would append section to project: {upd.slug}")
+                else:
+                    append_to_project_doc(vault=vault, update=upd, org_name=org_name)
+
+        if "new_project_docs" in sections:
+            for doc in manifest.new_project_docs:
+                if dry_run:
+                    print(f"[dry-run] would create new project: {doc.slug}")
+                else:
+                    write_new_project_doc(vault=vault, doc=doc, org_name=org_name)
+
+        if "focus_updates" in sections:
+            if dry_run:
+                upsert_slugs = [u.slug for u in manifest.focus_updates.upsert]
+                print(
+                    f"[dry-run] would update current-focus.md "
+                    f"(remove={list(manifest.focus_updates.remove)}, "
+                    f"upsert={upsert_slugs}, "
+                    f"move_to_complete={list(manifest.focus_updates.move_to_complete)})"
+                )
+            else:
+                process_focus_updates(
+                    vault=vault,
+                    updates=manifest.focus_updates,
+                    last_updated_slug=manifest.last_updated_slug,
+                    org_name=org_name,
+                )
+
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except FileExistsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    if not dry_run:
+        print(f"Wrote session-end artifacts under {vault}.")
     return 0
 
 

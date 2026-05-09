@@ -1,0 +1,60 @@
+date: 2026-05-09
+topic: full-example
+tags: [session, work/chalktalk]
+last_updated_slug: 2026-05-09-full-example
+summary: |
+  Full-coverage manifest for end-to-end testing.
+
+projects_touched:
+  - slug: existing-project
+    note: bumped status
+
+streams:
+  - title: "Stream 1: Did stuff"
+    body: "Body of stream 1."
+
+key_decisions: |
+  - Picked Option A.
+
+learnings: |
+  - Learned X.
+
+files_modified:
+  chalktalk:
+    - sha: abc1234
+      message: "feat: thing"
+
+next_steps: |
+  - Next: Y.
+
+extractions:
+  decisions:
+    - slug: 2026-05-09-test-decision
+      title: Test Decision
+      owner: "[[Work/Chalktalk/People/Mo Arbaji]]"
+      stakeholders: ["[[Work/Chalktalk/People/Mo Arbaji]]"]
+      tags: [decision, test]
+      context: "Why."
+      options_considered: "1. A.\n2. B."
+      chosen: "**A**"
+      reasoning: "- Clearer."
+      consequences: "- Implies X."
+  shipping_log:
+    - date: 2026-05-09
+      label: "shipped thing"
+      context: "context"
+  brag:
+    - quarter: "2026 Q2"
+      date: 2026-05-09
+      body: "did the thing"
+
+project_doc_updates:
+  - slug: existing-project
+    section_title: "Today's work"
+    section_date: 2026-05-09
+    body: "Did the work."
+
+focus_updates:
+  upsert:
+    - slug: existing-project
+      status_line: "**🟢 Existing project active.** Today's update."

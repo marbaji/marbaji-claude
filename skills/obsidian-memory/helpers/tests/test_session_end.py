@@ -638,6 +638,46 @@ class TestPreflightValidation:
         assert problems == []
 
 
+class TestEndToEnd:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_full_run_writes_all_artifacts(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+
+        session_log = vault / "Sessions/2026-05/2026-05-09-full-example.md"
+        assert session_log.exists()
+        log_text = session_log.read_text()
+        assert "## Summary" in log_text
+        assert "Body of stream 1." in log_text
+
+        decision = vault / "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
+        assert decision.exists()
+        assert "type: decision" in decision.read_text()
+
+        shipping = (vault / "Work/Chalktalk/Shipping Log.md").read_text()
+        assert "shipped thing" in shipping
+
+        brag = (vault / "Personal/Brag Doc.md").read_text()
+        assert "did the thing" in brag
+
+        proj = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
+        assert "## 2026-05-09 — Today's work" in proj
+
+        focus = (vault / "Context/current-focus.md").read_text()
+        assert "🟢 Existing project active." in focus
+        assert "last-updated: 2026-05-09-full-example" in focus
+
+
 class TestCLI:
     VALID_SECTIONS = {
         "session_log", "extractions", "project_doc_updates",
