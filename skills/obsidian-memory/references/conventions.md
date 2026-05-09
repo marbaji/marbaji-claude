@@ -27,12 +27,15 @@ source ~/.zshrc
 If vault not found:
 ```bash
 obsidian vaults  # List all vaults
-cat ~/.claude/obsidian-vault-name  # Check configured vault name
+cat ~/.claude/obsidian-vault-path 2>/dev/null  # Check configured vault path (canonical, post-2026-05)
+cat ~/.claude/obsidian-vault-name 2>/dev/null  # Legacy fallback (pre-2026-05 setups)
 ```
 
-To reconfigure vault:
+To reconfigure vault — remove BOTH config files so the setup wizard runs cleanly:
 ```bash
-rm ~/.claude/obsidian-vault-name
+rm -f ~/.claude/obsidian-vault-path ~/.claude/obsidian-vault-name
+# Optionally also reset the org name:
+# rm -f ~/.claude/obsidian-org-name
 # Then invoke the skill again — setup flow will run
 ```
 

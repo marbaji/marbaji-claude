@@ -8,11 +8,13 @@
 
 Look at what was worked on during the session. For each distinct project touched, determine:
 - **Project name**: Short, descriptive name
-- **Category**: `Work/Chalktalk/Projects` (ChalkTalk) or `Personal/Projects/<SubfolderName>`
+- **Category**: `Work/$ORG_NAME/Projects` (your configured org) or `Personal/Projects/<SubfolderName>`
 - **Status**: `active`, `ongoing`, `complete`, `blocked`
 - Whether a project doc already exists
 
-**Default category is ChalkTalk** (`Work/Chalktalk/Projects`). Only use `Personal/Projects` for clearly personal work (InBloom, side projects, non-ChalkTalk).
+`$ORG_NAME` is read from `~/.claude/obsidian-org-name` (defaults to `Chalktalk` for back-compat with pre-2026-05 setups). Resolve once at session start and use throughout this ritual.
+
+**Default category is your configured org** (`Work/$ORG_NAME/Projects`). Only use `Personal/Projects` for clearly personal work (side projects, non-work projects).
 
 ## Step 2: Present summary for approval
 
@@ -46,7 +48,7 @@ For each approved project:
 **If no project doc exists** → create one:
 ```bash
 obsidian create \
-  path="Work/Chalktalk/Projects/<project-name>.md" \
+  path="Work/$ORG_NAME/Projects/<project-name>.md" \
   content="<generated-project-doc>" \
   vault="<VAULT_NAME>"
 ```
@@ -72,7 +74,7 @@ Read current-focus.md, then rewrite it to reflect reality:
 - Move completed projects to Complete section with ✅
 - Update one-line descriptions if they've changed
 - Update priorities list
-- Use wikilinks: `[[Work/Chalktalk/Projects/project-name|Display Name]]`
+- Use wikilinks: `[[Work/$ORG_NAME/Projects/project-name|Display Name]]`
 
 Write the updated file directly (the `obsidian update` command doesn't exist — use the Write tool on the vault path).
 
@@ -100,8 +102,8 @@ tags: [session, work/chalktalk]
 What we set out to do and what we accomplished (2-4 sentences).
 
 ## Projects Touched
-- [[Work/Chalktalk/Projects/project-name|Project Name]] — what was done
-- [[Personal/Projects/InBloom/overview|InBloom]] — what was done
+- [[Work/$ORG_NAME/Projects/project-name|Project Name]] — what was done
+- [[Personal/Projects/<SubfolderName>/overview|<Project Name>]] — what was done
 
 ## What We Did
 Walkthrough of the work in the order it happened. Include:

@@ -45,6 +45,12 @@ if [[ -z "$VAULT_PATH" ]]; then
   [[ -n "$VAULT_NAME" ]] && VAULT_PATH="$HOME/Documents/$VAULT_NAME"
 fi
 
+# Refuse to run if neither config file is set — otherwise qmd silently indexes cwd.
+if [[ -z "$VAULT_PATH" ]]; then
+  echo "Error: vault not configured. Run obsidian-memory setup first (no ~/.claude/obsidian-vault-path or ~/.claude/obsidian-vault-name found)." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 qmd collection add "$VAULT_PATH" --name obsidian-memory
 ```
 

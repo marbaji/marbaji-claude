@@ -64,11 +64,14 @@ Once they provide the path:
    you don't have one — I'll use Personal.
    ```
 
-   Then save it:
+   Then save the user's answer. **Substitute the actual value** the user gave you (or "Personal" if they said skip / hit enter):
+
    ```bash
-   ORG_NAME="${ORG_NAME:-Personal}"  # the value the user provided, or Personal
+   ORG_NAME="<the org name the user gave, or 'Personal' if they skipped>"  # e.g. "Acme", "Stripe", "Personal"
    echo "$ORG_NAME" > ~/.claude/obsidian-org-name
    ```
+
+   The placeholder is intentional — do not run the snippet verbatim. The bash `${VAR:-default}` form would silently default to "Personal" because `ORG_NAME` is not set in this shell context. Substitute the literal string before running.
 
 4. **Create the folder structure** the skill expects, parameterized by org name so adopters get their own folders (not "Chalktalk"):
    ```bash
