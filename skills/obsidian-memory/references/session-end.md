@@ -163,23 +163,25 @@ On exit 0, the helper prints a per-file change report showing what each mutator 
 
 ## Step 7: Confirm to user
 
-**MANDATORY: quote the helper's per-file change report INLINE in your reply.** Claude Code's terminal collapses long Bash tool results by default (`+N lines (ctrl+o to expand)`), so the change report the helper printed is technically visible but practically buried. To surface it, take the stdout block from the helper invocation and paste it as a fenced code block in your confirmation message. Don't summarize it; quote it verbatim. The user gets the exact section-level view of what changed without expanding anything.
+**MANDATORY: quote the helper's per-file change report INLINE in your reply, wrapped in a `diff`-fenced code block.** Claude Code's terminal collapses long Bash tool results by default (`+N lines (ctrl+o to expand)`), so the change report the helper printed is technically visible but practically buried. To surface it AND get red/green coloring on the `- ` and `+ ` lines, paste the helper's stdout into a triple-backtick code block tagged `diff`. Don't summarize the block; quote it verbatim. The user gets the exact section-level view of what changed, in color, without expanding anything.
 
 Format:
 
 ````markdown
 ✅ Session saved (helper):
 
-```
-<paste the entire helper stdout block here, including the per-file path lines and indented summary lines, ending with the trailing `Wrote session-end artifacts under <vault>.` line>
+```diff
+<paste the entire helper stdout block here, including the per-file path lines, the operation header lines, the `- ` removed lines, the `+ ` added lines, and the trailing `Wrote session-end artifacts under <vault>.` line>
 ```
 
 - Flagged: <if any new-person flags from extractions, repeat them here so they're visible alongside the report>
 ````
 
+The `diff` language tag is what triggers the markdown renderer to color `- ` lines red and `+ ` lines green. Without it the block renders as plain monospaced text.
+
 If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote ...` line; the in-line block is short and you can summarize separately. Default (with the change report) is the recommended mode.
 
-The block typically runs ~20-30 lines and adds ~400-600 tokens to conversation history — a fixed cost per session-end well below the ~750k-token saving versus the prose flow.
+The block typically runs ~50-80 lines / ~1.5-2k tokens of conversation history per session-end (depends on how much content gets replaced or appended), which is a fixed cost well below the ~30k-token cost of the prose flow's 8-12 echoed Read/Edit/Write tool calls.
 
 If a fallback was needed (helper unavailable), note it in the confirmation. The fallback path doesn't have a structured change report, so a manual summary is fine:
 
