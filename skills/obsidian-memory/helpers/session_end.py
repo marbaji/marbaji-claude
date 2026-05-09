@@ -14,19 +14,57 @@ import re
 import sys
 from datetime import date as Date
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+_SLUG_RE_COMPILED = re.compile(SLUG_RE)
+
+
+def _validate_slug_for_category(slug: str, category: str) -> str:
+    """Validate slug based on category.
+
+    work: must match SLUG_RE (kebab-case lowercase).
+    personal: any non-empty string; no leading/trailing whitespace, no '/' or newlines.
+    """
+    if category == "personal":
+        if not slug or slug != slug.strip() or "/" in slug or "\n" in slug:
+            raise ValueError(
+                f"personal slug must be non-empty, no leading/trailing whitespace, "
+                f"no '/' or newline characters; got {slug!r}"
+            )
+    else:
+        if not _SLUG_RE_COMPILED.match(slug):
+            raise ValueError(
+                f"work slug must match {SLUG_RE}; got {slug!r}"
+            )
+    return slug
+
+
+def project_doc_path(slug: str, category: str, org_name: str) -> str:
+    """Return the vault-relative path for a project doc.
+
+    work:     Work/{org_name}/Projects/{slug}.md
+    personal: Personal/Projects/{slug}/overview.md
+    """
+    if category == "personal":
+        return f"Personal/Projects/{slug}/overview.md"
+    return f"Work/{org_name}/Projects/{slug}.md"
 
 
 class ProjectTouched(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     note: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "ProjectTouched":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class Stream(BaseModel):
@@ -92,20 +130,70 @@ class FilesModified(BaseModel):
 class Source(BaseModel):
     url: str
     title: str
+    slug: str = Field(pattern=SLUG_RE)
+    type: Literal["article", "github-gist", "video", "documentation", "social-post", "tool"]
+    tags: list[str] = Field(default_factory=list)
+    summary: str
+    takeaways: list[str] = Field(default_factory=list)
     why: str
 
 
-class ProjectDocUpdate(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
-    section_title: str
-    section_date: Date
+class RecentActivityEntry(BaseModel):
+    date: Date
+    title: str
     body: str
+
+
+class ProjectDocUpdate(BaseModel):
+    slug: str
+    category: Literal["work", "personal"] = "work"
+
+    # Structured updates (matching prose ritual). All optional.
+    status: Optional[str] = None
+    recent_activity: Optional[RecentActivityEntry] = None
+    next_steps: Optional[str] = None
+    related_session: Optional[str] = None
+
+    # Legacy free-form append (back-compat with existing manifests).
+    section_title: Optional[str] = None
+    section_date: Optional[Date] = None
+    body: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_slug_and_fields(self) -> "ProjectDocUpdate":
+        _validate_slug_for_category(self.slug, self.category)
+
+        has_structured = any(
+            v is not None
+            for v in (self.status, self.recent_activity, self.next_steps, self.related_session)
+        )
+        legacy_fields = (self.section_title, self.section_date, self.body)
+        has_any_legacy = any(v is not None for v in legacy_fields)
+        has_all_legacy = all(v is not None for v in legacy_fields)
+
+        if has_any_legacy and not has_all_legacy:
+            raise ValueError(
+                "legacy free-form append requires section_title, section_date, AND body together"
+            )
+
+        if not has_structured and not has_all_legacy:
+            raise ValueError(
+                "ProjectDocUpdate requires at least one update field"
+            )
+
+        return self
 
 
 class NewProjectDoc(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     frontmatter: dict
     body: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "NewProjectDoc":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class FocusUpsert(BaseModel):
@@ -117,6 +205,7 @@ class FocusUpdates(BaseModel):
     remove: list[str] = Field(default_factory=list)
     upsert: list[FocusUpsert] = Field(default_factory=list)
     move_to_complete: list[str] = Field(default_factory=list)
+    priorities: Optional[str] = None  # if set, replaces body of ## Priorities verbatim
 
 
 class SessionEndManifest(BaseModel):
@@ -156,7 +245,11 @@ def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
         "## Projects Touched",
     ]
     for proj in manifest.projects_touched:
-        lines.append(f"- [[Work/{org_name}/Projects/{proj.slug}]] — {proj.note}")
+        if proj.category == "personal":
+            wikilink = f"[[Personal/Projects/{proj.slug}/overview|{proj.slug}]]"
+        else:
+            wikilink = f"[[Work/{org_name}/Projects/{proj.slug}]]"
+        lines.append(f"- {wikilink} — {proj.note}")
     lines.append("")
 
     lines.append("## What We Did")
@@ -201,7 +294,8 @@ def render_session_log(manifest: SessionEndManifest, org_name: str) -> str:
     if manifest.sources_captured:
         lines.append("## Sources Captured")
         for src in manifest.sources_captured:
-            lines.append(f"- [{src.title}]({src.url}) — {src.why}")
+            link = f"[[Sources/{manifest.date.isoformat()}-{src.slug}|{src.title}]]"
+            lines.append(f"- {link} — {src.why}")
         lines.append("")
 
     lines.append("## Next Steps")
@@ -215,6 +309,66 @@ def session_log_path(manifest: SessionEndManifest) -> str:
     """Vault-relative path for the session log."""
     yyyy_mm = manifest.date.strftime("%Y-%m")
     return f"Sessions/{yyyy_mm}/{manifest.date.isoformat()}-{manifest.topic}.md"
+
+
+def render_source_file(source: Source, session_date: Date, session_log_filename: str) -> str:
+    """Render the markdown text for a Sources/ file matching the template."""
+    yyyy_mm = session_date.strftime("%Y-%m")
+    tags_inline = "[" + ", ".join(source.tags) + "]"
+
+    lines: list[str] = [
+        "---",
+        f"date: {session_date.isoformat()}",
+        f"url: {source.url}",
+        f"type: {source.type}",
+        f"tags: {tags_inline}",
+        "---",
+        "",
+        f"# {source.title}",
+        "",
+        "## Summary",
+        source.summary.rstrip(),
+        "",
+        "## Takeaways",
+    ]
+    for takeaway in source.takeaways:
+        lines.append(f"- {takeaway}")
+    lines.append("")
+    lines.append("## Context")
+    lines.append(f"Discussed in [[Sessions/{yyyy_mm}/{session_log_filename}]]")
+    lines.append(source.why.rstrip())
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def source_file_path(source: Source, session_date: Date) -> str:
+    """Return vault-relative path for a Source file: Sources/YYYY-MM-DD-<slug>.md."""
+    return f"Sources/{session_date.isoformat()}-{source.slug}.md"
+
+
+def write_source_files(
+    vault: Path,
+    sources: list[Source],
+    session_date: Date,
+    session_log_filename: str,
+) -> None:
+    """Write each Source file into vault Sources/ directory.
+
+    Skips (with stderr warning) if the file already exists. Does not raise on
+    collision, matching the Decision-file behavior.
+    """
+    for source in sources:
+        rel_path = source_file_path(source, session_date)
+        path = vault / rel_path
+        if path.exists():
+            print(
+                f"warning: source file {path} already exists; skipped (no overwrite)",
+                file=sys.stderr,
+            )
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_source_file(source, session_date, session_log_filename))
 
 
 def decision_file_path(decision: Decision, session_date: Date, org_name: str = "Chalktalk") -> str:
@@ -304,6 +458,24 @@ def _find_first_h2(lines: list[str]) -> int:
     return len(lines)
 
 
+def _find_h2_section(
+    lines: list[str], heading_re: re.Pattern[str]
+) -> Optional[tuple[int, int]]:
+    """Find a section by heading regex. Returns (heading_idx, body_end_idx_exclusive).
+
+    body_end_idx is the index of the next ``## `` heading or len(lines).
+    """
+    for i, line in enumerate(lines):
+        if heading_re.match(line):
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].startswith("## "):
+                    end = j
+                    break
+            return (i, end)
+    return None
+
+
 def append_to_shipping_log(
     vault: Path,
     entry: ShippingEntry,
@@ -376,13 +548,27 @@ def append_to_brag_doc(
     log_path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""))
 
 
+_RE_STATUS = re.compile(r"^## Status\s*$")
+_RE_RECENT = re.compile(r"^## Recent (?:activity|Work)\s*$", re.IGNORECASE)
+_RE_NEXT_STEPS = re.compile(r"^## Next [Ss]teps\s*$")
+_RE_RELATED_SESSIONS = re.compile(r"^## Related Sessions\s*$")
+
+
 def append_to_project_doc(
     vault: Path,
     update: ProjectDocUpdate,
     org_name: str = "Chalktalk",
 ) -> None:
-    """Append a dated section to an existing project doc."""
-    path = vault / f"Work/{org_name}/Projects/{update.slug}.md"
+    """Apply structured and/or legacy updates to an existing project doc.
+
+    Operations run in deterministic order:
+      1. status         -- replace body of ## Status
+      2. recent_activity -- prepend entry under ## Recent activity, trim to 3
+      3. next_steps     -- replace body of ## Next Steps
+      4. related_session -- append bullet to ## Related Sessions
+      5. legacy (section_title + section_date + body) -- append ## YYYY-MM-DD — title at end
+    """
+    path = vault / project_doc_path(update.slug, update.category, org_name)
     if not path.exists():
         raise FileNotFoundError(
             f"Project doc not found at {path}. "
@@ -390,13 +576,113 @@ def append_to_project_doc(
         )
 
     text = path.read_text()
-    section = (
-        f"\n## {update.section_date.isoformat()} — {update.section_title}\n"
-        f"{update.body.rstrip()}\n"
-    )
-    if not text.endswith("\n"):
-        text += "\n"
-    path.write_text(text + section)
+    lines = text.splitlines()
+
+    # 1. Status
+    if update.status is not None:
+        result = _find_h2_section(lines, _RE_STATUS)
+        new_body_lines = [update.status.rstrip(), ""]
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_body_lines
+        else:
+            # Append at end
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Status", *new_body_lines])
+
+    # 2. Recent activity
+    if update.recent_activity is not None:
+        ra = update.recent_activity
+        new_entry_lines = [
+            f"### {ra.date.isoformat()} — {ra.title}",
+            ra.body.rstrip(),
+            "",
+        ]
+        result = _find_h2_section(lines, _RE_RECENT)
+        if result is not None:
+            heading_idx, body_end = result
+            # Insert new entry right after the heading (and its blank line if present)
+            insert_at = heading_idx + 1
+            # Skip a single blank line immediately after the heading, if present
+            if insert_at < body_end and lines[insert_at].strip() == "":
+                insert_at += 1
+            lines[insert_at:insert_at] = new_entry_lines
+
+            # Recompute body_end after insertion
+            new_body_end = body_end + len(new_entry_lines)
+
+            # Count ### headings in the section
+            h3_indices = [
+                i for i in range(heading_idx + 1, new_body_end)
+                if i < len(lines) and lines[i].startswith("### ")
+            ]
+            if len(h3_indices) > 3:
+                # Drop oldest entries (those lower in the section, beyond index 3)
+                # Find the start of the 4th (0-indexed: [3]) h3 entry
+                drop_from = h3_indices[3]
+                # Find end of section (next ## or end of file)
+                drop_to = len(lines)
+                for j in range(drop_from, len(lines)):
+                    if j != drop_from and lines[j].startswith("## "):
+                        drop_to = j
+                        break
+                del lines[drop_from:drop_to]
+        else:
+            # Append new section at end
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([
+                f"## Recent activity",
+                "",
+                *new_entry_lines,
+            ])
+
+    # 3. Next Steps
+    if update.next_steps is not None:
+        result = _find_h2_section(lines, _RE_NEXT_STEPS)
+        new_body_lines = [update.next_steps.rstrip(), ""]
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_body_lines
+        else:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Next Steps", *new_body_lines])
+
+    # 4. Related Sessions
+    if update.related_session is not None:
+        bullet = f"- {update.related_session}"
+        result = _find_h2_section(lines, _RE_RELATED_SESSIONS)
+        if result is not None:
+            heading_idx, body_end = result
+            # Find insertion point: last non-blank line within the section body
+            insert_at = body_end
+            for j in range(body_end - 1, heading_idx, -1):
+                if lines[j].strip() != "":
+                    insert_at = j + 1
+                    break
+            else:
+                insert_at = heading_idx + 1
+            lines.insert(insert_at, bullet)
+        else:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend([f"## Related Sessions", bullet, ""])
+
+    # 5. Legacy
+    if update.section_title is not None:
+        legacy_block = [
+            "",
+            f"## {update.section_date.isoformat()} — {update.section_title}",
+            update.body.rstrip(),
+        ]
+        lines.extend(legacy_block)
+
+    new_text = "\n".join(lines)
+    if not new_text.endswith("\n"):
+        new_text += "\n"
+    path.write_text(new_text)
 
 
 def write_new_project_doc(
@@ -405,7 +691,7 @@ def write_new_project_doc(
     org_name: str = "Chalktalk",
 ) -> None:
     """Write a brand-new project doc. Fails if file exists."""
-    path = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+    path = vault / project_doc_path(doc.slug, doc.category, org_name)
     if path.exists():
         raise FileExistsError(
             f"Project doc already exists at {path}. "
@@ -530,6 +816,23 @@ def process_focus_updates(
             else:
                 lines[active_idx + 1 : active_idx + 1] = ["", *new_block]
 
+    # 4. Priorities
+    if updates.priorities is not None:
+        _RE_PRIORITIES = re.compile(r"^## Priorities\s*$")
+        result = _find_h2_section(lines, _RE_PRIORITIES)
+        new_prio_lines = updates.priorities.splitlines()
+        # Ensure section body ends with a trailing blank line
+        if new_prio_lines and new_prio_lines[-1] != "":
+            new_prio_lines.append("")
+        if result is not None:
+            heading_idx, body_end = result
+            lines[heading_idx + 1 : body_end] = new_prio_lines
+        else:
+            # Append section at end of body
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.extend(["## Priorities", *new_prio_lines])
+
     new_body = "\n".join(lines)
     if not new_body.endswith("\n"):
         new_body += "\n"
@@ -603,19 +906,19 @@ def preflight_validate(
 
     if "project_doc_updates" in sections:
         for upd in manifest.project_doc_updates:
-            target = vault / f"Work/{org_name}/Projects/{upd.slug}.md"
+            target = vault / project_doc_path(upd.slug, upd.category, org_name)
             if not target.exists():
                 problems.append(
-                    f"project_doc_updates: target missing for slug "
+                    f"project_doc_updates: target missing for {upd.category} slug "
                     f"{upd.slug!r} at {target} (use new_project_docs[] instead)"
                 )
 
     if "new_project_docs" in sections:
         for doc in manifest.new_project_docs:
-            target = vault / f"Work/{org_name}/Projects/{doc.slug}.md"
+            target = vault / project_doc_path(doc.slug, doc.category, org_name)
             if target.exists():
                 problems.append(
-                    f"new_project_docs: collision for slug {doc.slug!r} at "
+                    f"new_project_docs: collision for {doc.category} slug {doc.slug!r} at "
                     f"{target} (use project_doc_updates[] to append, not "
                     f"new_project_docs[])"
                 )
@@ -751,6 +1054,17 @@ def run(
 
     try:
         if "session_log" in sections:
+            if dry_run:
+                for src in manifest.sources_captured:
+                    rel = source_file_path(src, manifest.date)
+                    print(f"[dry-run] would write source: {vault / rel}")
+            else:
+                write_source_files(
+                    vault=vault,
+                    sources=manifest.sources_captured,
+                    session_date=manifest.date,
+                    session_log_filename=session_log_filename,
+                )
             log_text = render_session_log(manifest, org_name)
             log_path = vault / session_log_path(manifest)
             if dry_run:

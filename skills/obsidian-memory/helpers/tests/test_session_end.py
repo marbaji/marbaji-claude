@@ -709,10 +709,18 @@ class TestEndToEnd:
 
         proj = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
         assert "## 2026-05-09 — Today's work" in proj
+        # Structured update also landed
+        assert "End-to-end test updated status." in proj
+        assert "Full manifest test run" in proj
+        assert "Verify PR passes CI." in proj
+        assert "2026-05-09-full-example]] — full manifest e2e" in proj
 
         focus = (vault / "Context/current-focus.md").read_text()
         assert "🟢 Existing project active." in focus
         assert "last-updated: 2026-05-09-full-example" in focus
+        assert "1. Ship the helper" in focus
+        assert "2. Finish e2e coverage" in focus
+        assert "3. Phase 2 ritual rewrite" not in focus  # old priorities replaced
 
 
 class TestPartialRun:
@@ -871,3 +879,837 @@ class TestCLI:
         parser = session_end.build_parser()
         args = parser.parse_args(["--manifest", "/tmp/m.yaml", "--dry-run"])
         assert args.dry_run is True
+
+
+class TestPersonalProjects:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    # --- Model validation ---
+
+    def test_personal_slug_with_spaces_validates(self):
+        pt = session_end.ProjectTouched(slug="InBloom Early Learning", note="kick-off", category="personal")
+        assert pt.slug == "InBloom Early Learning"
+        assert pt.category == "personal"
+
+    def test_work_slug_with_spaces_rejects(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            session_end.ProjectTouched(slug="has spaces", note="x")  # default category="work"
+
+    def test_work_slug_default_category_kebab_passes(self):
+        pt = session_end.ProjectTouched(slug="foo-bar", note="x")
+        assert pt.category == "work"
+
+    # --- Wikilink rendering ---
+
+    def test_projects_touched_personal_renders_pipe_alias_wikilink(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[
+                session_end.ProjectTouched(
+                    slug="InBloom Early Learning",
+                    note="kick-off meeting",
+                    category="personal",
+                ),
+            ],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]] — kick-off meeting" in text
+
+    def test_session_log_mixes_work_and_personal_projects_touched(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="test-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-test-session",
+            summary="Summary.",
+            projects_touched=[
+                session_end.ProjectTouched(slug="foo-bar", note="work note"),
+                session_end.ProjectTouched(
+                    slug="InBloom Early Learning",
+                    note="personal note",
+                    category="personal",
+                ),
+            ],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        assert "[[Work/Chalktalk/Projects/foo-bar]] — work note" in text
+        assert "[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]] — personal note" in text
+
+    # --- append_to_project_doc ---
+
+    def test_append_to_personal_project_doc(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Test Project",
+            section_title="First session",
+            section_date="2026-05-09",
+            body="Got started.",
+            category="personal",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = (vault / "Personal/Projects/Test Project/overview.md").read_text()
+        assert "## 2026-05-09 — First session" in text
+        assert "Got started." in text
+        assert "Existing personal project for tests." in text
+
+    def test_personal_project_doc_missing_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Does Not Exist",
+            section_title="x",
+            section_date="2026-05-09",
+            body="x",
+            category="personal",
+        )
+        with pytest.raises(FileNotFoundError):
+            session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+
+    # --- write_new_project_doc ---
+
+    def test_write_new_personal_project_doc_creates_subfolder(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        doc = session_end.NewProjectDoc(
+            slug="My Garden",
+            frontmatter={"type": "project", "status": "active", "tags": ["project", "personal"]},
+            body="# My Garden\n\n## Overview\nTracking the garden.",
+            category="personal",
+        )
+        session_end.write_new_project_doc(vault=vault, doc=doc, org_name="Chalktalk")
+        path = vault / "Personal/Projects/My Garden/overview.md"
+        assert path.exists()
+        text = path.read_text()
+        assert text.startswith("---\n")
+        assert "type: project" in text
+        assert "# My Garden" in text
+
+    def test_personal_new_project_doc_collision_raises(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        doc = session_end.NewProjectDoc(
+            slug="Test Project",  # fixture overview.md already exists
+            frontmatter={"type": "project", "status": "active"},
+            body="# Test Project",
+            category="personal",
+        )
+        with pytest.raises(FileExistsError):
+            session_end.write_new_project_doc(vault=vault, doc=doc, org_name="Chalktalk")
+
+    # --- preflight ---
+
+    def test_preflight_personal_project_update_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            project_doc_updates=[
+                session_end.ProjectDocUpdate(
+                    slug="Nonexistent Personal",
+                    section_title="x",
+                    section_date="2026-05-09",
+                    body="x",
+                    category="personal",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"project_doc_updates"},
+        )
+        assert any("Nonexistent Personal" in p for p in problems)
+        assert any("personal" in p.lower() for p in problems)
+
+    def test_preflight_personal_new_project_doc_collision(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            new_project_docs=[
+                session_end.NewProjectDoc(
+                    slug="Test Project",  # fixture already has this overview.md
+                    frontmatter={"type": "project", "status": "active"},
+                    body="x",
+                    category="personal",
+                ),
+            ],
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"new_project_docs"},
+        )
+        assert any("Test Project" in p for p in problems)
+        assert any("personal" in p.lower() for p in problems)
+
+
+class TestStructuredProjectDocUpdates:
+    """Tests for the four structured update modes on project docs."""
+
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def _proj_path(self, vault):
+        return vault / "Work/Chalktalk/Projects/existing-project.md"
+
+    def _personal_proj_path(self, vault):
+        return vault / "Personal/Projects/Test Project/overview.md"
+
+    # -- Status --
+
+    def test_status_replace_replaces_status_body_only(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🔴 **Blocked.** Waiting on infra team.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        # New status body present
+        assert "🔴 **Blocked.** Waiting on infra team." in text
+        # Old status body gone
+        assert "Running smoothly" not in text
+        # Other sections untouched
+        assert "## Overview" in text
+        assert "Pre-existing description." in text
+        assert "## Next Steps" in text
+        assert "Ship v1 by end of month." in text
+
+    def test_status_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # Write a project doc without ## Status
+        proj = self._proj_path(vault)
+        proj.write_text(
+            "---\ntype: project\n---\n\n# No Status\n\n## Overview\nContent here.\n"
+        )
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🟢 **Active.** Newly added.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Status\n" in text
+        assert "🟢 **Active.** Newly added." in text
+        assert "## Overview" in text
+
+    # -- Recent activity --
+
+    def test_recent_activity_prepends_at_top_of_section(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="New hardening pass",
+                body="- Fixed 5 bugs.\n- Deployed.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        new_idx = text.index("New hardening pass")
+        old_idx = text.index("Second session")
+        assert new_idx < old_idx, "New entry should appear before existing entries"
+
+    def test_recent_activity_trims_to_three_when_overflow(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # First add a 3rd entry to make 3 total in the section
+        proj = self._proj_path(vault)
+        text = proj.read_text()
+        # Insert a 3rd entry right after the ## Recent activity heading
+        text = text.replace(
+            "## Recent activity\n\n### 2026-04-20",
+            "## Recent activity\n\n### 2026-04-30 — Third entry\n- Added before overflow test.\n\n### 2026-04-20",
+        )
+        proj.write_text(text)
+
+        # Now add a 4th entry via structured update
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Fourth entry causes trim",
+                body="- This should be entry 1 of 3.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = self._proj_path(vault).read_text()
+
+        # Count ### entries in the Recent activity section
+        lines = result.splitlines()
+        in_section = False
+        h3_count = 0
+        for line in lines:
+            if line.strip() == "## Recent activity":
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if in_section and line.startswith("### "):
+                h3_count += 1
+
+        assert h3_count == 3, f"Expected 3 entries after trim, got {h3_count}"
+        # The oldest entry (First session) should be dropped
+        assert "First session" not in result
+        # The new entry should be present
+        assert "Fourth entry causes trim" in result
+
+    def test_recent_activity_under_three_no_trim(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # Fixture has 2 entries; adding 1 more => 3 total, no trim
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Third entry no trim",
+                body="- Should coexist with both existing entries.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = self._proj_path(vault).read_text()
+
+        lines = result.splitlines()
+        in_section = False
+        h3_count = 0
+        for line in lines:
+            if line.strip() == "## Recent activity":
+                in_section = True
+                continue
+            if in_section and line.startswith("## "):
+                break
+            if in_section and line.startswith("### "):
+                h3_count += 1
+
+        assert h3_count == 3
+        assert "Third entry no trim" in result
+        assert "Second session" in result
+        assert "First session" in result
+
+    def test_recent_activity_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Activity\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="First entry ever",
+                body="- Bootstrap.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Recent activity" in text
+        assert "### 2026-05-09 — First entry ever" in text
+        assert "Bootstrap." in text
+
+    # -- Next Steps --
+
+    def test_next_steps_replace_replaces_body(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            next_steps="- Deploy to prod.\n- Write release notes.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        # New body present
+        assert "Deploy to prod." in text
+        assert "Write release notes." in text
+        # Old body gone
+        assert "Ship v1 by end of month." not in text
+        assert "Write docs." not in text
+
+    def test_next_steps_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Steps\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            next_steps="- Do the thing.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Next Steps" in text
+        assert "Do the thing." in text
+
+    # -- Related Sessions --
+
+    def test_related_session_appends_bullet(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            related_session="[[Sessions/2026-05/2026-05-09-test]] — new work",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "- [[Sessions/2026-05/2026-05-09-test]] — new work" in text
+        # Old bullet still there
+        assert "2026-04-10-initial-setup" in text
+        # New bullet should appear after old one (appended at end of section)
+        assert text.index("2026-05-09-test") > text.index("2026-04-10-initial-setup")
+
+    def test_related_session_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        proj.write_text("---\ntype: project\n---\n\n# No Sessions\n\n## Overview\nContent.\n")
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            related_session="[[Sessions/2026-05/2026-05-09-test]] — first session",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = proj.read_text()
+        assert "## Related Sessions" in text
+        assert "- [[Sessions/2026-05/2026-05-09-test]] — first session" in text
+
+    # -- Legacy --
+
+    def test_legacy_free_form_append_still_works(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            section_title="Legacy section",
+            section_date="2026-05-09",
+            body="Legacy body text.",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "## 2026-05-09 — Legacy section" in text
+        assert "Legacy body text." in text
+        # Frontmatter and existing sections untouched
+        assert "type: project" in text
+        assert "Pre-existing description." in text
+
+    # -- Combined --
+
+    def test_combined_update_all_four_structured_modes(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            status="🔵 **Review.** Under code review.",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Combined update test",
+                body="- Ran all four modes.",
+            ),
+            next_steps="- Merge PR.\n- Tag release.",
+            related_session="[[Sessions/2026-05/2026-05-09-combined]] — combined test",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._proj_path(vault).read_text()
+        assert "🔵 **Review.** Under code review." in text
+        assert "Combined update test" in text
+        assert "Merge PR." in text
+        assert "[[Sessions/2026-05/2026-05-09-combined]] — combined test" in text
+        # Old status gone
+        assert "Running smoothly" not in text
+        # Old next steps gone
+        assert "Ship v1 by end of month." not in text
+
+    # -- Personal project --
+
+    def test_personal_project_supports_structured_updates(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        update = session_end.ProjectDocUpdate(
+            slug="Test Project",
+            category="personal",
+            status="🟢 **Active.** Good progress.",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Personal session",
+                body="- Made progress.",
+            ),
+            next_steps="- Finish prototype.",
+            related_session="[[Sessions/2026-05/2026-05-09-personal]] — personal work",
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        text = self._personal_proj_path(vault).read_text()
+        assert "🟢 **Active.** Good progress." in text
+        assert "Personal session" in text
+        assert "Finish prototype." in text
+        assert "[[Sessions/2026-05/2026-05-09-personal]] — personal work" in text
+
+    # -- Validation --
+
+    def test_validator_rejects_empty_update(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            session_end.ProjectDocUpdate(slug="existing-project")
+        assert "at least one update field" in str(exc.value)
+
+    def test_validator_rejects_partial_legacy(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            session_end.ProjectDocUpdate(
+                slug="existing-project",
+                section_title="Only title, no date or body",
+            )
+        assert "section_title, section_date, AND body" in str(exc.value)
+
+    # -- Recent Work alias --
+
+    def test_recent_work_alias(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        proj = self._proj_path(vault)
+        # Replace "Recent activity" with "Recent Work" alias in the fixture
+        text = proj.read_text().replace("## Recent activity", "## Recent Work")
+        proj.write_text(text)
+
+        update = session_end.ProjectDocUpdate(
+            slug="existing-project",
+            recent_activity=session_end.RecentActivityEntry(
+                date="2026-05-09",
+                title="Found via alias",
+                body="- Used Recent Work heading.",
+            ),
+        )
+        session_end.append_to_project_doc(vault=vault, update=update, org_name="Chalktalk")
+        result = proj.read_text()
+        assert "Found via alias" in result
+        # New entry should be at the top
+        assert result.index("Found via alias") < result.index("Second session")
+
+
+class TestPrioritiesUpdate:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def _focus_path(self, vault):
+        return vault / "Context/current-focus.md"
+
+    def test_priorities_replace_replaces_body(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(
+            priorities="1. New thing\n2. Other",
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = self._focus_path(vault).read_text()
+        # New content present
+        assert "1. New thing" in text
+        assert "2. Other" in text
+        # Old content gone
+        assert "Ship the helper" not in text
+        # Other sections untouched
+        assert "## Active Projects" in text
+        assert "## Complete" in text
+        assert "Foo is active" in text
+
+    def test_priorities_none_leaves_section_alone(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="foo",
+                    status_line="**🔴 Foo changed.** Updated.",
+                ),
+            ],
+            # priorities=None by default
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = self._focus_path(vault).read_text()
+        # Priorities body unchanged
+        assert "1. Ship the helper" in text
+        assert "2. Wait for CodeRabbit" in text
+        assert "3. Phase 2 ritual rewrite" in text
+
+    def test_priorities_creates_section_when_missing(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        focus_path = self._focus_path(vault)
+        # Write a current-focus.md without ## Priorities
+        focus_path.write_text(
+            "---\ntype: index\nlast-updated: 2026-04-30-old-session\ntags: [focus]\n---\n\n"
+            "# Current Focus\n\n## Active Projects\n\n## Complete\n"
+        )
+        updates = session_end.FocusUpdates(priorities="1. Foo")
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = focus_path.read_text()
+        assert "## Priorities" in text
+        assert "1. Foo" in text
+        # Section appended after the rest of the body
+        assert text.index("## Priorities") > text.index("## Complete")
+
+    def test_priorities_preserves_frontmatter_and_last_updated_bump(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(priorities="1. Updated priority")
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-prio-bump", org_name="Chalktalk",
+        )
+        text = self._focus_path(vault).read_text()
+        # Frontmatter still starts the file with the right type/tags fields
+        assert text.startswith("---\n")
+        assert "type: index" in text
+        assert "tags: [focus]" in text
+        # last-updated bumped
+        assert "last-updated: 2026-05-09-prio-bump" in text
+        assert "last-updated: 2026-04-30-old-session" not in text
+        # Priorities replaced
+        assert "1. Updated priority" in text
+        assert "Ship the helper" not in text
+
+
+class TestSourceFiles:
+    """Tests for Source file writing (render_source_file, source_file_path, write_source_files)."""
+
+    def _make_source(self, **overrides):
+        defaults = dict(
+            url="https://example.com/article",
+            title="Example Article",
+            slug="example-article",
+            type="article",
+            tags=["python", "testing"],
+            summary="A two-sentence objective summary. It covers key points.",
+            takeaways=["Takeaway one.", "Takeaway two."],
+            why="Came up while discussing source file writing.",
+        )
+        defaults.update(overrides)
+        return session_end.Source(**defaults)
+
+    def _session_date(self):
+        return Date(2026, 5, 9)
+
+    def _session_log_filename(self):
+        return "2026-05-09-my-session"
+
+    # --- render_source_file ---
+
+    def test_writes_source_file_with_full_template(self):
+        source = self._make_source()
+        text = session_end.render_source_file(
+            source, self._session_date(), self._session_log_filename()
+        )
+        # Frontmatter
+        assert "---\n" in text
+        assert "date: 2026-05-09\n" in text
+        assert f"url: {source.url}\n" in text
+        assert f"type: {source.type}\n" in text
+        assert "tags: [python, testing]\n" in text
+        # Title heading
+        assert f"# {source.title}\n" in text
+        # Summary section
+        assert "## Summary\n" in text
+        assert source.summary in text
+        # Takeaways section
+        assert "## Takeaways\n" in text
+        assert "- Takeaway one.\n" in text
+        assert "- Takeaway two.\n" in text
+        # Context section
+        assert "## Context\n" in text
+        assert "[[Sessions/2026-05/2026-05-09-my-session]]" in text
+        assert source.why in text
+
+    def test_source_file_filename_uses_session_date_and_slug(self):
+        source = self._make_source(slug="my-source")
+        path = session_end.source_file_path(source, self._session_date())
+        assert path == "Sources/2026-05-09-my-source.md"
+
+    def test_existing_source_file_skipped_with_warning(self, tmp_path, capsys):
+        source = self._make_source(slug="my-source")
+        # Pre-create the file
+        sources_dir = tmp_path / "Sources"
+        sources_dir.mkdir(parents=True, exist_ok=True)
+        existing_file = sources_dir / "2026-05-09-my-source.md"
+        existing_file.write_text("---\nexisting: true\n---\n")
+
+        session_end.write_source_files(
+            vault=tmp_path,
+            sources=[source],
+            session_date=self._session_date(),
+            session_log_filename=self._session_log_filename(),
+        )
+
+        # File must be unchanged
+        assert existing_file.read_text() == "---\nexisting: true\n---\n"
+        # Warning on stderr
+        captured = capsys.readouterr()
+        assert "skipped" in captured.err.lower() or "exists" in captured.err.lower()
+
+    def test_session_log_renders_wikilink_not_markdown_link(self):
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[
+                self._make_source(slug="my-source"),
+            ],
+        )
+        text = session_end.render_session_log(manifest, org_name="Chalktalk")
+        # Must contain wikilink form
+        assert "[[Sources/2026-05-09-my-source|Example Article]]" in text
+        # Must NOT contain raw markdown link form
+        assert "[Example Article](https://example.com/article)" not in text
+
+    def test_sources_skipped_when_session_log_section_excluded(self, tmp_path):
+        source = self._make_source(slug="skipped-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        # Copy vault fixture
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=False,
+            sections={"extractions"},  # session_log excluded
+        )
+        assert rc == 0
+        assert not (vault / "Sources" / "2026-05-09-skipped-source.md").exists()
+
+    def test_sources_written_with_session_log_section(self, tmp_path):
+        source = self._make_source(slug="written-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=False,
+            sections={"session_log"},
+        )
+        assert rc == 0
+        source_file = vault / "Sources" / "2026-05-09-written-source.md"
+        assert source_file.exists()
+        # Session log also written
+        assert (vault / "Sessions/2026-05/2026-05-09-my-session.md").exists()
+        # Session log references source via wikilink
+        log_text = (vault / "Sessions/2026-05/2026-05-09-my-session.md").read_text()
+        assert "[[Sources/2026-05-09-written-source|Example Article]]" in log_text
+
+    def test_dry_run_does_not_write_sources_but_previews_them(self, tmp_path, capsys):
+        source = self._make_source(slug="dry-source")
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09",
+            topic="my-session",
+            tags=["session"],
+            last_updated_slug="2026-05-09-my-session",
+            summary="Summary.",
+            projects_touched=[],
+            streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x",
+            learnings="x",
+            files_modified=session_end.FilesModified(),
+            next_steps="x",
+            sources_captured=[source],
+        )
+        import shutil
+        vault = tmp_path / "vault"
+        shutil.copytree(
+            Path(__file__).parent / "fixtures" / "vault", vault
+        )
+        rc = session_end.run(
+            manifest=manifest,
+            vault=vault,
+            org_name="Chalktalk",
+            dry_run=True,
+            sections={"session_log"},
+        )
+        assert rc == 0
+        # No file created
+        assert not (vault / "Sources" / "2026-05-09-dry-source.md").exists()
+        # Preview line in stdout
+        captured = capsys.readouterr()
+        assert "would write source" in captured.out.lower()
+
+    def test_takeaways_empty_renders_section_with_no_bullets(self):
+        source = self._make_source(takeaways=[])
+        text = session_end.render_source_file(
+            source, self._session_date(), self._session_log_filename()
+        )
+        assert "## Takeaways\n" in text
+        # No bullet lines between Takeaways and Context
+        takeaways_idx = text.index("## Takeaways\n")
+        context_idx = text.index("## Context\n")
+        between = text[takeaways_idx + len("## Takeaways\n"):context_idx]
+        # Only whitespace/newlines between the two headings (no bullet items)
+        assert not any(line.startswith("- ") for line in between.splitlines())
+
+    def test_multiple_sources_all_written(self, tmp_path):
+        sources = [
+            self._make_source(slug="src-one", title="Source One"),
+            self._make_source(slug="src-two", title="Source Two"),
+            self._make_source(slug="src-three", title="Source Three"),
+        ]
+        session_end.write_source_files(
+            vault=tmp_path,
+            sources=sources,
+            session_date=self._session_date(),
+            session_log_filename=self._session_log_filename(),
+        )
+        for slug in ["src-one", "src-two", "src-three"]:
+            assert (tmp_path / "Sources" / f"2026-05-09-{slug}.md").exists()
