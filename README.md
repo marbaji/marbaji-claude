@@ -19,9 +19,9 @@ Project-first session memory using Obsidian. At session start, loads project con
 
 The skill ships generic primitives: vault layout, templates (People, Competency, Decision, 1:1), extraction rules, and four invokable companion skills below. Adopters populate their own private vault content (org chart, People notes, scorecards, Values, Shipping Log, Brag Doc) — see `skills/obsidian-memory/references/adopting-this-skill.md`.
 
-**Optional token-cost optimizations** (skill works without either):
-- **SessionStart hook** at `skills/obsidian-memory/scripts/session-start-context.sh` — injects vault context procedurally instead of via LLM file reads. Wire-up in `references/session-start-hook.md`.
-- **QMD semantic search MCP** — adds `mcp__qmd__query` for chunked semantic recall. Falls back to `obsidian search:context` if not installed. Setup in `references/qmd-setup.md`.
+**Recommended setup after enabling the plugin** (both are token-cost wins; skill falls back gracefully if skipped):
+- **SessionStart hook** at `skills/obsidian-memory/scripts/session-start-context.sh` — injects vault context procedurally instead of via LLM file reads (~3-4x token reduction at session start). Wire-up in `references/session-start-hook.md`.
+- **QMD semantic search MCP** — adds `mcp__qmd__query` for chunked semantic recall over the vault. Falls back to `obsidian search:context` if not installed. Setup in `references/qmd-setup.md`. Note: QMD is read/search only; vault writes still go through `obsidian` CLI + Write tool unchanged.
 
 ### /board-update
 Generates a date-ranged board update draft from the Obsidian vault's Shipping Log + Decisions + project changes. Modeled on the user's most recent existing board memo style. Use when prepping for a board meeting.

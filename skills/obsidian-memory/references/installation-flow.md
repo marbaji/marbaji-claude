@@ -77,4 +77,25 @@ Once they provide the path:
    start of each session and save session logs at the end.
    ```
 
+5. **Tell the user about the two recommended next steps** (one-time, both are token-cost wins). Skill works fine without either; both fall back gracefully.
+
+   ```
+   📌 Recommended next steps (one-time, both optional but recommended):
+
+      1. SessionStart hook — emits vault context procedurally
+         instead of via LLM file reads (~3-4x token reduction
+         at session start). See:
+         skills/obsidian-memory/references/session-start-hook.md
+
+      2. QMD semantic search MCP — adds mcp__qmd__query for
+         chunked semantic recall over your vault (BM25 + vector
+         embeddings). Falls back to obsidian search:context if
+         not registered. See:
+         skills/obsidian-memory/references/qmd-setup.md
+
+      Optional org-and-perf adoption (templates for People,
+      Decisions, Competencies, etc.):
+         skills/obsidian-memory/references/adopting-this-skill.md
+   ```
+
 Setup is complete. Continue with normal session start.
