@@ -106,15 +106,33 @@ class Decision(BaseModel):
     consequences: str
 
 
-WIKILINK_RE = re.compile(r"^\[\[[^\[\]\|]+(\|[^\[\]]+)?\]\]$")
+WIKILINK_RE = re.compile(r"^\[\[([^\[\]\|\n\r]+)(?:\|([^\[\]\|\n\r]+))?\]\]$")
 
 
 def _validate_wikilinks(value: list[str]) -> list[str]:
-    """Reject any entry that is not a bare ``[[wikilink]]`` (optional pipe-alias)."""
+    """Reject any entry that is not a bare ``[[target]]`` / ``[[target|alias]]``.
+
+    Both the target and the optional alias must be non-empty, contain no
+    embedded brackets, pipes, or newlines, and have no leading or trailing
+    whitespace. A single pipe at most. This guards against malformed entries
+    that would render as physically split bullets in Shipping Log / Brag Doc.
+    """
+    def _is_clean(part: str) -> bool:
+        return bool(part) and part == part.strip()
+
     for item in value:
-        if not isinstance(item, str) or not WIKILINK_RE.match(item):
+        if not isinstance(item, str):
             raise ValueError(
-                f"see_also entries must match {WIKILINK_RE.pattern!r}; got {item!r}"
+                f"see_also entries must be strings; got {type(item).__name__}: {item!r}"
+            )
+        m = WIKILINK_RE.match(item)
+        if m is None or not _is_clean(m.group(1)) or (
+            m.group(2) is not None and not _is_clean(m.group(2))
+        ):
+            raise ValueError(
+                f"see_also entries must look like ``[[target]]`` or "
+                f"``[[target|alias]]`` with non-empty, non-padded, single-line "
+                f"parts and at most one pipe; got {item!r}"
             )
     return value
 

@@ -2645,3 +2645,37 @@ class TestSeeAlsoCrossLinks:
                 body="did",
                 see_also=["[[bad nested [[brackets]]]]"],
             )
+
+    def test_see_also_rejects_embedded_newlines_multipipe_whitespace(self):
+        """Hardened validator rejects classes of malformed wikilinks (audit-fix)."""
+        from pydantic import ValidationError
+
+        bad_cases = [
+            "[[A|line1\nline2]]",       # newline in alias splits the bullet
+            "[[A\nB]]",                 # newline in target splits the bullet
+            "[[A|b|c]]",                # multiple pipes
+            "[[   ]]",                  # whitespace-only target
+            "[[A|   ]]",                # whitespace-only alias
+            "[[ A]]",                   # leading whitespace
+            "[[A| ]]",                  # trailing whitespace alias
+            "[[]]",                     # empty target
+        ]
+        for v in bad_cases:
+            with pytest.raises(ValidationError, match="see_also"):
+                session_end.ShippingEntry(date="2026-05-09", label="x", see_also=[v])
+
+    def test_see_also_accepts_common_obsidian_wikilink_forms(self):
+        """Real Obsidian forms — paths, #headings, |aliases, paths with spaces — pass."""
+        good_cases = [
+            "[[A]]",
+            "[[Work/Chalktalk/Decisions/2026-05-09-foo]]",
+            "[[Work/Chalktalk/Decisions/foo|Display Name]]",
+            "[[Work/Chalktalk/Decisions/foo#Section]]",
+            "[[Work/Chalktalk/Decisions/foo#Section|Display]]",
+            "[[Personal/Projects/InBloom Early Learning/overview]]",
+        ]
+        for v in good_cases:
+            entry = session_end.ShippingEntry(
+                date="2026-05-09", label="x", see_also=[v],
+            )
+            assert entry.see_also == [v]
