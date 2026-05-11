@@ -186,6 +186,7 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 | `label` | `str` | Required | Short description of the shipped item. | `"session-end-helper reference doc"` |
 | `project_slug` | `str` or `null` | Optional (default `null`) | Not used in the rendered bullet currently; reserved for future filtering. | `obsidian-memory` |
 | `context` | `str` or `null` | Optional (default `null`) | Extra context appended to the bullet before the session wikilink. | `"Task 15 of 15 in the session-end CLI plan"` |
+| `see_also` | `list[str]` | Optional (default `[]`) | List of wikilink strings to cross-reference (e.g. a Decision file extracted in the same manifest). Each entry must match `^\[\[[^\[\]\|]+(\|[^\[\]]+)?\]\]$`. Rendered as ` · See [[<wikilink>]]` after the session back-link, in array order. | `["[[Work/Chalktalk/Decisions/2026-05-09-foo]]"]` |
 
 ---
 
@@ -196,6 +197,7 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 | `quarter` | `str` | Required | Pattern `^\d{4} Q[1-4]$` (e.g. `2026 Q2`). | `2026 Q2` |
 | `date` | `date` | Required | ISO 8601 date of the achievement. | `2026-05-09` |
 | `body` | `str` | Required | One-line or short description of the achievement. Trailing period is stripped before appending the session wikilink. | `"Shipped session_end.py with 47 passing tests"` |
+| `see_also` | `list[str]` | Optional (default `[]`) | List of wikilink strings to cross-reference (e.g. a Decision file extracted in the same manifest). Each entry must match `^\[\[[^\[\]\|]+(\|[^\[\]]+)?\]\]$`. Rendered as ` · See [[<wikilink>]]` after the session back-link, in array order. | `["[[Work/Chalktalk/Decisions/2026-05-09-foo]]"]` |
 
 ---
 
@@ -622,13 +624,29 @@ Artifacts written:
 - **Tag dedup:** Frontmatter tags on the session log and Decision files are deduplicated with stable first-seen order before serialization.
 - **`marbaji-claude` field:** In YAML, use the key `marbaji-claude` (hyphenated). Both `marbaji-claude` and `marbaji_claude` (underscored) are accepted due to Pydantic's `populate_by_name: True` setting.
 - **Shipping Log and Brag Doc insertion order:** New bullets are inserted immediately after the target heading (newest at top of their month/quarter block), not appended at the end.
-- **Per-file change report:** After a successful (non-dry-run) invocation the helper prints one block per file it touched, with vault-relative paths and indented per-section summary lines. Example output:
+- **Per-file change report:** After a successful (non-dry-run) invocation the helper prints one block per file it touched, with vault-relative paths and indented per-section summary lines. For newly-created files (session logs and Decision files), the helper also echoes a `+ `-prefixed preview of the file's substantive content under the same block, capped at 60 lines with a `... (N more lines in file)` trailer if longer — so the operator can visually verify what landed without opening the file. Suppressed by `--quiet`. Preview rules:
+  - `Sessions/.../<topic>.md` → lines under `## Summary` + the first stream block (heading + body) under `## What We Did`.
+  - `*/Decisions/<slug>.md` → `## Chosen` body + `## Reasoning` body, with headings preserved for context.
+
+  Example output:
   ```
   Sessions/2026-05/2026-05-09-foo.md
     created (30 lines)
+    + Summary line 1.
+    + Summary line 2.
+    +
+    + ### First stream title
+    + First stream body line 1.
+    + First stream body line 2.
 
   Work/Chalktalk/Decisions/2026-05-09-bar.md
     created
+    + ## Chosen
+    + Picked option A.
+    +
+    + ## Reasoning
+    + - Reason 1.
+    + - Reason 2.
   Work/Chalktalk/Decisions/2026-05-09-baz.md
     skipped (already exists)
 

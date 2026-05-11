@@ -54,6 +54,37 @@ Replace the original `## Key Decisions` bullet with a wikilink:
 - [[Work/Chalktalk/Decisions/2026-05-08-no-yaml-status-fields-in-model-registry|No YAML status fields in model registry]]
 ```
 
+### Generalized lessons appendix (when applicable)
+
+When a Decision enumerates 3+ findings, observations, defects, or instances that share a structural pattern, the agent should ALSO surface the generalized pattern(s) underneath them. This makes future "what did we learn" queries answerable from the abstraction layer, not just instance evidence.
+
+At Step 3 (surface extractions for batched approval), when the extracted Decision contains an enumerated catalog, the agent adds a brief candidate list:
+
+```
+Generalized lessons appendix candidate (n patterns identified
+under the X instances above):
+- <Pattern name>: <one-line description>. Covers <F-cites>.
+- <Pattern name>: <one-line description>. Covers <F-cites>.
+- ...
+Approve appendix? Edit? Skip?
+```
+
+If approved, the Decision file gains a `## Generalized lessons` section that consolidates the patterns. (Implementation-wise: the appendix is appended inside an existing markdown-bearing field — typically the close of `chosen:` as a `## Generalized antipatterns` section, or `consequences:` if the appendix reflects what to do differently going forward. No schema change required.)
+
+If a `[[Knowledge/...]]` note already covers any of them, the agent links to it; if not, the agent proposes creating a new Knowledge note as a separate extraction candidate in the same Step 3 batch:
+
+```
+NEW Knowledge note candidate:
+  path: Work/Chalktalk/Knowledge/<slug>.md
+  purpose: <what cross-skill audit it enables>
+  patterns: [<list>]
+Approve? Edit? Skip?
+```
+
+Goal: instance-level catalogs (F-numbered defects, ticket lists, SQL fix lists) consistently get their generalized counterpart captured at the same session-end, with no separate user prompt needed.
+
+Reference example: `Work/Chalktalk/Decisions/2026-05-11-non-interpolated-trace-defects.md` (its "Generalized antipatterns surfaced by this catalog" section) and `Work/Chalktalk/Knowledge/skill-runtime-antipatterns.md` together illustrate the artifact pair this rule produces.
+
 ---
 
 ## (b) Shipping Log Append
@@ -104,25 +135,33 @@ None. The Shipping Log entry stands alone; the back-reference to the session log
 
 Appends an entry to `Personal/Brag Doc.md` under the current quarter section.
 
-### Triggers
+Apply the **Cold-Reader Test** (below) to every candidate. There is no default frequency in either direction — some periods produce many brag entries because rare things actually happened; others produce none because nothing exceptional occurred. Let the test decide each time.
 
-Session log contains a phrase or pattern matching:
+### The Cold-Reader Test
 
-- `codified <thing>` / `codified the rule` / `codified this as`
-- `led the call to <decision>` / `led the push for`
-- `shipped <thing> under deadline` / `delivered <thing> ahead of`
-- `pushed back on <X>` (where pushback was load-bearing)
-- `unblocked <person/team>`
-- `caught a bug before <X>` / `prevented <regression>`
-- `mentored <person>` / `coached <person> through`
-- General pattern: any sentence demonstrating Mo did something review-worthy — a thing he'd want to remember at performance-review time.
+A candidate passes only if it clears this bar:
 
-### Do NOT append if
+> Imagine a stranger reads this single Brag Doc line in 2 years with zero context — no conversation history, no knowledge of the user, their team, or the situation. Would they think *"this person delivered something exceptional and I want to work with them"*? Or would they think *"this person seems thoughtful"*?
 
-- The action was routine ("ran the daily standup").
-- The session log narrates Mo *receiving* mentorship/feedback — that's growth journaling, not a brag.
-- The session log narrates a failure or a near-miss without resolution ("almost shipped a bug" — only brag-worthy if Mo caught it).
-- Already logged this quarter — dedupe by substring match.
+If the answer is "thoughtful," skip it. The bar is the first reaction, not the second.
+
+### Filters in (extract)
+
+- Shipped / closed / landed / secured outcomes with external impact (closed customer, secured funding, hired key person, won a deal under uncertainty)
+- Hard calls under genuine uncertainty with measurable downstream results
+- Recovery from a crisis where the alternative was real damage
+- Codified something *others* now use (a system, doc, or process the team adopted)
+- Rare leadership moments a non-insider would recognize as exceptional
+
+### Filters out (do NOT extract)
+
+- **Meta-cognition or self-correction** ("caught my own defensive framing", "stepped back and questioned X") — invisible to a cold reader
+- **Iterative copy / design / planning refinement** — normal craftwork that produces a deliverable
+- Routine work, even when done well ("ran the standup", "wrote good documentation")
+- Receiving mentorship or feedback (growth journaling, not a brag)
+- Failures or near-misses without resolution ("almost shipped a bug" — only brag-worthy if the user caught it AND the consequence of missing it was real)
+- Anything that only makes sense to someone who was in the room
+- Already logged this quarter — dedupe by substring match
 
 ### Destination
 

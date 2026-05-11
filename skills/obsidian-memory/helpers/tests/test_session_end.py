@@ -2424,3 +2424,176 @@ class TestUnifiedDiffFormat:
         joined = "\n".join(plus_lines)
         assert ("y" * 80) in joined, f"expected full 80-char label verbatim, got: {plus_lines}"
         assert "..." not in joined, f"expected no truncation, got: {plus_lines}"
+
+
+class TestCreatedFilePreview:
+    """Preview substantive content of newly-created session-log and decision files."""
+
+    def _setup_vault(self, tmp_path):
+        import shutil
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_session_log_preview_emits_summary_and_first_stream(self, tmp_path, capsys):
+        """Default run prints + lines from the session log's Summary and first stream."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        out = capsys.readouterr().out
+
+        session_block_start = out.index("Sessions/2026-05/2026-05-09-full-example.md")
+        next_block_idx = out.find("\n\n", session_block_start + 1)
+        session_block = out[session_block_start:next_block_idx if next_block_idx != -1 else len(out)]
+
+        assert "+ Full-coverage manifest for end-to-end testing." in session_block, (
+            f"expected summary preview line in session-log block, got:\n{session_block}"
+        )
+        assert "+ ### Stream 1: Did stuff" in session_block, (
+            f"expected first-stream heading preview line, got:\n{session_block}"
+        )
+        assert "+ Body of stream 1." in session_block, (
+            f"expected first-stream body preview line, got:\n{session_block}"
+        )
+
+    def test_decision_file_preview_emits_chosen_and_reasoning(self, tmp_path, capsys):
+        """Default run prints + lines from the decision's Chosen and Reasoning sections."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+        ])
+        assert rc == 0
+        out = capsys.readouterr().out
+
+        decision_block_start = out.index("Work/Chalktalk/Decisions/2026-05-09-test-decision.md")
+        next_block_idx = out.find("\n\n", decision_block_start + 1)
+        decision_block = out[decision_block_start:next_block_idx if next_block_idx != -1 else len(out)]
+
+        assert "+ ## Chosen" in decision_block
+        assert "+ **A**" in decision_block
+        assert "+ ## Reasoning" in decision_block
+        assert "+ - Clearer." in decision_block
+
+    def test_quiet_suppresses_created_file_preview(self, tmp_path, capsys):
+        """--quiet hides per-file blocks entirely — including the new content preview."""
+        vault = self._setup_vault(tmp_path)
+        manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
+        rc = session_end.main([
+            "--manifest", str(manifest_src),
+            "--vault-path", str(vault),
+            "--quiet",
+        ])
+        assert rc == 0
+        out = capsys.readouterr().out
+
+        assert "+ Full-coverage manifest for end-to-end testing." not in out
+        assert "+ ### Stream 1: Did stuff" not in out
+        assert "+ ## Chosen" not in out
+        assert "+ **A**" not in out
+
+    def test_created_file_preview_caps_at_60_lines_with_trailer(self, tmp_path):
+        """When the previewed content exceeds 60 lines, output is capped + trailer added."""
+        vault = tmp_path / "vault"
+        sessions_dir = vault / "Sessions" / "2026-05"
+        sessions_dir.mkdir(parents=True)
+        long_summary_body = "\n".join(f"line {i}" for i in range(120))
+        session_file = sessions_dir / "2026-05-09-long.md"
+        session_file.write_text(
+            "---\ndate: 2026-05-09\n---\n\n"
+            "# Session: long\n\n"
+            "## Summary\n"
+            f"{long_summary_body}\n\n"
+            "## What We Did\n\n"
+            "### Only stream\n"
+            "irrelevant for cap test\n"
+        )
+
+        preview = session_end._created_file_preview(vault, "Sessions/2026-05/2026-05-09-long.md")
+        assert len(preview) == 61, f"expected 60 content lines + 1 trailer, got {len(preview)}"
+        assert preview[-1].startswith("... (")
+        assert "more lines in file" in preview[-1]
+        assert "line 0" in preview
+        assert "line 59" in preview
+        assert "line 60" not in preview
+
+
+class TestSeeAlsoCrossLinks:
+    """`see_also` wikilinks render as ` · See [[link]]` after the session back-link."""
+
+    def test_shipping_entry_with_one_see_also(self):
+        entry = session_end.ShippingEntry(
+            date="2026-05-09",
+            label="thing shipped",
+            context="ctx",
+            see_also=["[[Work/Chalktalk/Decisions/2026-05-09-foo]]"],
+        )
+        bullet = session_end.format_shipping_bullet(entry, "2026-05-09-test")
+        assert bullet == (
+            "- **2026-05-09** — thing shipped — ctx. "
+            "[[Sessions/2026-05/2026-05-09-test]] "
+            "· See [[Work/Chalktalk/Decisions/2026-05-09-foo]]"
+        )
+
+    def test_brag_entry_with_two_see_also_preserves_order(self):
+        entry = session_end.BragEntry(
+            quarter="2026 Q2",
+            date="2026-05-09",
+            body="did the exceptional thing",
+            see_also=[
+                "[[Work/Chalktalk/Decisions/2026-05-09-foo]]",
+                "[[Work/Chalktalk/Knowledge/skill-runtime-antipatterns]]",
+            ],
+        )
+        bullet = session_end.format_brag_bullet(entry, "2026-05-09-test")
+        assert bullet == (
+            "- **2026-05-09** — did the exceptional thing. "
+            "[[Sessions/2026-05/2026-05-09-test]] "
+            "· See [[Work/Chalktalk/Decisions/2026-05-09-foo]] "
+            "· See [[Work/Chalktalk/Knowledge/skill-runtime-antipatterns]]"
+        )
+
+    def test_empty_see_also_matches_pre_field_format(self):
+        """Regression guard: with no see_also, the bullet is identical to old output."""
+        ship = session_end.ShippingEntry(
+            date="2026-05-09", label="thing", context="ctx",
+        )
+        ship_bullet = session_end.format_shipping_bullet(ship, "2026-05-09-test")
+        assert ship_bullet == (
+            "- **2026-05-09** — thing — ctx. "
+            "[[Sessions/2026-05/2026-05-09-test]]"
+        )
+
+        brag = session_end.BragEntry(
+            quarter="2026 Q2", date="2026-05-09", body="did the thing",
+        )
+        brag_bullet = session_end.format_brag_bullet(brag, "2026-05-09-test")
+        assert brag_bullet == (
+            "- **2026-05-09** — did the thing. "
+            "[[Sessions/2026-05/2026-05-09-test]]"
+        )
+
+    def test_malformed_see_also_wikilink_raises_validation_error(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            session_end.ShippingEntry(
+                date="2026-05-09",
+                label="thing",
+                see_also=["not-a-wikilink"],
+            )
+        assert "see_also" in str(exc.value)
+
+        with pytest.raises(ValidationError):
+            session_end.BragEntry(
+                quarter="2026 Q2",
+                date="2026-05-09",
+                body="did",
+                see_also=["[[bad nested [[brackets]]]]"],
+            )

@@ -57,7 +57,7 @@ Walk the session for content that should live in its own structured file. Read [
 
 1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema)
 2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/$ORG_NAME/Shipping Log.md` under current month
-3. **Brag-worthy moments** (codified X, led the call to Y, hard call made well) → append to `Personal/Brag Doc.md` under current quarter
+3. **Brag-worthy moments** → append to `Personal/Brag Doc.md` under current quarter. Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? No default frequency in either direction — let the test decide.
 4. **New-person mentions** (someone referenced who has no `Work/$ORG_NAME/People/<slug>.md` yet) → flag for confirmation; the helper does NOT auto-create People notes
 
 Surface candidates as a SINGLE batched confirmation prompt:
@@ -73,10 +73,35 @@ Approve all? Edit any? Skip any?
 
 Wait for user approval. Approved items go into the manifest's `extractions` section in Step 4. Skipped items go nowhere.
 
+**Cross-link shipping/brag entries to extracted Decisions.** When a shipping or brag bullet references substance captured in a Decision extraction from the same session, populate that entry's `see_also` field with the Decision's wikilink (`[[Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>]]`). The bullet renders with ` · See [[<wikilink>]]` segments after the session back-link, giving a Shipping Log / Brag Doc reader a direct path to the canonical record without round-tripping through the session log. Multiple `see_also` entries render in array order. See [`session-end-helper.md`](session-end-helper.md) schema for the field.
+
+**Generalized lessons appendix (when a Decision enumerates many findings).** When the approved batch includes a Decision whose `chosen:` (or equivalent) enumerates 3+ findings, defects, observations, or instances sharing a structural pattern, surface a candidate appendix in the same approval round:
+
+```
+Generalized lessons appendix candidate (n patterns identified
+under the X instances above):
+- <Pattern name>: <one-line description>. Covers <F-cites>.
+- <Pattern name>: <one-line description>. Covers <F-cites>.
+- ...
+Approve appendix? Edit? Skip?
+```
+
+If approved, the Decision file gains a `## Generalized lessons` (or `## Generalized antipatterns`) section appended to `chosen:` or `consequences:` consolidating the patterns. If existing [[Knowledge/...]] notes cover any of them, link to them; otherwise propose a new Knowledge note in the same batch:
+
+```
+NEW Knowledge note candidate:
+  path: Work/$ORG_NAME/Knowledge/<slug>.md
+  purpose: <what cross-skill audit it enables>
+  patterns: [<list>]
+Approve? Edit? Skip?
+```
+
+See [`extraction-rules.md`](extraction-rules.md) for the full rule.
+
 **Do NOT extract** when:
 - A decision is a one-off implementation choice (mid-task pivot, captured by `git log`)
 - A shipping event is internal-only churn (commit pushed, no feature/customer impact)
-- A brag is generic ("had a productive session")
+- A brag fails the Cold-Reader Test in `extraction-rules.md` section (c) (meta-cognition, copy iteration, normal craftwork, anything only intelligible if you were in the room)
 
 ## Step 4: Compose the YAML manifest
 
@@ -131,6 +156,58 @@ At least one of the above must be set per entry (validation error otherwise).
 - `streams[*].body`, `summary`, `key_decisions`, `learnings`, `next_steps`, decision file `context` / `options_considered` / `chosen` / `reasoning` / `consequences`, project doc `body` text — all preserved verbatim. Length unbounded. Don't compress to fit.
 - Sources MUST come from `sources_captured[]`. The helper writes `Sources/` files; don't write them separately or use markdown link form in the session log.
 - Inline competency tagging (e.g. `Demonstrated [[Work/Chalktalk/Competencies/.../X|X]] (Name) when …`) goes inside `learnings:` or `key_decisions:` verbatim. No structured competency field in v0.1.
+
+## Step 4a — Decide where substance lives
+
+When a session produces both:
+- A `streams[*].body` block longer than ~10 lines (full catalog, multi-part defect list, multi-section design write-up), AND
+- An `extractions.decisions[*]` capturing the same scope as canonical record,
+
+pick ONE as canonical. The Decision is usually the right home (it's the actionable, indexable artifact a PR author would search for). Let the stream body REFERENCE the decision rather than reproducing it.
+
+Anti-pattern (duplication):
+
+```yaml
+streams:
+  - title: "Defect catalog"
+    body: |
+      Tier 1 (one-line): F1 ..., F2 ..., F3 ...
+      Tier 2 (small): F4 ..., F5 ...
+      [...20 more lines...]
+extractions:
+  decisions:
+    - slug: defect-catalog
+      chosen: |
+        Tier 1 (one-line): F1 ..., F2 ..., F3 ...
+        Tier 2 (small): F4 ..., F5 ...
+        [...20 more lines identical to streams body...]
+```
+
+Preferred:
+
+```yaml
+streams:
+  - title: "Defect catalog (run validation surface)"
+    body: |
+      The validation run surfaced N defects across Y, Z, W.
+      Full catalog with file:line cites and prioritized fix tiers
+      lives in the extracted Decision:
+      [[Work/Chalktalk/Decisions/YYYY-MM-DD-defect-catalog]].
+      Highlights:
+      - Tier 1 unblocks <X>
+      - Tier 2 closes <Y>
+      - Tier 3 optional structural lineage work
+extractions:
+  decisions:
+    - slug: defect-catalog
+      chosen: |
+        [full enumerated catalog with file:line, file paths, fix
+        descriptions]
+```
+
+The session log stays a chronological narrative; the Decision holds the canonical detail. `project_doc_updates[*].recent_activity.body` can use a SHORTER summary (one bullet per tier with file-only cites, not full descriptions) — that's the right granularity for the project's running history.
+
+This pairs with the `see_also` field on `shipping_log` and `brag` entries: the stream's wikilink-reference to the Decision is the same kind of cross-link a shipping/brag bullet's `see_also` provides.
 
 ## Step 5: (Recommended) Dry-run first
 

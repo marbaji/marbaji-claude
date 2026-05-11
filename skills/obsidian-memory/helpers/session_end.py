@@ -106,17 +106,42 @@ class Decision(BaseModel):
     consequences: str
 
 
+WIKILINK_RE = re.compile(r"^\[\[[^\[\]\|]+(\|[^\[\]]+)?\]\]$")
+
+
+def _validate_wikilinks(value: list[str]) -> list[str]:
+    """Reject any entry that is not a bare ``[[wikilink]]`` (optional pipe-alias)."""
+    for item in value:
+        if not isinstance(item, str) or not WIKILINK_RE.match(item):
+            raise ValueError(
+                f"see_also entries must match {WIKILINK_RE.pattern!r}; got {item!r}"
+            )
+    return value
+
+
 class ShippingEntry(BaseModel):
     date: Date
     label: str
     project_slug: Optional[str] = None
     context: Optional[str] = None
+    see_also: list[str] = Field(default_factory=list)
+
+    @field_validator("see_also")
+    @classmethod
+    def _check_wikilinks(cls, v: list[str]) -> list[str]:
+        return _validate_wikilinks(v)
 
 
 class BragEntry(BaseModel):
     quarter: str = Field(pattern=r"^\d{4} Q[1-4]$")
     date: Date
     body: str
+    see_also: list[str] = Field(default_factory=list)
+
+    @field_validator("see_also")
+    @classmethod
+    def _check_wikilinks(cls, v: list[str]) -> list[str]:
+        return _validate_wikilinks(v)
 
 
 class NewPersonFlag(BaseModel):
@@ -464,13 +489,19 @@ def render_decision_file(
     return "\n".join(lines)
 
 
+def _see_also_suffix(see_also: list[str]) -> str:
+    """Render `see_also` as ` · See [[link]]` segments in array order. Empty -> ``."""
+    return "".join(f" · See {wl}" for wl in see_also)
+
+
 def format_shipping_bullet(entry: ShippingEntry, session_log_filename: str) -> str:
     """Build the canonical Shipping Log bullet line."""
     yyyy_mm = entry.date.strftime("%Y-%m")
     sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+    suffix = _see_also_suffix(entry.see_also)
     if entry.context:
-        return f"- **{entry.date.isoformat()}** — {entry.label} — {entry.context}. {sess_link}"
-    return f"- **{entry.date.isoformat()}** — {entry.label}. {sess_link}"
+        return f"- **{entry.date.isoformat()}** — {entry.label} — {entry.context}. {sess_link}{suffix}"
+    return f"- **{entry.date.isoformat()}** — {entry.label}. {sess_link}{suffix}"
 
 
 def _find_first_h2(lines: list[str]) -> int:
@@ -558,7 +589,8 @@ def format_brag_bullet(entry: BragEntry, session_log_filename: str) -> str:
     yyyy_mm = entry.date.strftime("%Y-%m")
     sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
     body = entry.body.rstrip(".")
-    return f"- **{entry.date.isoformat()}** — {body}. {sess_link}"
+    suffix = _see_also_suffix(entry.see_also)
+    return f"- **{entry.date.isoformat()}** — {body}. {sess_link}{suffix}"
 
 
 def append_to_brag_doc(
@@ -1205,11 +1237,106 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def print_change_report(reports: list[ChangeReport], vault: Path) -> None:
+def _section_body_lines(lines: list[str], heading_text: str) -> list[str]:
+    """Return the body lines under an H2 heading, exclusive of the heading itself.
+
+    Body runs from heading_idx + 1 until the next ``## `` heading or end of file.
+    Returns empty list if heading is not found.
+    """
+    for i, line in enumerate(lines):
+        if line.strip() == heading_text:
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].startswith("## "):
+                    end = j
+                    break
+            return lines[i + 1 : end]
+    return []
+
+
+def _first_stream_block(lines: list[str]) -> list[str]:
+    """Return the first ``### <title>`` stream block (heading + body) inside ``## What We Did``.
+
+    Empty list if no streams exist.
+    """
+    body = _section_body_lines(lines, "## What We Did")
+    out: list[str] = []
+    in_first = False
+    for ln in body:
+        if ln.startswith("### "):
+            if in_first:
+                break
+            in_first = True
+            out.append(ln)
+            continue
+        if in_first:
+            out.append(ln)
+    return out
+
+
+def _created_file_preview(vault: Path, rel_path: str, max_lines: int = 60) -> list[str]:
+    """Substantive content preview for a newly-created vault file.
+
+    - ``Sessions/.../*.md`` → ``## Summary`` body + first stream block under ``## What We Did``.
+    - ``*/Decisions/*.md`` → ``## Chosen`` body + ``## Reasoning`` body (with headings preserved for clarity).
+    - Anything else → empty (no preview rule applies).
+
+    Result is capped at ``max_lines``. If the underlying file content is longer, a
+    final trailer ``... (<remaining> more lines in file)`` is appended.
+    """
+    full = vault / rel_path
+    if not full.exists():
+        return []
+    lines = full.read_text().splitlines()
+
+    preview: list[str] = []
+    if rel_path.startswith("Sessions/"):
+        preview.extend(_section_body_lines(lines, "## Summary"))
+        stream_block = _first_stream_block(lines)
+        if stream_block:
+            if preview and preview[-1] != "":
+                preview.append("")
+            preview.extend(stream_block)
+    elif "/Decisions/" in rel_path:
+        chosen = _section_body_lines(lines, "## Chosen")
+        reasoning = _section_body_lines(lines, "## Reasoning")
+        if chosen:
+            preview.append("## Chosen")
+            preview.extend(chosen)
+        if reasoning:
+            if preview and preview[-1] != "":
+                preview.append("")
+            preview.append("## Reasoning")
+            preview.extend(reasoning)
+    else:
+        return []
+
+    # Trim trailing blank lines so the cap reflects substantive content only.
+    while preview and preview[-1] == "":
+        preview.pop()
+
+    if len(preview) > max_lines:
+        remaining = len(preview) - max_lines
+        preview = preview[:max_lines]
+        preview.append(f"... ({remaining} more lines in file)")
+    return preview
+
+
+def print_change_report(
+    reports: list[ChangeReport],
+    vault: Path,
+    show_created_preview: bool = True,
+) -> None:
     """Print per-file change blocks. Path is vault-relative.
 
     Multiple ChangeReport instances that share the same path are merged into a
     single block; their summary lines are concatenated in operation order.
+
+    When ``show_created_preview`` is True (default), files whose summary indicates
+    a newly-created file (a summary line starting with ``created``) also get a
+    ``+ ``-prefixed content preview appended to the block, so the operator can
+    visually verify substantive content of newly-created files without opening
+    them. Suppressed when ``--quiet`` is passed.
     """
     by_path: dict[str, list[str]] = {}
     for r in reports:
@@ -1219,6 +1346,10 @@ def print_change_report(reports: list[ChangeReport], vault: Path) -> None:
         print(path)
         for line in summaries:
             print(f"  {line}")
+        if show_created_preview and any(s.startswith("created") for s in summaries):
+            preview = _created_file_preview(vault, path)
+            for line in preview:
+                print(f"  + {line}")
 
 
 def run(
@@ -1369,7 +1500,7 @@ def run(
 
     if not dry_run:
         if not quiet:
-            print_change_report(change_reports, vault)
+            print_change_report(change_reports, vault, show_created_preview=True)
         print(f"Wrote session-end artifacts under {vault}.")
     return 0
 
