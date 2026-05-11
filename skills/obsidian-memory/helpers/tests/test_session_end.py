@@ -2498,6 +2498,54 @@ class TestCreatedFilePreview:
         assert "+ ## Chosen" not in out
         assert "+ **A**" not in out
 
+    def test_preview_ignores_h2_inside_decision_code_fence(self, tmp_path):
+        """`## ` lines inside a fenced code block must NOT end the Chosen section."""
+        vault = tmp_path / "vault"
+        p = vault / "Work/Chalktalk/Decisions/2026-05-09-d.md"
+        p.parent.mkdir(parents=True)
+        p.write_text(
+            "## Chosen\nfirst paragraph\n"
+            "```md\n"
+            "## not actually a heading, just code\n"
+            "### still code\n"
+            "```\n"
+            "after code\n\n"
+            "## Reasoning\nbecause\n"
+        )
+        preview = session_end._created_file_preview(
+            vault, "Work/Chalktalk/Decisions/2026-05-09-d.md"
+        )
+        assert "after code" in preview, (
+            f"`after code` should be in preview; fence-unaware parser dropped it. Got: {preview}"
+        )
+        assert "## Reasoning" in preview
+        assert "because" in preview
+
+    def test_preview_ignores_h3_inside_stream_code_fence(self, tmp_path):
+        """`### ` lines inside a fenced code block must NOT end the first stream."""
+        vault = tmp_path / "vault"
+        p = vault / "Sessions/2026-05/2026-05-09-x.md"
+        p.parent.mkdir(parents=True)
+        p.write_text(
+            "---\ndate: 2026-05-09\n---\n\n"
+            "## Summary\nsummary line\n\n"
+            "## What We Did\n\n"
+            "### Stream 1\n"
+            "intro\n"
+            "```python\n"
+            "# code containing ### marker that should NOT terminate stream\n"
+            "x = 1\n"
+            "```\n"
+            "more body after fence\n"
+        )
+        preview = session_end._created_file_preview(
+            vault, "Sessions/2026-05/2026-05-09-x.md"
+        )
+        assert "more body after fence" in preview, (
+            f"post-fence body must survive; got: {preview}"
+        )
+        assert "```python" in preview
+
     def test_created_file_preview_caps_at_60_lines_with_trailer(self, tmp_path):
         """When the previewed content exceeds 60 lines, output is capped + trailer added."""
         vault = tmp_path / "vault"

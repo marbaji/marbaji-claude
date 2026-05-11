@@ -1241,13 +1241,20 @@ def _section_body_lines(lines: list[str], heading_text: str) -> list[str]:
     """Return the body lines under an H2 heading, exclusive of the heading itself.
 
     Body runs from heading_idx + 1 until the next ``## `` heading or end of file.
-    Returns empty list if heading is not found.
+    Lines inside fenced code blocks (``` ... ```) are skipped over when checking
+    for the boundary — a ``## `` or ``### `` literal inside a code fence does not
+    terminate the section. Returns empty list if heading is not found.
     """
     for i, line in enumerate(lines):
         if line.strip() == heading_text:
             end = len(lines)
+            in_fence = False
             for j in range(i + 1, len(lines)):
-                if lines[j].startswith("## "):
+                ln = lines[j]
+                if ln.lstrip().startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if not in_fence and ln.startswith("## "):
                     end = j
                     break
             return lines[i + 1 : end]
@@ -1257,13 +1264,26 @@ def _section_body_lines(lines: list[str], heading_text: str) -> list[str]:
 def _first_stream_block(lines: list[str]) -> list[str]:
     """Return the first ``### <title>`` stream block (heading + body) inside ``## What We Did``.
 
+    Code-fence-aware: a ``### `` literal inside a fenced code block is treated as
+    body content, not a stream boundary. NOTE: a genuine nested ``### Subheading``
+    inside a stream body (per the helper's contract that ``streams[*].body`` may
+    contain nested H3/H4) is structurally indistinguishable from a sibling stream
+    and will terminate the preview at that point. The 60-line cap trailer in
+    ``_created_file_preview`` provides the overflow signal in either case.
+
     Empty list if no streams exist.
     """
     body = _section_body_lines(lines, "## What We Did")
     out: list[str] = []
     in_first = False
+    in_fence = False
     for ln in body:
-        if ln.startswith("### "):
+        if ln.lstrip().startswith("```"):
+            in_fence = not in_fence
+            if in_first:
+                out.append(ln)
+            continue
+        if not in_fence and ln.startswith("### "):
             if in_first:
                 break
             in_first = True
