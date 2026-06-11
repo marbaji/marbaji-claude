@@ -132,12 +132,14 @@ Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha
 
 ```
 Route the learning "<one-line lesson>"?
-  1. Open the PR now (Recommended) — write .claude/rules/<area>.md + the .coderabbit.yaml lockstep block (with source citation), branch, PR
+  1. Open the PR now (Recommended) — write the rule into .claude/rules/<area>.md (with source citation), branch, PR. Rules are single-sourced: CodeRabbit ingests the same file via code_guidelines.filePatterns — no .coderabbit.yaml edit.
   2. Auto-memory instead — personal habit, not a repo standard
   3. Vault-only — session log already captured it
 ```
 
-On "Open the PR now": do the work in the same session — write both lockstep sides, cite the source incident, open the PR. Docs-only diffs merge immediately per the standing docs-only rule; diffs touching `.coderabbit.yaml` follow the standing CR-poll-then-admin-merge workflow. If the session ends mid-poll, the OPEN PR is the durable artifact — visible on GitHub, nagged by CodeRabbit — which is the point: an open PR survives forgetting; a `next_steps` bullet does not.
+On "Open the PR now": do the work in the same session — write the rule with its source citation, update the cited anchor doc in the same PR if the substance is new, open the PR. Docs-only diffs merge immediately per the standing docs-only rule; config-touching diffs follow the standing CR-poll-then-admin-merge workflow. If the session ends mid-poll, the OPEN PR is the durable artifact — visible on GitHub, nagged by CodeRabbit — which is the point: an open PR survives forgetting; a `next_steps` bullet does not.
+
+**CodeRabbit Learnings get a ledger entry in the same breath.** Whenever a `@coderabbitai add a learning: ...` comment is posted (in Step 8 or anywhere in the session), append the learning verbatim to the vault ledger at `Work/Chalktalk/Knowledge/coderabbit-learnings-ledger.md` (date + source PR) before the session ends. The ledger is the portable backup: it survives a CR data wipe and seeds CR setup on personal repos.
 
 Why a forcing function and not a flag: the user's own words (2026-06-11) — "I likely won't remember to do it." A flagged-but-unscheduled item is this step's own Re-Learned Lesson trap applied to itself. The question costs one click; the open loop costs the lesson.
 
