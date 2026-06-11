@@ -32,6 +32,52 @@ SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
 _SLUG_RE_COMPILED = re.compile(SLUG_RE)
 
+# HTML-looking tag in prose: <noscript>, </div>, <area>, <details class="x">,
+# and even path placeholders like <skill-root>. With or without attributes.
+_RAW_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>`\n]*)?/?>")
+_FENCE_SPLIT_RE = re.compile(r"(```.*?```|~~~.*?~~~)", re.S)
+
+
+def escape_raw_html(text: str) -> str:
+    """Backtick-wrap HTML-looking tags so Obsidian renders them literally.
+
+    A bare ``<noscript>`` (or even a placeholder like ``<area>`` from a path
+    such as ``.claude/rules/<area>.md``) in note prose makes Obsidian's
+    reading view treat everything AFTER it as raw HTML — headings and all
+    markdown silently stop rendering for the rest of the note. Root-caused
+    2026-06-11 when a session log went un-rendered below its first raw tag.
+
+    Tags already inside inline code spans or fenced code blocks are left
+    untouched.
+    """
+    segments = _FENCE_SPLIT_RE.split(text)
+    out: list[str] = []
+    for j, seg in enumerate(segments):
+        if j % 2 == 1:  # fenced code block — leave verbatim
+            out.append(seg)
+            continue
+        parts = seg.split("`")
+        for i in range(0, len(parts), 2):  # even indexes are outside code spans
+            parts[i] = _RAW_TAG_RE.sub(lambda m: f"`{m.group(0)}`", parts[i])
+        out.append("`".join(parts))
+    return "".join(out)
+
+
+def escape_raw_html_tree(value):
+    """Apply escape_raw_html to every string in a nested dict/list structure.
+
+    Run over the raw manifest before validation so EVERY rendered field —
+    summary, stream bodies, decision prose, project-doc text, source notes,
+    shipping/brag bullets — is protected, including fields added later.
+    """
+    if isinstance(value, str):
+        return escape_raw_html(value)
+    if isinstance(value, list):
+        return [escape_raw_html_tree(v) for v in value]
+    if isinstance(value, dict):
+        return {k: escape_raw_html_tree(v) for k, v in value.items()}
+    return value
+
 
 def _dedup_preserve_order(items: list[str]) -> list[str]:
     """Return items deduplicated, preserving first-seen order."""
@@ -1554,6 +1600,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     except (FileNotFoundError, yaml.YAMLError) as e:
         print(f"error: cannot read manifest: {e}", file=sys.stderr)
         return 1
+
+    # Escape HTML-looking tags in all prose BEFORE validation so every
+    # rendered artifact is Obsidian-safe (see escape_raw_html docstring).
+    raw = escape_raw_html_tree(raw)
 
     try:
         manifest = SessionEndManifest.model_validate(raw)
