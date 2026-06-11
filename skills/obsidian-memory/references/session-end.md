@@ -1,6 +1,6 @@
 # Session End — Compose Manifest, Run Helper, Confirm (Automatic)
 
-**When to use** — run the FULL ritual (Steps 1 through 7) when the user says any of:
+**When to use** — run the FULL ritual (Steps 1 through 8) when the user says any of:
 - "done", "exit", "wrap up", "that's all", "thanks all done"
 - "save to obsidian", "save progress", "save this", "save this session", "log this", "log progress", "capture this"
 - any "save" / "log" / "capture" verb pointed at obsidian / the vault / the session
@@ -85,21 +85,36 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 | Lesson shape | Durable home | Action at session-end |
 |---|---|---|
 | Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | Write with the Write tool immediately after approval — auto-memory is the only home that loads into every future session |
-| Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Do NOT write at session-end — flag as a PR candidate bullet in the manifest's `next_steps` |
-| Skill-specific gotcha | That skill's gotchas/reference file | Flag as a PR candidate bullet in `next_steps` |
+| Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Queue for the **Step 8 forcing function** below — never park it as a `next_steps` bullet |
+| Skill-specific gotcha | That skill's gotchas/reference file | Queue for Step 8 |
 | Session-specific detail with no future reader | Vault session log only | Nothing extra — `learnings:` already covers it |
 
 The routing test for the first three rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home.
 
-Append the routed items to the SAME batched confirmation prompt as Step 3:
+Append the routed items to the SAME batched confirmation prompt as Step 3 (for visibility), e.g.:
 
 ```
   • LEARNING → auto-memory: "<one-line lesson>" → feedback_<slug>.md
-  • LEARNING → repo-rule PR candidate: "<one-line lesson>" → .claude/rules/<area>.md (goes in next_steps)
+  • LEARNING → repo rule (queued for after the save): "<one-line lesson>" → .claude/rules/<area>.md
   • LEARNING → vault-only: "<one-line lesson>" (no routing)
 ```
 
-Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Approved PR candidates become bullets in the manifest's `next_steps`. A session with no routable learnings just shows the vault-only lines; that's fine.
+Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8.
+
+## Step 8: Learning forcing function (after the change report)
+
+Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha learning as an inline multiple-choice question (AskUserQuestion-style — the user must pick, not scroll past). One question per learning:
+
+```
+Route the learning "<one-line lesson>"?
+  1. Open the PR now (Recommended) — write .claude/rules/<area>.md + the .coderabbit.yaml lockstep block (with source citation), branch, PR
+  2. Auto-memory instead — personal habit, not a repo standard
+  3. Vault-only — session log already captured it
+```
+
+On "Open the PR now": do the work in the same session — write both lockstep sides, cite the source incident, open the PR. Docs-only diffs merge immediately per the standing docs-only rule; diffs touching `.coderabbit.yaml` follow the standing CR-poll-then-admin-merge workflow. If the session ends mid-poll, the OPEN PR is the durable artifact — visible on GitHub, nagged by CodeRabbit — which is the point: an open PR survives forgetting; a `next_steps` bullet does not.
+
+Why a forcing function and not a flag: the user's own words (2026-06-11) — "I likely won't remember to do it." A flagged-but-unscheduled item is this step's own Re-Learned Lesson trap applied to itself. The question costs one click; the open loop costs the lesson.
 
 Why this step exists: 2026-06-11, a "HTML must survive no-JS previews" lesson surfaced in an ad-hoc session (no skill run, no PR — so neither the run-trace loop nor the CodeRabbit loop could catch it), and the session log was the only place it landed. Session-end is the one checkpoint ad-hoc sessions reliably hit, so session-end is where lessons get routed to homes that auto-load.
 

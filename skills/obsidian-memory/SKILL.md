@@ -112,7 +112,7 @@ For specific operations, read the matching reference. References load on-demand;
 
 **At session start** (every new conversation): read `references/session-start.md` and execute the ritual. If the SessionStart hook injected context (you'll see the block in the system reminders), skip steps 1–5 (read-context) and execute steps 6–7 (summarize, weekly lint) only. Do **not** ask permission — just do it.
 
-**At session end**: read `references/session-end.md` and execute the FULL ritual (all 7 steps including the mandatory approval and extraction-batch confirmation, plus the helper invocation that prints the change report). Trigger phrases include:
+**At session end**: read `references/session-end.md` and execute the FULL ritual (all 8 steps including the mandatory approval, the extraction-batch confirmation, the helper invocation that prints the change report, and the Step 8 learning forcing function — inline multiple-choice routing of repo-rule/gotcha learnings after the save). Trigger phrases include:
 
 - "done", "exit", "wrap up", "that's all"
 - "save to obsidian", "save progress", "save this", "save this session", "log this", "log progress", "capture this"
