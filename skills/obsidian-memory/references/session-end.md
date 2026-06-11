@@ -78,6 +78,31 @@ Wait for user approval. Approved items go into the manifest's `extractions` sect
 - A shipping event is internal-only churn (commit pushed, no feature/customer impact)
 - A brag is generic ("had a productive session")
 
+## Step 3a: Route learnings to write-time homes (closed learning loop)
+
+Vault session logs are searchable storage, not write-time context. A lesson that lives ONLY in a session log is the system's own "Re-Learned Lesson" failure mode: nothing loads it before the next session repeats the mistake. Before composing the manifest, walk the draft `learnings:` bullets and classify each one's durable home:
+
+| Lesson shape | Durable home | Action at session-end |
+|---|---|---|
+| Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | Write with the Write tool immediately after approval — auto-memory is the only home that loads into every future session |
+| Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Do NOT write at session-end — flag as a PR candidate bullet in the manifest's `next_steps` |
+| Skill-specific gotcha | That skill's gotchas/reference file | Flag as a PR candidate bullet in `next_steps` |
+| Session-specific detail with no future reader | Vault session log only | Nothing extra — `learnings:` already covers it |
+
+The routing test for the first three rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home.
+
+Append the routed items to the SAME batched confirmation prompt as Step 3:
+
+```
+  • LEARNING → auto-memory: "<one-line lesson>" → feedback_<slug>.md
+  • LEARNING → repo-rule PR candidate: "<one-line lesson>" → .claude/rules/<area>.md (goes in next_steps)
+  • LEARNING → vault-only: "<one-line lesson>" (no routing)
+```
+
+Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Approved PR candidates become bullets in the manifest's `next_steps`. A session with no routable learnings just shows the vault-only lines; that's fine.
+
+Why this step exists: 2026-06-11, a "HTML must survive no-JS previews" lesson surfaced in an ad-hoc session (no skill run, no PR — so neither the run-trace loop nor the CodeRabbit loop could catch it), and the session log was the only place it landed. Session-end is the one checkpoint ad-hoc sessions reliably hit, so session-end is where lessons get routed to homes that auto-load.
+
 ## Step 4: Compose the YAML manifest
 
 Write the approved content to `/tmp/session-end-<unix-timestamp>.yaml`. The full schema is in [`references/session-end-helper.md`](session-end-helper.md); the structure summary follows.
