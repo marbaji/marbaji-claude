@@ -326,7 +326,6 @@ class FocusUpdates(BaseModel):
     move_to_complete: list[str] = Field(default_factory=list)
     move_to_retired: list[str] = Field(default_factory=list)
     snooze: list[str] = Field(default_factory=list)
-    priorities: Optional[str] = None  # if set, replaces body of ## Priorities verbatim
 
 
 class SessionEndManifest(BaseModel):
@@ -1181,30 +1180,7 @@ def process_focus_updates(
             report_summary.append(f"## Active Projects: upserted {upsert.slug} (new)")
             report_summary.extend(_diff_lines([], new_block))
 
-    # 4. Priorities
-    if updates.priorities is not None:
-        _RE_PRIORITIES = re.compile(r"^## Priorities\s*$")
-        result = _find_h2_section(lines, _RE_PRIORITIES)
-        new_prio_lines = updates.priorities.splitlines()
-        if new_prio_lines and new_prio_lines[-1] != "":
-            new_prio_lines.append("")
-        if result is not None:
-            heading_idx, body_end = result
-            old_prio = lines[heading_idx + 1 : body_end]
-            lines[heading_idx + 1 : body_end] = new_prio_lines
-            report_summary.append(
-                f"## Priorities: replaced ({len(old_prio)} to {len(new_prio_lines)} lines)"
-            )
-            report_summary.extend(_diff_lines(old_prio, new_prio_lines))
-        else:
-            if lines and lines[-1] != "":
-                lines.append("")
-            new_section = ["## Priorities", *new_prio_lines]
-            lines.extend(new_section)
-            report_summary.append(f"## Priorities: created with {len(new_prio_lines)} lines")
-            report_summary.extend(_diff_lines([], new_section))
-
-    # 5. Staleness sidecar (last_touched / snooze / retire bookkeeping)
+    # 4. Staleness sidecar (last_touched / snooze / retire bookkeeping)
     stamp = (today or Date.today()).isoformat()
     meta = load_focus_meta(vault)
     projects = meta["projects"]

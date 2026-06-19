@@ -261,9 +261,8 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 | `move_to_complete` | `list[str]` | Optional (default `[]`) | Project slugs whose blocks are moved to `## Complete` with a `✅` suffix appended to the heading line. | `[finished-project]` |
 | `move_to_retired` | `list[str]` | Optional (default `[]`) | Project slugs whose blocks are moved to `## Retired Projects` with a `🗄️` suffix. Section auto-created at end of body if missing. | `[deprioritized-project]` |
 | `snooze` | `list[str]` | Optional (default `[]`) | Project slugs to defer from the staleness sweep for `SNOOZE_DAYS` (14). Writes `snooze_until` to the sidecar; does not move the entry. Re-snoozing later resets the window (no cap). | `[paused-project]` |
-| `priorities` | `Optional[str]` | Optional (default `null`) | If set, replaces the entire body of the `## Priorities` section in `current-focus.md` verbatim. Section is appended at end of body if the heading is missing. | `"1. Ship renewal helper\n2. Review PR #50"` |
 
-Operations are applied in order: removes first, then move-to-complete, then move-to-retired, then upserts, then priorities replacement. After the markdown edits, the staleness sidecar `Context/.focus-meta.json` is updated: `upsert` stamps `last_touched` (and clears any snooze); `snooze` sets `snooze_until = session_date + 14d`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Surface stale candidates first with `session_end.py --stale-check` (see [`session-end.md`](session-end.md) Step 2b).
+Operations are applied in order: removes first, then move-to-complete, then move-to-retired, then upserts. After the markdown edits, the staleness sidecar `Context/.focus-meta.json` is updated: `upsert` stamps `last_touched` (and clears any snooze); `snooze` sets `snooze_until = session_date + 14d`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Surface stale candidates first with `session_end.py --stale-check` (see [`session-end.md`](session-end.md) Step 2b).
 
 ---
 
@@ -291,7 +290,6 @@ Operations are applied in order: removes first, then move-to-complete, then move
 | `new_project_docs[]` (work) | `new_project_docs` | Write new `Work/<Org>/Projects/<slug>.md` with YAML frontmatter + body. Preflight fails with exit 2 if file already exists. |
 | `new_project_docs[]` (personal) | `new_project_docs` | Write new `Personal/Projects/<slug>/overview.md`; parent directory created if absent. Requires `category: personal`. Preflight fails with exit 2 if file already exists. |
 | `focus_updates.remove`, `focus_updates.upsert`, `focus_updates.move_to_complete` | `focus_updates` | Edit `Context/current-focus.md`: remove blocks, move blocks to `## Complete` (with `✅`), upsert at top of `## Active Projects`. Always bumps `last-updated:` frontmatter field from `last_updated_slug`. File must exist or preflight fails. |
-| `focus_updates.priorities` | `focus_updates` | Replace body of `## Priorities` in `current-focus.md` verbatim. Section appended at end of body if heading is missing. Runs after remove / move-to-complete / upsert operations. |
 
 ---
 
@@ -338,7 +336,7 @@ Artifacts written:
 
 ---
 
-### Example 2: Full coverage (multi-stream, all extractions, structured project updates, sources, priorities)
+### Example 2: Full coverage (multi-stream, all extractions, structured project updates, sources)
 
 ```yaml
 date: 2026-05-09
@@ -479,9 +477,6 @@ focus_updates:
     - slug: obsidian-memory
       status_line: "session_end.py PR #50 open — awaiting CodeRabbit review."
   move_to_complete: []
-  priorities: |
-    1. Merge obsidian-memory PR #50
-    2. Start Phase 3 planning
 ```
 
 Invocation (all sections, normal run):
@@ -500,7 +495,7 @@ Artifacts written:
 - `Work/Chalktalk/Shipping Log.md` — one bullet appended under `## 2026-05`
 - `Personal/Brag Doc.md` — one bullet appended under `## 2026 Q2`
 - `Work/Chalktalk/Projects/obsidian-memory.md` — structured updates: status replaced, recent_activity prepended, next_steps replaced, related_session bullet appended
-- `Context/current-focus.md` — `obsidian-memory` block upserted, priorities replaced, `last-updated:` bumped
+- `Context/current-focus.md` — `obsidian-memory` block upserted, `last-updated:` bumped
 
 ---
 
@@ -554,7 +549,7 @@ Nothing else is touched. If `obsidian-memory.md` does not exist, preflight exits
 
 ### Example 4: Personal project — create and update
 
-Demonstrates `category: personal` for both creating a new personal project doc and updating an existing one. Also shows `focus_updates.priorities`.
+Demonstrates `category: personal` for both creating a new personal project doc and updating an existing one.
 
 ```yaml
 date: 2026-05-09
@@ -593,16 +588,12 @@ project_doc_updates:
       - BuildRight site visit (week of 2026-05-12)
       - SpaceWorks quote review meeting (2026-05-15)
     related_session: "[[Sessions/2026-05/2026-05-09-inbloom-vendor-quotes]]"
-focus_updates:
-  priorities: |
-    1. InBloom vendor decision by 2026-05-20
-    2. obsidian-memory PR #50 review
 ```
 
 Artifacts written:
 - `Sessions/2026-05/2026-05-09-inbloom-vendor-quotes.md`
 - `Personal/Projects/InBloom Early Learning/overview.md` — structured updates applied (status replaced, recent_activity prepended, next_steps replaced, related_session appended)
-- `Context/current-focus.md` — priorities section replaced, `last-updated:` bumped
+- `Context/current-focus.md` — `last-updated:` bumped
 
 **Note:** The wikilink in the session log reads `[[Personal/Projects/InBloom Early Learning/overview|InBloom Early Learning]]` (pipe alias). The slug `InBloom Early Learning` is used verbatim because `category: personal` disables the kebab-case constraint.
 
@@ -615,7 +606,6 @@ Artifacts written:
 - **Org name:** Read from `~/.claude/obsidian-org-name`. Defaults to `Chalktalk` if the file is absent. Used in all `Work/<Org>/...` paths.
 - **Personal projects:** Set `category: "personal"` on `ProjectTouched`, `ProjectDocUpdate`, or `NewProjectDoc`. The slug then becomes the Display Name — spaces and Title Case are allowed (e.g. `InBloom Early Learning`). The helper resolves the path to `Personal/Projects/<slug>/overview.md` and emits wikilinks in the pipe-alias form `[[Personal/Projects/<slug>/overview|<slug>]]`. The kebab-case constraint on slug is lifted; however, empty slugs, leading/trailing whitespace, `/`, and newlines are still rejected.
 - **`current-focus.md` upsert insertion point:** New upsert blocks are inserted immediately after the `## Active Projects` heading line (at index `active_idx + 1`), pushing any existing content down. If the heading does not exist, it is appended at end of file.
-- **`focus_updates.priorities`:** If set, the body of `## Priorities` in `current-focus.md` is replaced verbatim. The section is appended at end of body if the heading is absent. Runs after remove / move-to-complete / upsert operations in the same `focus_updates` object.
 - **Structured project-doc updates:** `ProjectDocUpdate` supports four targeted operations — `status` (replace section body), `recent_activity` (prepend dated subsection, trim to last 3), `next_steps` (replace section body), `related_session` (append wikilink bullet). Any missing section is auto-created at the end of the file. The legacy `section_title + section_date + body` triple is still supported for free-form appends; all three must be set together (all-or-none).
 - **Sources — from `sources_captured[]` only:** Source files (`Sources/YYYY-MM-DD-<slug>.md`) are written by the helper; the agent must NOT write them separately. Each entry in `sources_captured[]` requires `url`, `title`, `slug`, `type`, `summary`, and `why`. The session log references sources via `[[Sources/<date>-<slug>|<title>]]` (wikilink form, not markdown link). Collision behavior: skip-with-warning, no overwrite.
 - **Decision-file collision:** An existing file at the resolved path is skipped with a stderr warning. The helper never overwrites a decision file. Same-run path collisions (two slugs resolving to the same path) are noted in preflight as informational, and the later entry wins.
@@ -664,7 +654,6 @@ Artifacts written:
   Context/current-focus.md
     frontmatter last-updated: 2026-04-30-old-session to 2026-05-09-foo
     ## Active Projects: upserted 1: ['existing-project']
-    ## Priorities: replaced (3 to 5 lines)
 
   Wrote session-end artifacts under /Users/.../vault.
   ```

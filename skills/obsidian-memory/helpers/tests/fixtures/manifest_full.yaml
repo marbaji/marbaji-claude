@@ -66,4 +66,3 @@ focus_updates:
   upsert:
     - slug: existing-project
       status_line: "**🟢 Existing project active.** Today's update."
-  priorities: "1. Ship the helper\n2. Finish e2e coverage"

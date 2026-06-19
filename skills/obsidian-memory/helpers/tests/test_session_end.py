@@ -793,9 +793,6 @@ class TestEndToEnd:
         focus = (vault / "Context/current-focus.md").read_text()
         assert "🟢 Existing project active." in focus
         assert "last-updated: 2026-05-09-full-example" in focus
-        assert "1. Ship the helper" in focus
-        assert "2. Finish e2e coverage" in focus
-        assert "3. Phase 2 ritual rewrite" not in focus  # old priorities replaced
 
 
 class TestPartialRun:
@@ -1468,96 +1465,6 @@ class TestStructuredProjectDocUpdates:
         assert result.index("Found via alias") < result.index("Second session")
 
 
-class TestPrioritiesUpdate:
-    def _setup_vault(self, tmp_path):
-        vault = tmp_path / "vault"
-        fixtures = Path(__file__).parent / "fixtures" / "vault"
-        shutil.copytree(fixtures, vault)
-        return vault
-
-    def _focus_path(self, vault):
-        return vault / "Context/current-focus.md"
-
-    def test_priorities_replace_replaces_body(self, tmp_path):
-        vault = self._setup_vault(tmp_path)
-        updates = session_end.FocusUpdates(
-            priorities="1. New thing\n2. Other",
-        )
-        session_end.process_focus_updates(
-            vault=vault, updates=updates,
-            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
-        )
-        text = self._focus_path(vault).read_text()
-        # New content present
-        assert "1. New thing" in text
-        assert "2. Other" in text
-        # Old content gone
-        assert "Ship the helper" not in text
-        # Other sections untouched
-        assert "## Active Projects" in text
-        assert "## Complete" in text
-        assert "Foo is active" in text
-
-    def test_priorities_none_leaves_section_alone(self, tmp_path):
-        vault = self._setup_vault(tmp_path)
-        updates = session_end.FocusUpdates(
-            upsert=[
-                session_end.FocusUpsert(
-                    slug="foo",
-                    status_line="**🔴 Foo changed.** Updated.",
-                ),
-            ],
-            # priorities=None by default
-        )
-        session_end.process_focus_updates(
-            vault=vault, updates=updates,
-            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
-        )
-        text = self._focus_path(vault).read_text()
-        # Priorities body unchanged
-        assert "1. Ship the helper" in text
-        assert "2. Wait for CodeRabbit" in text
-        assert "3. Phase 2 ritual rewrite" in text
-
-    def test_priorities_creates_section_when_missing(self, tmp_path):
-        vault = self._setup_vault(tmp_path)
-        focus_path = self._focus_path(vault)
-        # Write a current-focus.md without ## Priorities
-        focus_path.write_text(
-            "---\ntype: index\nlast-updated: 2026-04-30-old-session\ntags: [focus]\n---\n\n"
-            "# Current Focus\n\n## Active Projects\n\n## Complete\n"
-        )
-        updates = session_end.FocusUpdates(priorities="1. Foo")
-        session_end.process_focus_updates(
-            vault=vault, updates=updates,
-            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
-        )
-        text = focus_path.read_text()
-        assert "## Priorities" in text
-        assert "1. Foo" in text
-        # Section appended after the rest of the body
-        assert text.index("## Priorities") > text.index("## Complete")
-
-    def test_priorities_preserves_frontmatter_and_last_updated_bump(self, tmp_path):
-        vault = self._setup_vault(tmp_path)
-        updates = session_end.FocusUpdates(priorities="1. Updated priority")
-        session_end.process_focus_updates(
-            vault=vault, updates=updates,
-            last_updated_slug="2026-05-09-prio-bump", org_name="Chalktalk",
-        )
-        text = self._focus_path(vault).read_text()
-        # Frontmatter still starts the file with the right type/tags fields
-        assert text.startswith("---\n")
-        assert "type: index" in text
-        assert "tags: [focus]" in text
-        # last-updated bumped
-        assert "last-updated: 2026-05-09-prio-bump" in text
-        assert "last-updated: 2026-04-30-old-session" not in text
-        # Priorities replaced
-        assert "1. Updated priority" in text
-        assert "Ship the helper" not in text
-
-
 class TestSourceFiles:
     """Tests for Source file writing (render_source_file, source_file_path, write_source_files)."""
 
@@ -2198,7 +2105,7 @@ class TestChangeReport:
         assert "skipped (already exists)" in captured.out
 
     def test_focus_updates_report_lists_sections(self, tmp_path, capsys):
-        """Full e2e run; report contains frontmatter bump, upserted projects, replaced priorities."""
+        """Full e2e run; report contains frontmatter bump and upserted projects."""
         vault = self._setup_vault(tmp_path)
         manifest_src = Path(__file__).parent / "fixtures" / "manifest_full.yaml"
         rc = session_end.main([
@@ -2209,7 +2116,6 @@ class TestChangeReport:
         captured = capsys.readouterr()
         assert "frontmatter last-updated:" in captured.out
         assert "## Active Projects: upserted" in captured.out
-        assert "## Priorities: replaced" in captured.out
 
     def test_shipping_idempotent_skip_in_report(self, tmp_path, capsys):
         """Pre-write a matching bullet; helper run reports skipped (bullet already present)."""

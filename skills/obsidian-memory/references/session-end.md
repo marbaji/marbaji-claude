@@ -197,7 +197,7 @@ Write the approved content to `/tmp/session-end-<unix-timestamp>.yaml`. The full
 | `extractions` | object | `decisions[]`, `shipping_log[]`, `brag[]`, `new_people[]` — populated from the Step 3 approvals. |
 | `project_doc_updates` | list | Update an existing project doc. Supports four structured operations (`status`, `recent_activity`, `next_steps`, `related_session`) and the legacy free-form append (`section_title + section_date + body`, all-or-none). Add `category: personal` to target `Personal/Projects/<slug>/overview.md`. Preflight fails if the file is missing. |
 | `new_project_docs` | list | Write a brand-new project doc. Add `category: personal` to write `Personal/Projects/<slug>/overview.md` (parent directory created if absent). Preflight fails on collision. |
-| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, `snooze[]`, and `priorities` for `current-focus.md`. `move_to_retired[]` moves entries to `## Retired Projects` (🗄️); `snooze[]` defers a stale project's prompt 14 days via the sidecar (see Step 2b). Set `priorities` to a string to replace the `## Priorities` section verbatim (section auto-created if missing). |
+| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, and `snooze[]` for `current-focus.md`. `move_to_retired[]` moves entries to `## Retired Projects` (🗄️); `snooze[]` defers a stale project's prompt 14 days via the sidecar (see Step 2b). |
 
 **Structured project-doc update fields (`project_doc_updates[]`):**
 
@@ -365,7 +365,7 @@ Full pattern walkthrough: [[Work/Chalktalk/Knowledge/cli-helpers-walkthrough]] i
 
 ## Fallback: prose-driven flow (helper unavailable)
 
-Use this section when the helper isn't installed or Python 3.11+ / Pydantic isn't available. Personal projects, structured doc updates, sources, and priorities are all handled by the helper — the prose fallback is only needed when Python itself is absent.
+Use this section when the helper isn't installed or Python 3.11+ / Pydantic isn't available. Personal projects, structured doc updates, and sources are all handled by the helper — the prose fallback is only needed when Python itself is absent.
 
 ### Fallback Step A: Create or update project docs
 
@@ -402,7 +402,6 @@ Read `Context/current-focus.md`, then rewrite to reflect reality:
 - Add new projects under the correct section (Active / Ongoing / Complete)
 - Move completed projects to Complete section with ✅
 - Update one-line descriptions if changed
-- Update priorities list
 - Use wikilinks: `[[Work/$ORG_NAME/Projects/project-name|Display Name]]`
 
 Write the updated file directly with the Write tool on the absolute vault path (the `obsidian update` command does not exist; `~` does not expand in the Write tool — pass `/Users/...`).
