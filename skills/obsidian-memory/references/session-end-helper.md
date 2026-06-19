@@ -259,9 +259,11 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 | `remove` | `list[str]` | Optional (default `[]`) | Project slugs whose entry blocks are deleted from `current-focus.md`. | `[old-project]` |
 | `upsert` | `list[FocusUpsert]` | Optional (default `[]`) | Entries to insert or replace at the top of `## Active Projects`. | See `FocusUpsert` below. |
 | `move_to_complete` | `list[str]` | Optional (default `[]`) | Project slugs whose blocks are moved to `## Complete` with a `✅` suffix appended to the heading line. | `[finished-project]` |
+| `move_to_retired` | `list[str]` | Optional (default `[]`) | Project slugs whose blocks are moved to `## Retired Projects` with a `🗄️` suffix. Section auto-created at end of body if missing. | `[deprioritized-project]` |
+| `snooze` | `list[str]` | Optional (default `[]`) | Project slugs to defer from the staleness sweep for `SNOOZE_DAYS` (14). Writes `snooze_until` to the sidecar; does not move the entry. Re-snoozing later resets the window (no cap). | `[paused-project]` |
 | `priorities` | `Optional[str]` | Optional (default `null`) | If set, replaces the entire body of the `## Priorities` section in `current-focus.md` verbatim. Section is appended at end of body if the heading is missing. | `"1. Ship renewal helper\n2. Review PR #50"` |
 
-Operations are applied in order: removes first, then move-to-complete, then upserts, then priorities replacement.
+Operations are applied in order: removes first, then move-to-complete, then move-to-retired, then upserts, then priorities replacement. After the markdown edits, the staleness sidecar `Context/.focus-meta.json` is updated: `upsert` stamps `last_touched` (and clears any snooze); `snooze` sets `snooze_until = session_date + 14d`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Surface stale candidates first with `session_end.py --stale-check` (see [`session-end.md`](session-end.md) Step 2b).
 
 ---
 

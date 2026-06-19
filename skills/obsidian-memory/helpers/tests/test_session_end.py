@@ -471,6 +471,81 @@ class TestCurrentFocusUpdates:
         assert "last-updated: 2026-04-30-old-session" not in text
 
 
+class TestStalenessAndRetire:
+    def _setup_vault(self, tmp_path):
+        vault = tmp_path / "vault"
+        fixtures = Path(__file__).parent / "fixtures" / "vault"
+        shutil.copytree(fixtures, vault)
+        return vault
+
+    def test_move_to_retired_adds_marker_and_section(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(move_to_retired=["foo"]),
+            last_updated_slug="2026-06-19-test", org_name="Chalktalk",
+            today=Date(2026, 6, 19),
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        assert "Projects/foo]]" not in text.split("## Complete")[0]
+        assert "[[Work/Chalktalk/Projects/foo]] 🗄️" in text.split("## Retired Projects")[1]
+
+    def test_upsert_stamps_last_touched(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(
+                upsert=[session_end.FocusUpsert(slug="foo", status_line="**🟢 still going.**")]
+            ),
+            last_updated_slug="2026-06-19-test", org_name="Chalktalk",
+            today=Date(2026, 6, 19),
+        )
+        meta = session_end.load_focus_meta(vault)
+        assert meta["projects"]["foo"]["last_touched"] == "2026-06-19"
+
+    def test_snooze_sets_future_date_and_resnooze_extends(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(snooze=["foo"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        assert session_end.load_focus_meta(vault)["projects"]["foo"]["snooze_until"] == "2026-07-03"
+        # Re-snooze from a later day resets the window (no cap).
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(snooze=["foo"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 7, 3),
+        )
+        assert session_end.load_focus_meta(vault)["projects"]["foo"]["snooze_until"] == "2026-07-17"
+
+    def test_stale_detected_snooze_suppresses_then_resurfaces(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
+        session_end.save_focus_meta(vault, meta)
+        # 49 days stale -> candidate; bar has no meta entry -> not a candidate.
+        cands = session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19))
+        assert [c["slug"] for c in cands] == ["foo"]
+        assert cands[0]["days_stale"] == 49
+        # Snooze suppresses it.
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(snooze=["foo"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        assert session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19)) == []
+        # After the snooze window passes it resurfaces.
+        assert [c["slug"] for c in session_end.compute_stale_candidates(vault, today=Date(2026, 7, 4))] == ["foo"]
+
+    def test_move_to_complete_removes_from_meta(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
+        session_end.save_focus_meta(vault, meta)
+        session_end.process_focus_updates(
+            vault=vault, updates=session_end.FocusUpdates(move_to_complete=["foo"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        assert "foo" not in session_end.load_focus_meta(vault)["projects"]
+
+
 class TestDecisionExtraction:
     def _setup_vault(self, tmp_path):
         vault = tmp_path / "vault"

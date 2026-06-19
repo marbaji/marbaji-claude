@@ -10,10 +10,11 @@ See references/session-end-helper.md for the manifest schema.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass, field as dataclass_field
-from datetime import date as Date
+from datetime import date as Date, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -304,6 +305,16 @@ class NewProjectDoc(BaseModel):
         return self
 
 
+# --- Staleness tracking for current-focus Active Projects -------------------
+# A project untouched for STALE_DAYS surfaces at session-end (via --stale-check)
+# as a retire/complete/snooze candidate. Snoozing suppresses it for SNOOZE_DAYS;
+# re-snoozing resets from that day (no cap). State lives in a vault-hidden
+# sidecar (FOCUS_META_REL); current-focus.md stays clean.
+STALE_DAYS = 30
+SNOOZE_DAYS = 14
+FOCUS_META_REL = "Context/.focus-meta.json"
+
+
 class FocusUpsert(BaseModel):
     slug: str = Field(pattern=SLUG_RE)
     status_line: str
@@ -313,6 +324,8 @@ class FocusUpdates(BaseModel):
     remove: list[str] = Field(default_factory=list)
     upsert: list[FocusUpsert] = Field(default_factory=list)
     move_to_complete: list[str] = Field(default_factory=list)
+    move_to_retired: list[str] = Field(default_factory=list)
+    snooze: list[str] = Field(default_factory=list)
     priorities: Optional[str] = None  # if set, replaces body of ## Priorities verbatim
 
 
@@ -958,13 +971,105 @@ def _find_section_index(lines: list[str], heading: str) -> Optional[int]:
     return None
 
 
+def _focus_meta_path(vault: Path) -> Path:
+    return vault / FOCUS_META_REL
+
+
+def load_focus_meta(vault: Path) -> dict:
+    """Load the per-project staleness sidecar; return a default skeleton if absent."""
+    path = _focus_meta_path(vault)
+    data: dict = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    data.setdefault("version", 1)
+    data.setdefault("stale_days", STALE_DAYS)
+    data.setdefault("snooze_days", SNOOZE_DAYS)
+    data.setdefault("projects", {})
+    return data
+
+
+def save_focus_meta(vault: Path, meta: dict) -> None:
+    """Write the staleness sidecar. Skips writing an empty sidecar that doesn't
+    already exist, so runs with no staleness-relevant ops don't litter the vault."""
+    path = _focus_meta_path(vault)
+    if not meta.get("projects") and not path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
+
+
+def _active_slugs(vault: Path, org_name: str) -> list[str]:
+    """Project keys under '## Active Projects' in current-focus.md.
+
+    Returns the path segment after 'Projects/' for both Work and Personal entries
+    (the same key the sidecar uses)."""
+    path = vault / "Context/current-focus.md"
+    if not path.exists():
+        return []
+    _, body = _split_frontmatter(path.read_text())
+    lines = body.splitlines()
+    start = _find_section_index(lines, "## Active Projects")
+    if start is None:
+        return []
+    pat = re.compile(r"^###\s+\[\[(?:Work/[^/]+|Personal)/Projects/([^\]|/]+)")
+    slugs: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        m = pat.match(line.strip())
+        if m:
+            slugs.append(m.group(1))
+    return slugs
+
+
+def compute_stale_candidates(
+    vault: Path, today: Optional[Date] = None, org_name: str = "Chalktalk"
+) -> list[dict]:
+    """Active projects untouched for >= STALE_DAYS and not currently snoozed.
+
+    Returns dicts {slug, last_touched, days_stale}. A project with no sidecar
+    entry is treated as freshly-seen (skipped). A project whose snooze_until is
+    in the future is suppressed (re-snoozing simply moves that date forward)."""
+    today = today or Date.today()
+    meta = load_focus_meta(vault)
+    projects = meta.get("projects", {})
+    stale_days = meta.get("stale_days", STALE_DAYS)
+    out: list[dict] = []
+    for slug in _active_slugs(vault, org_name):
+        entry = projects.get(slug)
+        if not entry or not entry.get("last_touched"):
+            continue
+        snooze_until = entry.get("snooze_until")
+        if snooze_until:
+            try:
+                if Date.fromisoformat(snooze_until) > today:
+                    continue
+            except ValueError:
+                pass
+        try:
+            last = Date.fromisoformat(entry["last_touched"])
+        except ValueError:
+            continue
+        days = (today - last).days
+        if days >= stale_days:
+            out.append(
+                {"slug": slug, "last_touched": entry["last_touched"], "days_stale": days}
+            )
+    return out
+
+
 def process_focus_updates(
     vault: Path,
     updates: FocusUpdates,
     last_updated_slug: str,
     org_name: str = "Chalktalk",
+    today: Optional[Date] = None,
 ) -> ChangeReport:
-    """Apply remove / upsert / move_to_complete to current-focus.md and bump last-updated."""
+    """Apply remove / upsert / move_to_complete / move_to_retired / snooze to
+    current-focus.md, update the staleness sidecar, and bump last-updated."""
     rel_path = "Context/current-focus.md"
     path = vault / rel_path
     if not path.exists():
@@ -1034,6 +1139,25 @@ def process_focus_updates(
         report_summary.append(f"moved to ## Complete: {slug}")
         report_summary.extend(_diff_lines(old_block_lines, new_block_lines))
 
+    # 2b. Move to retired
+    for slug in updates.move_to_retired:
+        block = _find_entry_block(lines, slug, org_name)
+        if block is None:
+            continue
+        start, end = block
+        old_block_lines = list(lines[start:end])
+        new_block_lines = list(old_block_lines)
+        if " 🗄️" not in new_block_lines[0]:
+            new_block_lines[0] = new_block_lines[0].rstrip() + " 🗄️"
+        del lines[start:end]
+        retired_idx = _find_section_index(lines, "## Retired Projects")
+        if retired_idx is None:
+            lines.extend(["", "## Retired Projects", *new_block_lines])
+        else:
+            lines[retired_idx + 1 : retired_idx + 1] = new_block_lines
+        report_summary.append(f"moved to ## Retired Projects: {slug}")
+        report_summary.extend(_diff_lines(old_block_lines, new_block_lines))
+
     # 3. Upsert
     for upsert in updates.upsert:
         existing = _find_entry_block(lines, upsert.slug, org_name)
@@ -1079,6 +1203,33 @@ def process_focus_updates(
             lines.extend(new_section)
             report_summary.append(f"## Priorities: created with {len(new_prio_lines)} lines")
             report_summary.extend(_diff_lines([], new_section))
+
+    # 5. Staleness sidecar (last_touched / snooze / retire bookkeeping)
+    stamp = (today or Date.today()).isoformat()
+    meta = load_focus_meta(vault)
+    projects = meta["projects"]
+    meta_changed = False
+    for upsert in updates.upsert:
+        entry = projects.setdefault(upsert.slug, {})
+        entry["last_touched"] = stamp
+        entry.pop("snooze_until", None)
+        meta_changed = True
+    for slug in updates.snooze:
+        entry = projects.setdefault(slug, {})
+        entry.setdefault("last_touched", stamp)
+        entry["snooze_until"] = (
+            (today or Date.today()) + timedelta(days=meta.get("snooze_days", SNOOZE_DAYS))
+        ).isoformat()
+        meta_changed = True
+    for slug in (*updates.move_to_complete, *updates.move_to_retired, *updates.remove):
+        if projects.pop(slug, None) is not None:
+            meta_changed = True
+    if meta_changed:
+        meta["updated"] = stamp
+        save_focus_meta(vault, meta)
+        report_summary.append(
+            f".focus-meta.json: {len(updates.upsert)} touched, {len(updates.snooze)} snoozed"
+        )
 
     new_body = "\n".join(lines)
     if not new_body.endswith("\n"):
@@ -1289,7 +1440,12 @@ def build_parser() -> argparse.ArgumentParser:
             "See references/session-end-helper.md for the manifest schema."
         ),
     )
-    p.add_argument("--manifest", required=True, type=Path)
+    p.add_argument("--manifest", required=False, default=None, type=Path)
+    p.add_argument(
+        "--stale-check",
+        action="store_true",
+        help="Print stale Active-project candidates (JSON) and exit; no manifest needed.",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
     p.add_argument("--only", type=_comma_list, default=None)
@@ -1564,7 +1720,9 @@ def run(
                     f"[dry-run] would update current-focus.md "
                     f"(remove={list(manifest.focus_updates.remove)}, "
                     f"upsert={upsert_slugs}, "
-                    f"move_to_complete={list(manifest.focus_updates.move_to_complete)})"
+                    f"move_to_complete={list(manifest.focus_updates.move_to_complete)}, "
+                    f"move_to_retired={list(manifest.focus_updates.move_to_retired)}, "
+                    f"snooze={list(manifest.focus_updates.snooze)})"
                 )
             else:
                 rpt = process_focus_updates(
@@ -1572,6 +1730,7 @@ def run(
                     updates=manifest.focus_updates,
                     last_updated_slug=manifest.last_updated_slug,
                     org_name=org_name,
+                    today=manifest.date,
                 )
                 change_reports.append(rpt)
 
@@ -1593,6 +1752,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     """Entry point. Returns process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    home = Path.home()
+
+    if args.stale_check:
+        vault = resolve_vault_path(args.vault_path, home)
+        if vault is None or not vault.exists():
+            print(f"error: vault not found. Resolved: {vault}", file=sys.stderr)
+            return 3
+        org_name_path = home / ".claude" / "obsidian-org-name"
+        org_name = (
+            org_name_path.read_text().strip() if org_name_path.exists() else "Chalktalk"
+        )
+        print(
+            json.dumps(
+                compute_stale_candidates(vault, org_name=org_name),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.manifest is None:
+        print("error: --manifest is required (or use --stale-check)", file=sys.stderr)
+        return 1
 
     try:
         with args.manifest.open() as f:

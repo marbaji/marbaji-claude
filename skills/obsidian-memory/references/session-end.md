@@ -51,6 +51,30 @@ Does this look right? Any category corrections?
 
 Wait for user approval. The user may correct categories, add/remove projects, or split a project that should be two.
 
+## Step 2b: Staleness sweep (retire / complete / snooze) — MANDATORY
+
+Before composing the manifest, surface stale Active projects so the list stays honest (otherwise Active only grows — finished and abandoned work piles up because nothing sweeps it out). Run:
+
+```bash
+python3 ~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/helpers/session_end.py --stale-check
+```
+
+This prints (JSON) every Active project untouched for ≥30 days and not currently snoozed, e.g. `[{"slug": "foo", "last_touched": "2026-05-01", "days_stale": 49}]`. For EACH candidate, ask the user one question — **retire / complete / snooze / keep**:
+
+```
+"<slug>" hasn't been touched in <N> days. Retire it, mark complete, snooze 2 weeks, or keep active?
+```
+
+Map the answer into the manifest's `focus_updates`:
+- **retire** → `move_to_retired: [slug]` (→ `## Retired Projects`, 🗄️ marker)
+- **complete** → `move_to_complete: [slug]` (→ `## Complete`, ✅ marker)
+- **snooze** → `snooze: [slug]` (14-day reminder; re-snoozing later just resets the window — no cap)
+- **keep** → do nothing (it resurfaces in 30 days)
+
+Staleness state lives in the vault-hidden sidecar `Context/.focus-meta.json`, maintained automatically: every `upsert` stamps `last_touched`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Never hand-edit it.
+
+The sweep catches *abandoned* work AND *shipped-but-forgotten* work (a merged project nobody revisited goes stale and surfaces with a "complete" option). It does NOT watch GitHub, so a silently-merged project can lag up to 30 days before it's flagged — real-time merge detection is a separate follow-up.
+
 ## Step 3: Surface extractions for batched approval
 
 Walk the session for content that should live in its own structured file. Read [`references/extraction-rules.md`](extraction-rules.md) for full triggers + templates. Four extraction types:
@@ -173,7 +197,7 @@ Write the approved content to `/tmp/session-end-<unix-timestamp>.yaml`. The full
 | `extractions` | object | `decisions[]`, `shipping_log[]`, `brag[]`, `new_people[]` — populated from the Step 3 approvals. |
 | `project_doc_updates` | list | Update an existing project doc. Supports four structured operations (`status`, `recent_activity`, `next_steps`, `related_session`) and the legacy free-form append (`section_title + section_date + body`, all-or-none). Add `category: personal` to target `Personal/Projects/<slug>/overview.md`. Preflight fails if the file is missing. |
 | `new_project_docs` | list | Write a brand-new project doc. Add `category: personal` to write `Personal/Projects/<slug>/overview.md` (parent directory created if absent). Preflight fails on collision. |
-| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, and `priorities` for `current-focus.md`. Set `priorities` to a string to replace the `## Priorities` section verbatim (section auto-created if missing). |
+| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, `snooze[]`, and `priorities` for `current-focus.md`. `move_to_retired[]` moves entries to `## Retired Projects` (🗄️); `snooze[]` defers a stale project's prompt 14 days via the sidecar (see Step 2b). Set `priorities` to a string to replace the `## Priorities` section verbatim (section auto-created if missing). |
 
 **Structured project-doc update fields (`project_doc_updates[]`):**
 
