@@ -114,11 +114,12 @@ Returns ranked chunks with file paths and surrounding context. The agent may the
 
 ## Re-indexing cadence
 
-- After bulk edits to existing files: `qmd update` (incremental)
-- After adding many new notes: `qmd update` is usually sufficient; `qmd embed -f` for a full rebuild
-- One-shot updates (single file edited): no action needed; QMD re-checks on query if the index is older than the file
+**QMD has no file watcher and does NOT re-check on query.** The index is a static SQLite snapshot that only changes when something runs `qmd update`. A note added or edited after the last `qmd update` stays invisible to every search until the next one — `lastUpdated` in `qmd status` is the snapshot date, not "now". This bit us for real: the index sat frozen at 288 of 536 docs for ~7 weeks (2026-05-08 to 2026-06), so every Source/session/decision note written in that window silently failed to surface, even in exact-keyword (BM25) searches (2026-06).
 
-You can wire this into the SessionStart hook if you want auto-updates, but `qmd update` can take 10-30 seconds on a large vault — slowing every session start.
+- The **session-end helper auto-refreshes the index** after every successful save: `refresh_qmd_index()` in `helpers/session_end.py` runs `qmd update && qmd embed`. Because `qmd update` re-scans the whole collection, this also catches notes edited directly in Obsidian — as long as a save eventually runs. It is best-effort: no-op when `qmd` isn't installed, and a reindex failure never fails the save.
+- Manual refresh, only if you added notes outside any save ritual and want them searchable before the next save: `qmd update && qmd embed` (incremental; `qmd embed -f` forces a full rebuild).
+
+> A SessionStart hook is the wrong home for this: `qmd update` can take 10-30 seconds on a large vault, slowing every session start (and it would fire on print-mode and subagent sessions too). Tying the refresh to the save action means it runs exactly when new content lands.
 
 ---
 

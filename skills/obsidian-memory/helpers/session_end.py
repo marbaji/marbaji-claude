@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date, timedelta
@@ -1721,7 +1723,38 @@ def run(
         if not quiet:
             print_change_report(change_reports, vault, show_created_preview=True)
         print(f"Wrote session-end artifacts under {vault}.")
+        refresh_qmd_index(quiet=quiet)
     return 0
+
+
+def refresh_qmd_index(quiet: bool) -> None:
+    """Best-effort re-index of the vault so notes just written by this save are
+    immediately searchable via `mcp__qmd__query`.
+
+    qmd has no file watcher: it only re-scans when something runs `qmd update`.
+    Wiring this into the save ritual is the fix for a real failure — the index
+    silently froze for ~7 weeks (288 of 536 docs indexed, lastUpdated stuck at
+    2026-05-08) because nothing re-ran `qmd update` after saves, so every note
+    added after that date was invisible to semantic search (2026-06).
+
+    `qmd update` re-scans the whole registered collection, so this also picks up
+    notes edited directly in Obsidian, not just helper-written ones. `qmd embed`
+    only embeds changed chunks, so the steady-state cost is a few seconds.
+
+    Non-fatal by contract: the skill explicitly supports running without qmd, so
+    a missing binary or a non-zero exit must never change the save's exit code.
+    """
+    if shutil.which("qmd") is None:
+        return
+    for cmd in (["qmd", "update"], ["qmd", "embed"]):
+        try:
+            subprocess.run(cmd, check=False, capture_output=True, text=True)
+        except Exception as e:  # noqa: BLE001 — a reindex failure must not fail the save
+            if not quiet:
+                print(f"[qmd] skipped '{' '.join(cmd)}': {e}", file=sys.stderr)
+            return
+    if not quiet:
+        print("[qmd] vault index refreshed (update + embed).")
 
 
 def main(argv: Optional[list[str]] = None) -> int:

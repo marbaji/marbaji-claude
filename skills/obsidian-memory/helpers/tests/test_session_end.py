@@ -2660,3 +2660,36 @@ class TestSeeAlsoCrossLinks:
                 date="2026-05-09", label="x", see_also=[v],
             )
             assert entry.see_also == [v]
+
+
+class TestRefreshQmdIndex:
+    """Best-effort vault re-index wired into the save ritual. Contract: never
+    raises, never depends on qmd being installed, runs update then embed."""
+
+    def test_noop_when_qmd_absent(self, monkeypatch):
+        monkeypatch.setattr(session_end.shutil, "which", lambda _: None)
+        called = []
+        monkeypatch.setattr(
+            session_end.subprocess, "run", lambda *a, **k: called.append(a)
+        )
+        session_end.refresh_qmd_index(quiet=True)  # must not raise
+        assert called == []  # qmd never invoked
+
+    def test_runs_update_then_embed_when_present(self, monkeypatch):
+        monkeypatch.setattr(session_end.shutil, "which", lambda _: "/usr/bin/qmd")
+        calls = []
+        monkeypatch.setattr(
+            session_end.subprocess, "run", lambda cmd, **k: calls.append(cmd)
+        )
+        session_end.refresh_qmd_index(quiet=True)
+        assert calls == [["qmd", "update"], ["qmd", "embed"]]
+
+    def test_reindex_failure_is_swallowed(self, monkeypatch):
+        """A reindex failure must never propagate — the save already succeeded."""
+        monkeypatch.setattr(session_end.shutil, "which", lambda _: "/usr/bin/qmd")
+
+        def boom(*a, **k):
+            raise OSError("simulated qmd crash")
+
+        monkeypatch.setattr(session_end.subprocess, "run", boom)
+        session_end.refresh_qmd_index(quiet=True)  # must not raise
