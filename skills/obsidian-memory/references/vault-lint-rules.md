@@ -55,13 +55,20 @@ Scan every session log. For each `## Sources Captured` section, flag:
 
 **Report format:** one row per offending session log with the offending bullets. If all session logs pass, one-sentence summary: "All N session logs have clean Sources Captured sections."
 
+### 8. Wall-of-Text Lines (auto-fix)
+Agent-written notes sometimes arrive as single-line paragraph dumps (one 1,000+ character line, segments joined by " · " or long enumerations) — they render as unreadable walls of text in Obsidian. Scan every vault `.md` for lines >500 characters, excluding: table rows, URL/citation lists, code fences, and YAML frontmatter.
+
+**Action (auto-fix):** split offending lines into bullets at structural boundaries (" · " separators, sentence ends, semicolons) using a FORMATTING-ONLY edit — never reword, reorder, add, or delete a word. Verify each fix with `helpers/word_seq_check.py <backup> <edited>` (word-sequence must be identical; restore the backup on any divergence). Genuine flowing prose with no enumerative structure: leave alone and report instead.
+
+**Report format:** one row per fixed file with before→after monster-line counts; one-sentence summary if clean.
+
 ## Output
 
 Save report to `Context/vault-lint-report.md` (overwrite each time). Present a compact summary to the user during session start.
 
 ## Auto-fix vs Report
 
-The lint auto-fixes: abandoned projects (moves to Abandoned section preserving descriptions), status drift (updates frontmatter), and stale/empty sections (creates reasonable content or asks user). Broken wikilinks and orphan docs are reported — with actionable commands only when there's a fixable action.
+The lint auto-fixes: abandoned projects (moves to Abandoned section preserving descriptions), status drift (updates frontmatter), stale/empty sections (creates reasonable content or asks user), and wall-of-text lines (checker-verified formatting-only splits). Broken wikilinks and orphan docs are reported — with actionable commands only when there's a fixable action.
 
 ## Report Formatting Rules
 

@@ -108,6 +108,17 @@ For specific operations, read the matching reference. References load on-demand;
 
 ---
 
+## Vault Write Formatting Contract (applies to EVERY file written into the vault)
+
+Vault notes are read in Obsidian's rendered view — a single-line paragraph dump renders as an unreadable wall of text. For any content you (or a subagent) write into the vault:
+
+- **No enumerative paragraph lines >~300 characters.** Lists of facts/findings/steps become bullets, one point per bullet.
+- **Never join segments with " · " separators on one line** — that's a bullet list wearing a paragraph costume.
+- Genuine flowing prose is fine at any length as a paragraph — this rule targets enumerations, not writing.
+- Tables, code fences, and URL/citation lists are exempt.
+- **When a subagent's output is destined for the vault, put this contract in its prompt.** Files written elsewhere and later MOVED into the vault must be checked against it at move time.
+- Retrofit fixes must be formatting-only (insert newlines/bullets, drop replaced separators — never reword); verify with `helpers/word_seq_check.py` (word sequence identical). The 7-day lint (check 8) is the backstop, not the fix.
+
 ## When to Invoke This Skill
 
 **At session start** (every new conversation): read `references/session-start.md` and execute the ritual. If the SessionStart hook injected context (you'll see the block in the system reminders), skip steps 1–5 (read-context) and execute steps 6–7 (summarize, weekly lint) only. Do **not** ask permission — just do it.

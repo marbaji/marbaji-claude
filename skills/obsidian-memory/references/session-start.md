@@ -51,7 +51,7 @@ If you don't see that block, run the full ritual below.
    ```bash
    obsidian search query="vault-lint-report" vault="$VAULT_NAME" | head -1
    ```
-   If no report exists or the most recent is 7+ days old: read `references/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 6 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections), which ones auto-fix, and the report formatting rules.
+   If no report exists or the most recent is 7+ days old: read `references/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 8 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections, session-log source integrity, wall-of-text lines), which ones auto-fix, and the report formatting rules.
 
 ## Priority order
 
