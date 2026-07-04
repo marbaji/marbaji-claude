@@ -545,20 +545,70 @@ class TestStalenessAndRetire:
         )
         assert "foo" not in session_end.load_focus_meta(vault)["projects"]
 
-    def test_backlog_section_is_swept(self, tmp_path):
-        vault = self._setup_vault(tmp_path)
+    def _add_backlog_project(self, vault, slug="parked"):
         focus = vault / "Context/current-focus.md"
         text = focus.read_text().replace(
             "## Complete",
-            "## Backlog\n\n### [[Work/Chalktalk/Projects/parked]]\n"
+            f"## Backlog\n\n### [[Work/Chalktalk/Projects/{slug}]]\n"
             "\U0001F4DA Reading backlog.\n\n## Complete",
         )
         focus.write_text(text)
+
+    def test_backlog_swept_monthly_not_biweekly(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        self._add_backlog_project(vault)
         meta = session_end.load_focus_meta(vault)
         meta["projects"]["parked"] = {"last_touched": "2026-05-01"}
         session_end.save_focus_meta(vault, meta)
+        # 20 days: past the active window (14) but inside the backlog
+        # grooming window (30) -> not a candidate.
+        assert session_end.compute_stale_candidates(vault, today=Date(2026, 5, 21)) == []
+        # 49 days: due for grooming, tagged with its section.
         cands = session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19))
-        assert [c["slug"] for c in cands] == ["parked"]
+        assert [(c["slug"], c["section"]) for c in cands] == [("parked", "backlog")]
+
+    def test_stale_keep_suppresses_per_section_cadence(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        self._add_backlog_project(vault)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
+        meta["projects"]["parked"] = {"last_touched": "2026-05-01"}
+        session_end.save_focus_meta(vault, meta)
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(stale_keep=["foo", "parked"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        projects = session_end.load_focus_meta(vault)["projects"]
+        # Active keep = weekly cadence; backlog keep = monthly grooming.
+        assert projects["foo"]["snooze_until"] == "2026-06-26"
+        assert projects["parked"]["snooze_until"] == "2026-07-19"
+        # last_touched NOT stamped -- days_stale keeps accruing honestly.
+        assert projects["foo"]["last_touched"] == "2026-05-01"
+        # Suppressed now, resurfaces after the window.
+        assert session_end.compute_stale_candidates(vault, today=Date(2026, 6, 25)) == []
+        assert [c["slug"] for c in session_end.compute_stale_candidates(vault, today=Date(2026, 6, 26))] == ["foo"]
+
+    def test_move_to_active_promotes_backlog_block(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        self._add_backlog_project(vault)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["parked"] = {"last_touched": "2026-05-01", "snooze_until": "2026-06-01"}
+        session_end.save_focus_meta(vault, meta)
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(move_to_active=["parked"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        active_section = text.split("## Active Projects")[1].split("## Backlog")[0]
+        backlog_section = text.split("## Backlog")[1].split("## Complete")[0]
+        assert "Projects/parked]]" in active_section
+        assert "\U0001F4DA Reading backlog." in active_section
+        assert "Projects/parked]]" not in backlog_section
+        entry = session_end.load_focus_meta(vault)["projects"]["parked"]
+        assert entry["last_touched"] == "2026-06-19"
+        assert "snooze_until" not in entry
 
     def test_stale_check_seeds_missing_entries(self, tmp_path):
         vault = self._setup_vault(tmp_path)

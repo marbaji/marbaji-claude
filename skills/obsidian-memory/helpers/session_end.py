@@ -308,14 +308,21 @@ class NewProjectDoc(BaseModel):
 
 
 # --- Staleness tracking for current-focus Active/Backlog projects -----------
-# A project untouched for STALE_DAYS surfaces at session-end (via --stale-check)
-# as a retire/complete/snooze/keep candidate, and preflight_validate refuses a
-# manifest that leaves a candidate unaddressed (the sweep is code-enforced, not
-# ritual-prose-enforced). Snoozing suppresses it for SNOOZE_DAYS; re-snoozing
-# resets from that day (no cap). State lives in a vault-hidden sidecar
-# (FOCUS_META_REL); current-focus.md stays clean. The vault sidecar may
-# override stale_days/snooze_days per-vault.
-STALE_DAYS = 30
+# Two cadences (per Mo, 2026-07-04):
+#   Active:  a project untouched for STALE_DAYS (2 weeks since last edit or
+#            snooze) surfaces as a retire/complete/snooze/keep candidate.
+#            "keep" suppresses re-asking for KEEP_DAYS (weekly cadence max).
+#   Backlog: groomed monthly — every BACKLOG_GROOM_DAYS the question is
+#            promote-to-active / keep-in-backlog / retire. "keep" suppresses
+#            for another BACKLOG_GROOM_DAYS.
+# preflight_validate refuses a manifest that leaves a candidate unaddressed
+# (the sweep is code-enforced, not ritual-prose-enforced). Explicit snoozing
+# suppresses for SNOOZE_DAYS; re-snoozing resets from that day (no cap). State
+# lives in a vault-hidden sidecar (FOCUS_META_REL); current-focus.md stays
+# clean. The vault sidecar may override any of these windows per-vault.
+STALE_DAYS = 14
+KEEP_DAYS = 7
+BACKLOG_GROOM_DAYS = 30
 SNOOZE_DAYS = 14
 FOCUS_META_REL = "Context/.focus-meta.json"
 
@@ -330,10 +337,13 @@ class FocusUpdates(BaseModel):
     upsert: list[FocusUpsert] = Field(default_factory=list)
     move_to_complete: list[str] = Field(default_factory=list)
     move_to_retired: list[str] = Field(default_factory=list)
+    # Promote a project from ## Backlog to the top of ## Active Projects,
+    # keeping its description block. Stamps last_touched (it's current again).
+    move_to_active: list[str] = Field(default_factory=list)
     snooze: list[str] = Field(default_factory=list)
-    # Explicit "keep active" acknowledgment for a stale candidate: satisfies the
-    # preflight staleness gate without stamping last_touched, so the project is
-    # asked about again at the next session end. No vault side effects.
+    # "Keep" answer for a stale candidate: does NOT stamp last_touched, but
+    # suppresses re-asking for KEEP_DAYS (active, weekly cadence) or
+    # BACKLOG_GROOM_DAYS (backlog, monthly grooming) via snooze_until.
     stale_keep: list[str] = Field(default_factory=list)
 
 
@@ -1009,21 +1019,24 @@ def save_focus_meta(vault: Path, meta: dict) -> None:
     path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
 
 
-def _swept_slugs(vault: Path, org_name: str) -> list[str]:
-    """Project keys under '## Active Projects' and '## Backlog' in current-focus.md.
+def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
+    """(slug, section) pairs under '## Active Projects' and '## Backlog'.
 
-    Both sections are swept for staleness — a backlogged project going quietly
-    stale is exactly the "so I don't forget" case the sweep exists for. Returns
-    the path segment after 'Projects/' for both Work and Personal entries (the
-    same key the sidecar uses)."""
+    Both sections are swept, on different cadences — active projects for
+    staleness (STALE_DAYS), backlog projects for monthly grooming
+    (BACKLOG_GROOM_DAYS); a backlogged project quietly rotting is exactly the
+    "so I don't forget" case the sweep exists for. Slug is the path segment
+    after 'Projects/' for both Work and Personal entries (the same key the
+    sidecar uses); section is "active" or "backlog"."""
     path = vault / "Context/current-focus.md"
     if not path.exists():
         return []
     _, body = _split_frontmatter(path.read_text())
     lines = body.splitlines()
     pat = re.compile(r"^###\s+\[\[(?:Work/[^/]+|Personal)/Projects/([^\]|/]+)")
-    slugs: list[str] = []
-    for heading in ("## Active Projects", "## Backlog"):
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for heading, section in (("## Active Projects", "active"), ("## Backlog", "backlog")):
         start = _find_section_index(lines, heading)
         if start is None:
             continue
@@ -1031,9 +1044,10 @@ def _swept_slugs(vault: Path, org_name: str) -> list[str]:
             if line.startswith("## "):
                 break
             m = pat.match(line.strip())
-            if m and m.group(1) not in slugs:
-                slugs.append(m.group(1))
-    return slugs
+            if m and m.group(1) not in seen:
+                seen.add(m.group(1))
+                out.append((m.group(1), section))
+    return out
 
 
 def compute_stale_candidates(
@@ -1042,21 +1056,28 @@ def compute_stale_candidates(
     org_name: str = "Chalktalk",
     seed_missing: bool = False,
 ) -> list[dict]:
-    """Active/Backlog projects untouched for >= STALE_DAYS and not currently snoozed.
+    """Due Active/Backlog projects, per-section cadence, excluding snoozed ones.
 
-    Returns dicts {slug, last_touched, days_stale}. A project with no sidecar
-    entry (e.g. added to current-focus by hand, outside the helper) is seeded
-    with last_touched = today and the sidecar saved when seed_missing is True
-    (the --stale-check CLI path); otherwise it is skipped, so preflight during
+    Active projects are due when untouched for >= stale_days (default
+    STALE_DAYS); backlog projects when untouched for >= backlog_groom_days
+    (default BACKLOG_GROOM_DAYS — the monthly grooming pass). Returns dicts
+    {slug, section, last_touched, days_stale}. A project with no sidecar entry
+    (e.g. added to current-focus by hand, outside the helper) is seeded with
+    last_touched = today and the sidecar saved when seed_missing is True (the
+    --stale-check CLI path); otherwise it is skipped, so preflight during
     --dry-run stays write-free. A project whose snooze_until is in the future
-    is suppressed (re-snoozing simply moves that date forward)."""
+    is suppressed (snoozes, "keep" answers, and re-snoozes all move that date
+    forward)."""
     today = today or Date.today()
     meta = load_focus_meta(vault)
     projects = meta.setdefault("projects", {})
-    stale_days = meta.get("stale_days", STALE_DAYS)
+    windows = {
+        "active": meta.get("stale_days", STALE_DAYS),
+        "backlog": meta.get("backlog_groom_days", BACKLOG_GROOM_DAYS),
+    }
     out: list[dict] = []
     seeded = False
-    for slug in _swept_slugs(vault, org_name):
+    for slug, section in _swept_slugs(vault, org_name):
         entry = projects.get(slug)
         if not entry or not entry.get("last_touched"):
             if seed_missing:
@@ -1075,9 +1096,14 @@ def compute_stale_candidates(
         except ValueError:
             continue
         days = (today - last).days
-        if days >= stale_days:
+        if days >= windows[section]:
             out.append(
-                {"slug": slug, "last_touched": entry["last_touched"], "days_stale": days}
+                {
+                    "slug": slug,
+                    "section": section,
+                    "last_touched": entry["last_touched"],
+                    "days_stale": days,
+                }
             )
     if seeded:
         save_focus_meta(vault, meta)
@@ -1091,8 +1117,9 @@ def process_focus_updates(
     org_name: str = "Chalktalk",
     today: Optional[Date] = None,
 ) -> ChangeReport:
-    """Apply remove / upsert / move_to_complete / move_to_retired / snooze to
-    current-focus.md, update the staleness sidecar, and bump last-updated."""
+    """Apply remove / upsert / move_to_complete / move_to_retired /
+    move_to_active / snooze / stale_keep to current-focus.md, update the
+    staleness sidecar, and bump last-updated."""
     rel_path = "Context/current-focus.md"
     path = vault / rel_path
     if not path.exists():
@@ -1181,6 +1208,22 @@ def process_focus_updates(
         report_summary.append(f"moved to ## Retired Projects: {slug}")
         report_summary.extend(_diff_lines(old_block_lines, new_block_lines))
 
+    # 2c. Move to active (backlog promotion — block moves with its description)
+    for slug in updates.move_to_active:
+        block = _find_entry_block(lines, slug, org_name)
+        if block is None:
+            continue
+        start, end = block
+        block_lines = list(lines[start:end])
+        del lines[start:end]
+        active_idx = _find_section_index(lines, "## Active Projects")
+        if active_idx is None:
+            lines.extend(["", "## Active Projects", *block_lines])
+        else:
+            lines[active_idx + 1 : active_idx + 1] = ["", *block_lines]
+        report_summary.append(f"moved to ## Active Projects: {slug}")
+        report_summary.extend(_diff_lines([], block_lines))
+
     # 3. Upsert
     for upsert in updates.upsert:
         existing = _find_entry_block(lines, upsert.slug, org_name)
@@ -1204,8 +1247,9 @@ def process_focus_updates(
             report_summary.append(f"## Active Projects: upserted {upsert.slug} (new)")
             report_summary.extend(_diff_lines([], new_block))
 
-    # 4. Staleness sidecar (last_touched / snooze / retire bookkeeping)
-    stamp = (today or Date.today()).isoformat()
+    # 4. Staleness sidecar (last_touched / snooze / keep / retire bookkeeping)
+    day = today or Date.today()
+    stamp = day.isoformat()
     meta = load_focus_meta(vault)
     projects = meta["projects"]
     meta_changed = False
@@ -1214,13 +1258,37 @@ def process_focus_updates(
         entry["last_touched"] = stamp
         entry.pop("snooze_until", None)
         meta_changed = True
+    for slug in updates.move_to_active:
+        # Promotion makes the project current again: full grace window.
+        entry = projects.setdefault(slug, {})
+        entry["last_touched"] = stamp
+        entry.pop("snooze_until", None)
+        meta_changed = True
     for slug in updates.snooze:
         entry = projects.setdefault(slug, {})
         entry.setdefault("last_touched", stamp)
         entry["snooze_until"] = (
-            (today or Date.today()) + timedelta(days=meta.get("snooze_days", SNOOZE_DAYS))
+            day + timedelta(days=meta.get("snooze_days", SNOOZE_DAYS))
         ).isoformat()
         meta_changed = True
+    if updates.stale_keep:
+        # "Keep" = acknowledged, still stale. Suppress re-asking for the
+        # section's cadence (weekly for active, monthly for backlog) without
+        # stamping last_touched — days_stale keeps accruing honestly.
+        # NOTE: sections are read from disk, which still holds the pre-edit
+        # file at this point; a stale_keep slug is never also moved this run.
+        sections = dict(_swept_slugs(vault, org_name))
+        keep_windows = {
+            "active": meta.get("keep_days", KEEP_DAYS),
+            "backlog": meta.get("backlog_groom_days", BACKLOG_GROOM_DAYS),
+        }
+        for slug in updates.stale_keep:
+            entry = projects.setdefault(slug, {})
+            entry.setdefault("last_touched", stamp)
+            entry["snooze_until"] = (
+                day + timedelta(days=keep_windows[sections.get(slug, "active")])
+            ).isoformat()
+            meta_changed = True
     for slug in (*updates.move_to_complete, *updates.move_to_retired, *updates.remove):
         if projects.pop(slug, None) is not None:
             meta_changed = True
@@ -1228,7 +1296,9 @@ def process_focus_updates(
         meta["updated"] = stamp
         save_focus_meta(vault, meta)
         report_summary.append(
-            f".focus-meta.json: {len(updates.upsert)} touched, {len(updates.snooze)} snoozed"
+            f".focus-meta.json: "
+            f"{len(updates.upsert) + len(updates.move_to_active)} touched, "
+            f"{len(updates.snooze)} snoozed, {len(updates.stale_keep)} kept"
         )
 
     new_body = "\n".join(lines)
@@ -1360,13 +1430,25 @@ def preflight_validate(
                 | {u.slug for u in fu.upsert}
                 | set(fu.move_to_complete)
                 | set(fu.move_to_retired)
+                | set(fu.move_to_active)
                 | set(fu.snooze)
                 | set(fu.stale_keep)
             )
             for cand in compute_stale_candidates(
                 vault, today=manifest.date, org_name=org_name
             ):
-                if cand["slug"] not in addressed:
+                if cand["slug"] in addressed:
+                    continue
+                if cand["section"] == "backlog":
+                    problems.append(
+                        f"focus_updates: backlog project {cand['slug']!r} is due "
+                        f"for monthly grooming ({cand['days_stale']}d since last "
+                        f"touch, last {cand['last_touched']}). Ask the user "
+                        f"promote to active / keep in backlog / retire, then "
+                        f"record it via move_to_active[], stale_keep[], or "
+                        f"move_to_retired[]."
+                    )
+                else:
                     problems.append(
                         f"focus_updates: stale project {cand['slug']!r} "
                         f"({cand['days_stale']}d untouched, last "

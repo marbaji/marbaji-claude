@@ -51,29 +51,37 @@ Does this look right? Any category corrections?
 
 Wait for user approval. The user may correct categories, add/remove projects, or split a project that should be two.
 
-## Step 2b: Staleness sweep (retire / complete / snooze / keep) — MANDATORY + code-enforced
+## Step 2b: Staleness sweep — MANDATORY + code-enforced
 
-Before composing the manifest, surface stale Active/Backlog projects so the list stays honest (otherwise Active only grows — finished and abandoned work piles up because nothing sweeps it out). Run:
+Before composing the manifest, surface due projects so the list stays honest (otherwise Active only grows — finished and abandoned work piles up because nothing sweeps it out). Run:
 
 ```bash
 python3 ~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/helpers/session_end.py --stale-check
 ```
 
-This prints (JSON) every project under `## Active Projects` or `## Backlog` untouched past the stale window (default 30 days; per-vault override via `stale_days` in the sidecar) and not currently snoozed, e.g. `[{"slug": "foo", "last_touched": "2026-05-01", "days_stale": 49}]`. It also self-heals: projects added to current-focus by hand get a sidecar entry seeded with today's date. For EACH candidate, ask the user one question — **retire / complete / snooze / keep**:
+This prints (JSON) every due project with its `section`, e.g. `[{"slug": "foo", "section": "active", "last_touched": "2026-05-01", "days_stale": 49}]`, and self-heals: projects added to current-focus by hand get a sidecar entry seeded with today's date. Two cadences (per-vault overrides in the sidecar):
+
+- **`## Active Projects`** — due when untouched for ≥ `stale_days` (default 14) and not suppressed. Question per candidate: **retire / complete / snooze / keep**.
+- **`## Backlog`** — monthly grooming: due every `backlog_groom_days` (default 30). Question per candidate: **promote to active / keep in backlog / retire**.
+
+Only ask about the candidates the command prints — never re-ask about projects it didn't flag.
 
 ```
-"<slug>" hasn't been touched in <N> days. Retire it, mark complete, snooze 2 weeks, or keep active?
+Active:  "<slug>" hasn't been touched in <N> days. Retire, mark complete, snooze 2 weeks, or keep active?
+Backlog: "<slug>" has sat in the backlog for <N> days. Promote to current projects, keep in backlog, or retire?
 ```
 
 Map the answer into the manifest's `focus_updates`:
 - **retire** → `move_to_retired: [slug]` (→ `## Retired Projects`, 🗄️ marker)
 - **complete** → `move_to_complete: [slug]` (→ `## Complete`, ✅ marker)
-- **snooze** → `snooze: [slug]` (14-day reminder; re-snoozing later just resets the window — no cap)
-- **keep** → `stale_keep: [slug]` (explicit acknowledgment; does NOT stamp `last_touched`, so it resurfaces at the next session end after the window)
+- **snooze** → `snooze: [slug]` (14-day suppression; re-snoozing later just resets the window — no cap)
+- **keep** (active) → `stale_keep: [slug]` — does NOT stamp `last_touched` (days-stale keeps accruing) but suppresses re-asking for `keep_days` (default 7), so an untouched active project is asked about at most weekly
+- **keep in backlog** → `stale_keep: [slug]` — suppresses for another `backlog_groom_days` (next monthly grooming)
+- **promote to active** → `move_to_active: [slug]` — moves the block (description intact) to the top of `## Active Projects` and stamps `last_touched` (fresh grace window)
 
-**This step is code-enforced, not honor-system:** the helper's preflight refuses any manifest that leaves a stale candidate unaddressed (must appear in one of `move_to_retired[]` / `move_to_complete[]` / `snooze[]` / `upsert[]` / `remove[]` / `stale_keep[]`). If you skipped this step, the apply fails with one problem line per unaddressed slug — ask the user then, and rerun.
+**This step is code-enforced, not honor-system:** the helper's preflight refuses any manifest that leaves a due candidate unaddressed (must appear in one of `move_to_retired[]` / `move_to_complete[]` / `move_to_active[]` / `snooze[]` / `upsert[]` / `remove[]` / `stale_keep[]`). If you skipped this step, the apply fails with one problem line per unaddressed slug — ask the user then, and rerun.
 
-Staleness state lives in the vault-hidden sidecar `Context/.focus-meta.json`, maintained automatically: every `upsert` stamps `last_touched`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Never hand-edit it.
+Staleness state lives in the vault-hidden sidecar `Context/.focus-meta.json`, maintained automatically: every `upsert` / `move_to_active` stamps `last_touched`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Never hand-edit it.
 
 The sweep catches *abandoned* work AND *shipped-but-forgotten* work (a merged project nobody revisited goes stale and surfaces with a "complete" option). It does NOT watch GitHub, so a silently-merged project can lag up to a full stale window before it's flagged — real-time merge detection is a separate follow-up.
 
@@ -199,7 +207,7 @@ Write the approved content to `/tmp/session-end-<unix-timestamp>.yaml`. The full
 | `extractions` | object | `decisions[]`, `shipping_log[]`, `brag[]`, `new_people[]` — populated from the Step 3 approvals. |
 | `project_doc_updates` | list | Update an existing project doc. Supports four structured operations (`status`, `recent_activity`, `next_steps`, `related_session`) and the legacy free-form append (`section_title + section_date + body`, all-or-none). Add `category: personal` to target `Personal/Projects/<slug>/overview.md`. Preflight fails if the file is missing. |
 | `new_project_docs` | list | Write a brand-new project doc. Add `category: personal` to write `Personal/Projects/<slug>/overview.md` (parent directory created if absent). Preflight fails on collision. |
-| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, `snooze[]`, and `stale_keep[]` for `current-focus.md`. `move_to_retired[]` moves entries to `## Retired Projects` (🗄️); `snooze[]` defers a stale project's prompt 14 days via the sidecar; `stale_keep[]` acknowledges a stale candidate as keep-active (required by the preflight staleness gate — see Step 2b). |
+| `focus_updates` | object | `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, `move_to_active[]`, `snooze[]`, and `stale_keep[]` for `current-focus.md`. `move_to_retired[]` moves entries to `## Retired Projects` (🗄️); `move_to_active[]` promotes a Backlog entry to `## Active Projects`; `snooze[]` defers a stale project's prompt 14 days via the sidecar; `stale_keep[]` records a keep answer with per-section suppression (required by the preflight staleness gate — see Step 2b). |
 
 **Structured project-doc update fields (`project_doc_updates[]`):**
 
