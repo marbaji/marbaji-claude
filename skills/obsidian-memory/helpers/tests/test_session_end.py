@@ -489,7 +489,7 @@ class TestStalenessAndRetire:
         assert "Projects/foo]]" not in text.split("## Complete")[0]
         assert "[[Work/Chalktalk/Projects/foo]] 🗄️" in text.split("## Retired Projects")[1]
 
-    def test_upsert_stamps_last_touched(self, tmp_path):
+    def test_upsert_stamps_last_worked_on(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         session_end.process_focus_updates(
             vault=vault,
@@ -500,7 +500,7 @@ class TestStalenessAndRetire:
             today=Date(2026, 6, 19),
         )
         meta = session_end.load_focus_meta(vault)
-        assert meta["projects"]["foo"]["last_touched"] == "2026-06-19"
+        assert meta["projects"]["foo"]["last_worked_on"] == "2026-06-19"
 
     def test_snooze_sets_future_date_and_resnooze_extends(self, tmp_path):
         vault = self._setup_vault(tmp_path)
@@ -519,7 +519,7 @@ class TestStalenessAndRetire:
     def test_stale_detected_snooze_suppresses_then_resurfaces(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
+        meta["projects"]["foo"] = {"last_worked_on": "2026-05-01"}
         session_end.save_focus_meta(vault, meta)
         # 49 days stale -> candidate; bar has no meta entry -> not a candidate.
         cands = session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19))
@@ -537,7 +537,7 @@ class TestStalenessAndRetire:
     def test_move_to_complete_removes_from_meta(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
+        meta["projects"]["foo"] = {"last_worked_on": "2026-05-01"}
         session_end.save_focus_meta(vault, meta)
         session_end.process_focus_updates(
             vault=vault, updates=session_end.FocusUpdates(move_to_complete=["foo"]),
@@ -558,7 +558,7 @@ class TestStalenessAndRetire:
         vault = self._setup_vault(tmp_path)
         self._add_backlog_project(vault)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"]["parked"] = {"last_touched": "2026-05-01"}
+        meta["projects"]["parked"] = {"last_worked_on": "2026-05-01"}
         session_end.save_focus_meta(vault, meta)
         # 20 days: past the active window (14) but inside the backlog
         # grooming window (30) -> not a candidate.
@@ -567,33 +567,51 @@ class TestStalenessAndRetire:
         cands = session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19))
         assert [(c["slug"], c["section"]) for c in cands] == [("parked", "backlog")]
 
-    def test_stale_keep_suppresses_per_section_cadence(self, tmp_path):
+    def test_snooze_defaults_per_section_and_stamps_last_asked_about(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         self._add_backlog_project(vault)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"]["foo"] = {"last_touched": "2026-05-01"}
-        meta["projects"]["parked"] = {"last_touched": "2026-05-01"}
+        meta["projects"]["foo"] = {"last_worked_on": "2026-05-01"}
+        meta["projects"]["parked"] = {"last_worked_on": "2026-05-01"}
         session_end.save_focus_meta(vault, meta)
         session_end.process_focus_updates(
             vault=vault,
-            updates=session_end.FocusUpdates(stale_keep=["foo", "parked"]),
+            updates=session_end.FocusUpdates(snooze=["foo", "parked"]),
             last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
         )
         projects = session_end.load_focus_meta(vault)["projects"]
-        # Active keep = weekly cadence; backlog keep = monthly grooming.
-        assert projects["foo"]["snooze_until"] == "2026-06-26"
+        # Active default = snooze_days (14); backlog keep-in-backlog default =
+        # backlog_groom_days (30).
+        assert projects["foo"]["snooze_until"] == "2026-07-03"
         assert projects["parked"]["snooze_until"] == "2026-07-19"
-        # last_touched NOT stamped -- days_stale keeps accruing honestly.
-        assert projects["foo"]["last_touched"] == "2026-05-01"
-        # Suppressed now, resurfaces after the window.
-        assert session_end.compute_stale_candidates(vault, today=Date(2026, 6, 25)) == []
-        assert [c["slug"] for c in session_end.compute_stale_candidates(vault, today=Date(2026, 6, 26))] == ["foo"]
+        # The ask is recorded, but last_worked_on is NOT stamped --
+        # days_stale keeps accruing honestly.
+        assert projects["foo"]["last_asked_about"] == "2026-06-19"
+        assert projects["foo"]["last_worked_on"] == "2026-05-01"
+        # Suppressed now, resurfaces after the snooze expires.
+        assert session_end.compute_stale_candidates(vault, today=Date(2026, 7, 2)) == []
+        assert [c["slug"] for c in session_end.compute_stale_candidates(vault, today=Date(2026, 7, 3))] == ["foo"]
+
+    def test_snooze_accepts_custom_duration(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["foo"] = {"last_worked_on": "2026-05-01"}
+        session_end.save_focus_meta(vault, meta)
+        # "snooze for 3 weeks" -> {slug, days: 21}; YAML string form coerces.
+        updates = session_end.FocusUpdates.model_validate(
+            {"snooze": [{"slug": "foo", "days": 21}]}
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 6, 19),
+        )
+        assert session_end.load_focus_meta(vault)["projects"]["foo"]["snooze_until"] == "2026-07-10"
 
     def test_move_to_active_promotes_backlog_block(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         self._add_backlog_project(vault)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"]["parked"] = {"last_touched": "2026-05-01", "snooze_until": "2026-06-01"}
+        meta["projects"]["parked"] = {"last_worked_on": "2026-05-01", "snooze_until": "2026-06-01"}
         session_end.save_focus_meta(vault, meta)
         session_end.process_focus_updates(
             vault=vault,
@@ -607,7 +625,7 @@ class TestStalenessAndRetire:
         assert "\U0001F4DA Reading backlog." in active_section
         assert "Projects/parked]]" not in backlog_section
         entry = session_end.load_focus_meta(vault)["projects"]["parked"]
-        assert entry["last_touched"] == "2026-06-19"
+        assert entry["last_worked_on"] == "2026-06-19"
         assert "snooze_until" not in entry
 
     def test_stale_check_seeds_missing_entries(self, tmp_path):
@@ -622,8 +640,8 @@ class TestStalenessAndRetire:
         )
         assert cands == []
         projects = session_end.load_focus_meta(vault)["projects"]
-        assert projects["foo"]["last_touched"] == "2026-06-19"
-        assert projects["bar"]["last_touched"] == "2026-06-19"
+        assert projects["foo"]["last_worked_on"] == "2026-06-19"
+        assert projects["bar"]["last_worked_on"] == "2026-06-19"
 
 
 class TestDecisionExtraction:
@@ -767,7 +785,7 @@ class TestPreflightValidation:
     def test_preflight_blocks_unaddressed_stale_project(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         meta = session_end.load_focus_meta(vault)
-        meta["projects"] = {"foo": {"last_touched": "2026-03-01"}}
+        meta["projects"] = {"foo": {"last_worked_on": "2026-03-01"}}
         session_end.save_focus_meta(vault, meta)
         manifest = session_end.SessionEndManifest(
             date="2026-05-09", topic="ok", tags=["session"],
@@ -782,12 +800,12 @@ class TestPreflightValidation:
         )
         assert any("stale project 'foo'" in p for p in problems)
 
-    def test_preflight_stale_gate_satisfied_by_stale_keep_or_ops(self, tmp_path):
+    def test_preflight_stale_gate_satisfied_by_snooze_or_retire(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         meta = session_end.load_focus_meta(vault)
         meta["projects"] = {
-            "foo": {"last_touched": "2026-03-01"},
-            "bar": {"last_touched": "2026-03-01"},
+            "foo": {"last_worked_on": "2026-03-01"},
+            "bar": {"last_worked_on": "2026-03-01"},
         }
         session_end.save_focus_meta(vault, meta)
         manifest = session_end.SessionEndManifest(
@@ -797,7 +815,7 @@ class TestPreflightValidation:
             key_decisions="x", learnings="x",
             files_modified=session_end.FilesModified(), next_steps="x",
             focus_updates=session_end.FocusUpdates(
-                stale_keep=["foo"], snooze=["bar"],
+                snooze=["foo"], move_to_retired=["bar"],
             ),
         )
         problems = session_end.preflight_validate(
