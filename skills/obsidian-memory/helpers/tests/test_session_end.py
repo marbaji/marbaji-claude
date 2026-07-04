@@ -545,6 +545,36 @@ class TestStalenessAndRetire:
         )
         assert "foo" not in session_end.load_focus_meta(vault)["projects"]
 
+    def test_backlog_section_is_swept(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        focus = vault / "Context/current-focus.md"
+        text = focus.read_text().replace(
+            "## Complete",
+            "## Backlog\n\n### [[Work/Chalktalk/Projects/parked]]\n"
+            "\U0001F4DA Reading backlog.\n\n## Complete",
+        )
+        focus.write_text(text)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"]["parked"] = {"last_touched": "2026-05-01"}
+        session_end.save_focus_meta(vault, meta)
+        cands = session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19))
+        assert [c["slug"] for c in cands] == ["parked"]
+
+    def test_stale_check_seeds_missing_entries(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        # foo and bar are Active but have no sidecar entries (added by hand).
+        # Without seeding they are invisible to the sweep forever.
+        assert session_end.compute_stale_candidates(vault, today=Date(2026, 6, 19)) == []
+        assert "foo" not in session_end.load_focus_meta(vault).get("projects", {})
+        # seed_missing (the --stale-check CLI path) stamps them with today.
+        cands = session_end.compute_stale_candidates(
+            vault, today=Date(2026, 6, 19), seed_missing=True
+        )
+        assert cands == []
+        projects = session_end.load_focus_meta(vault)["projects"]
+        assert projects["foo"]["last_touched"] == "2026-06-19"
+        assert projects["bar"]["last_touched"] == "2026-06-19"
+
 
 class TestDecisionExtraction:
     def _setup_vault(self, tmp_path):
@@ -681,6 +711,48 @@ class TestPreflightValidation:
             org_name="Chalktalk",
             sections={"session_log", "extractions", "project_doc_updates",
                       "new_project_docs", "focus_updates"},
+        )
+        assert problems == []
+
+    def test_preflight_blocks_unaddressed_stale_project(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"] = {"foo": {"last_touched": "2026-03-01"}}
+        session_end.save_focus_meta(vault, meta)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"focus_updates"},
+        )
+        assert any("stale project 'foo'" in p for p in problems)
+
+    def test_preflight_stale_gate_satisfied_by_stale_keep_or_ops(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        meta = session_end.load_focus_meta(vault)
+        meta["projects"] = {
+            "foo": {"last_touched": "2026-03-01"},
+            "bar": {"last_touched": "2026-03-01"},
+        }
+        session_end.save_focus_meta(vault, meta)
+        manifest = session_end.SessionEndManifest(
+            date="2026-05-09", topic="ok", tags=["session"],
+            last_updated_slug="x", summary="x", projects_touched=[],
+            streams=[session_end.Stream(title="s", body="b")],
+            key_decisions="x", learnings="x",
+            files_modified=session_end.FilesModified(), next_steps="x",
+            focus_updates=session_end.FocusUpdates(
+                stale_keep=["foo"], snooze=["bar"],
+            ),
+        )
+        problems = session_end.preflight_validate(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            sections={"focus_updates"},
         )
         assert problems == []
 

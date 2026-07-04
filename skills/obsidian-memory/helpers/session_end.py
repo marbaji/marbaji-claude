@@ -307,11 +307,14 @@ class NewProjectDoc(BaseModel):
         return self
 
 
-# --- Staleness tracking for current-focus Active Projects -------------------
+# --- Staleness tracking for current-focus Active/Backlog projects -----------
 # A project untouched for STALE_DAYS surfaces at session-end (via --stale-check)
-# as a retire/complete/snooze candidate. Snoozing suppresses it for SNOOZE_DAYS;
-# re-snoozing resets from that day (no cap). State lives in a vault-hidden
-# sidecar (FOCUS_META_REL); current-focus.md stays clean.
+# as a retire/complete/snooze/keep candidate, and preflight_validate refuses a
+# manifest that leaves a candidate unaddressed (the sweep is code-enforced, not
+# ritual-prose-enforced). Snoozing suppresses it for SNOOZE_DAYS; re-snoozing
+# resets from that day (no cap). State lives in a vault-hidden sidecar
+# (FOCUS_META_REL); current-focus.md stays clean. The vault sidecar may
+# override stale_days/snooze_days per-vault.
 STALE_DAYS = 30
 SNOOZE_DAYS = 14
 FOCUS_META_REL = "Context/.focus-meta.json"
@@ -328,6 +331,10 @@ class FocusUpdates(BaseModel):
     move_to_complete: list[str] = Field(default_factory=list)
     move_to_retired: list[str] = Field(default_factory=list)
     snooze: list[str] = Field(default_factory=list)
+    # Explicit "keep active" acknowledgment for a stale candidate: satisfies the
+    # preflight staleness gate without stamping last_touched, so the project is
+    # asked about again at the next session end. No vault side effects.
+    stale_keep: list[str] = Field(default_factory=list)
 
 
 class SessionEndManifest(BaseModel):
@@ -1002,46 +1009,59 @@ def save_focus_meta(vault: Path, meta: dict) -> None:
     path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
 
 
-def _active_slugs(vault: Path, org_name: str) -> list[str]:
-    """Project keys under '## Active Projects' in current-focus.md.
+def _swept_slugs(vault: Path, org_name: str) -> list[str]:
+    """Project keys under '## Active Projects' and '## Backlog' in current-focus.md.
 
-    Returns the path segment after 'Projects/' for both Work and Personal entries
-    (the same key the sidecar uses)."""
+    Both sections are swept for staleness — a backlogged project going quietly
+    stale is exactly the "so I don't forget" case the sweep exists for. Returns
+    the path segment after 'Projects/' for both Work and Personal entries (the
+    same key the sidecar uses)."""
     path = vault / "Context/current-focus.md"
     if not path.exists():
         return []
     _, body = _split_frontmatter(path.read_text())
     lines = body.splitlines()
-    start = _find_section_index(lines, "## Active Projects")
-    if start is None:
-        return []
     pat = re.compile(r"^###\s+\[\[(?:Work/[^/]+|Personal)/Projects/([^\]|/]+)")
     slugs: list[str] = []
-    for line in lines[start + 1 :]:
-        if line.startswith("## "):
-            break
-        m = pat.match(line.strip())
-        if m:
-            slugs.append(m.group(1))
+    for heading in ("## Active Projects", "## Backlog"):
+        start = _find_section_index(lines, heading)
+        if start is None:
+            continue
+        for line in lines[start + 1 :]:
+            if line.startswith("## "):
+                break
+            m = pat.match(line.strip())
+            if m and m.group(1) not in slugs:
+                slugs.append(m.group(1))
     return slugs
 
 
 def compute_stale_candidates(
-    vault: Path, today: Optional[Date] = None, org_name: str = "Chalktalk"
+    vault: Path,
+    today: Optional[Date] = None,
+    org_name: str = "Chalktalk",
+    seed_missing: bool = False,
 ) -> list[dict]:
-    """Active projects untouched for >= STALE_DAYS and not currently snoozed.
+    """Active/Backlog projects untouched for >= STALE_DAYS and not currently snoozed.
 
     Returns dicts {slug, last_touched, days_stale}. A project with no sidecar
-    entry is treated as freshly-seen (skipped). A project whose snooze_until is
-    in the future is suppressed (re-snoozing simply moves that date forward)."""
+    entry (e.g. added to current-focus by hand, outside the helper) is seeded
+    with last_touched = today and the sidecar saved when seed_missing is True
+    (the --stale-check CLI path); otherwise it is skipped, so preflight during
+    --dry-run stays write-free. A project whose snooze_until is in the future
+    is suppressed (re-snoozing simply moves that date forward)."""
     today = today or Date.today()
     meta = load_focus_meta(vault)
-    projects = meta.get("projects", {})
+    projects = meta.setdefault("projects", {})
     stale_days = meta.get("stale_days", STALE_DAYS)
     out: list[dict] = []
-    for slug in _active_slugs(vault, org_name):
+    seeded = False
+    for slug in _swept_slugs(vault, org_name):
         entry = projects.get(slug)
         if not entry or not entry.get("last_touched"):
+            if seed_missing:
+                projects.setdefault(slug, {})["last_touched"] = today.isoformat()
+                seeded = True
             continue
         snooze_until = entry.get("snooze_until")
         if snooze_until:
@@ -1059,6 +1079,8 @@ def compute_stale_candidates(
             out.append(
                 {"slug": slug, "last_touched": entry["last_touched"], "days_stale": days}
             )
+    if seeded:
+        save_focus_meta(vault, meta)
     return out
 
 
@@ -1325,6 +1347,34 @@ def preflight_validate(
                 f"focus_updates: vault is missing Context/current-focus.md at "
                 f"{vault / 'Context/current-focus.md'}"
             )
+        else:
+            # Staleness gate: every stale Active/Backlog project must be
+            # addressed in this manifest. This is what makes the session-end
+            # sweep (session-end.md Step 2b) self-enforcing — a manifest that
+            # ignores a stale project fails preflight, forcing the
+            # retire/complete/snooze/keep question instead of relying on the
+            # ritual prose being followed.
+            fu = manifest.focus_updates
+            addressed = (
+                set(fu.remove)
+                | {u.slug for u in fu.upsert}
+                | set(fu.move_to_complete)
+                | set(fu.move_to_retired)
+                | set(fu.snooze)
+                | set(fu.stale_keep)
+            )
+            for cand in compute_stale_candidates(
+                vault, today=manifest.date, org_name=org_name
+            ):
+                if cand["slug"] not in addressed:
+                    problems.append(
+                        f"focus_updates: stale project {cand['slug']!r} "
+                        f"({cand['days_stale']}d untouched, last "
+                        f"{cand['last_touched']}) is unaddressed. Ask the user "
+                        f"retire / complete / snooze / keep, then record it via "
+                        f"move_to_retired[], move_to_complete[], snooze[], "
+                        f"upsert[], or stale_keep[]."
+                    )
 
     if "extractions" in sections:
         if manifest.extractions.shipping_log:
@@ -1422,7 +1472,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--stale-check",
         action="store_true",
-        help="Print stale Active-project candidates (JSON) and exit; no manifest needed.",
+        help=(
+            "Print stale Active/Backlog project candidates (JSON) and exit; no "
+            "manifest needed. Seeds sidecar entries for projects added to "
+            "current-focus outside the helper."
+        ),
     )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
@@ -1775,7 +1829,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         print(
             json.dumps(
-                compute_stale_candidates(vault, org_name=org_name),
+                compute_stale_candidates(vault, org_name=org_name, seed_missing=True),
                 indent=2,
                 ensure_ascii=False,
             )

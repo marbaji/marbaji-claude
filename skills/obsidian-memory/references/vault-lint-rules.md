@@ -4,13 +4,10 @@ Run these checks against the vault. Auto-fix what you can, report the rest.
 
 ## Checks and Actions
 
-### 1. Abandoned Projects (auto-fix)
-Projects listed as Active or Backlogged in current-focus but no session log touching them in 14+ days.
+### 1. Staleness Sidecar Coverage (report-only)
+Stale-project handling moved to the session-end staleness sweep (`session_end.py --stale-check` + preflight gate — see `session-end.md` Step 2b), which asks the user retire/complete/snooze/keep per project instead of auto-moving anything. **Do NOT move projects to an "Abandoned" section from the lint.**
 
-**Action:** Move them to the "Abandoned" section in current-focus.md with day count appended to the heading (e.g., `— 45 days since last session`). **Preserve the description text** underneath each heading — copy it as-is from wherever the project was (Active, Backlogged, etc.). Never delete descriptions when moving projects.
-
-The Abandoned section sits between Complete and Priorities, with this descriptor at the top:
-> This is not a bad thing — it's a sign of good prioritization. You can't solve everything. This list is a point of pride as long as you're moving the most important things toward the finish line. These are projects you explored, learned from, and chose not to continue investing in right now.
+The lint's only job here: verify every project under `## Active Projects` and `## Backlog` in current-focus has an entry in `Context/.focus-meta.json`. Missing entries self-heal at the next `--stale-check` run, so just report them in one sentence (e.g., "2 projects missing sidecar entries; will seed on next session-end sweep").
 
 ### 2. Broken Wikilinks
 current-focus references a project doc path that doesn't exist in the vault.
@@ -32,14 +29,14 @@ If orphans have a fixable action (e.g., sub-project docs that should be noted in
 ### 5. Stale Next Steps (auto-fix)
 A project doc's Next Steps section is identical to what it was 3+ sessions ago, or is missing entirely.
 
-**Skip this check for projects in the Abandoned section** — they're intentionally shelved.
+**Skip this check for projects in the Retired Projects section and for currently-snoozed projects** (per `Context/.focus-meta.json`) — they're intentionally shelved.
 
 For all other projects: **auto-create** a reasonable Next Steps section based on the project doc's content (recent work, status, key findings). If the project is too ambiguous to derive next steps, **ask the user in the terminal** what the next steps should be. Never leave unacted instructions in the report — either fix it or ask.
 
 ### 6. Empty Sections (auto-fix)
 Project docs with blank Overview, Key Findings, or Next Steps.
 
-**Skip this check for Abandoned projects.** For active/backlogged/ongoing projects: auto-create the section with reasonable content if possible, or ask the user.
+**Skip this check for Retired projects.** For active/backlogged/ongoing projects: auto-create the section with reasonable content if possible, or ask the user.
 
 ### 7. Session Log Source Integrity (auto-fix when possible)
 Every bullet under `## Sources Captured` in any `Sessions/**/*.md` must be a `[[Sources/<name>|Title]]` wikilink pointing to an existing `Sources/<name>.md` file. This lint is the backstop for the PostToolUse hook (`~/.claude/hooks/check-session-log-sources.py`) — it catches sessions that pre-date the hook, were written from subagents, or slipped through for any other reason.
@@ -68,7 +65,7 @@ Save report to `Context/vault-lint-report.md` (overwrite each time). Present a c
 
 ## Auto-fix vs Report
 
-The lint auto-fixes: abandoned projects (moves to Abandoned section preserving descriptions), status drift (updates frontmatter), stale/empty sections (creates reasonable content or asks user), and wall-of-text lines (checker-verified formatting-only splits). Broken wikilinks and orphan docs are reported — with actionable commands only when there's a fixable action.
+The lint auto-fixes: status drift (updates frontmatter), stale/empty sections (creates reasonable content or asks user), and wall-of-text lines (checker-verified formatting-only splits). Broken wikilinks, orphan docs, and staleness-sidecar coverage are reported — with actionable commands only when there's a fixable action. Stale-project triage itself belongs to the session-end sweep, never the lint.
 
 ## Report Formatting Rules
 

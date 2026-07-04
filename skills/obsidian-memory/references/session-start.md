@@ -47,11 +47,11 @@ If you don't see that block, run the full ritual below.
    - Current priorities
 
 7. Run vault health check (every 7 days)
-   Check if it's been 7+ days since last lint by looking for the most recent lint report:
+   Check the lint report's file age directly (deterministic — the old `obsidian search` dueness check silently rotted and the lint went unrun for months):
    ```bash
-   obsidian search query="vault-lint-report" vault="$VAULT_NAME" | head -1
+   find "<vault-path>/Context/vault-lint-report.md" -mtime +7 -print 2>/dev/null; ls "<vault-path>/Context/vault-lint-report.md" 2>/dev/null || echo "NO REPORT — lint never ran"
    ```
-   If no report exists or the most recent is 7+ days old: read `references/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 8 checks (abandoned projects, broken wikilinks, status drift, orphan docs, stale next steps, empty sections, session-log source integrity, wall-of-text lines), which ones auto-fix, and the report formatting rules.
+   If the `find` prints the path (7+ days old) or no report exists: read `references/vault-lint-rules.md` in this skill's directory and execute all checks. The rules file defines 8 checks (staleness-sidecar coverage, broken wikilinks, status drift, orphan docs, stale next steps, empty sections, session-log source integrity, wall-of-text lines), which ones auto-fix, and the report formatting rules. Note: stale-project triage (retire/snooze) is NOT part of the lint — it runs automatically at every session end via the helper's staleness gate.
 
 ## Priority order
 
