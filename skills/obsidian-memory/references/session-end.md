@@ -158,6 +158,27 @@ Append the routed items to the SAME batched confirmation prompt as Step 3 (for v
 
 Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8.
 
+## Step 3b: Correction-taxonomy sweep (evidence-ledger reconcile)
+
+Ledger: `$VAULT_PATH/Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md`. If that file doesn't exist (non-Mo installs), skip this step entirely.
+
+Scan the ending session for moments the user corrected or redirected the agent (the same moments the capture rule logged to `tasks/lessons.md` with a category tag). For EACH correction, run the ledger's four category-maintenance tests in order — (1) definition test: fits an existing category without adding an "and/except" clause? (2) checker test: would that category's existing check have caught it? (3) axis test: does it constrain a different axis? (4) two-instance rule: singletons stay drafts — then:
+
+1. **Existing category fits** → increment that category's hit count and append a citation: session-id + date + a ≤1-line paraphrase. Distillation only — NEVER copy transcript content into the ledger.
+2. **No clean fit** → park it as a new singleton under `## Unverified drafts` (same citation format).
+3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its four-homes home (skill gotchas | WORKFLOW-GOTCHAS.md | auto-memory | .claude/rules | CR Learning — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
+4. **This session MINTED or PROMOTED a category** → auto-archive the transcript as a durable receipt:
+
+   ```bash
+   PROJ_DIR=~/.claude/projects/$(pwd | sed 's|[/.]|-|g')
+   SESSION_JSONL=$(ls -t "$PROJ_DIR"/*.jsonl | head -1)   # current session = newest
+   cp "$SESSION_JSONL" "$VAULT_PATH/Personal/Projects/agentic-loops/transcripts/<date>-<slug>__<first-8-of-session-id>.jsonl"
+   ```
+
+   No privacy gate (Mo 2026-07-04: the ledger is personal, not shared). Do NOT archive otherwise — routine citations stay session-id + date only, accepting that IDs decay with the retention window while the tally survives.
+
+Ledger writes are direct Edit-tool edits (Read the ledger first this session); they are NOT part of the helper manifest. Zero corrections in the session = zero ledger writes — never invent entries.
+
 ## Step 8: Learning forcing function (after the change report)
 
 Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha learning as an inline multiple-choice question (AskUserQuestion-style — the user must pick, not scroll past). One question per learning:
