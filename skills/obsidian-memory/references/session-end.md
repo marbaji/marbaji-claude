@@ -190,6 +190,8 @@ LEDGER SWEEP (2)
 
 (The third heading uses a hyphen for its qualifier, not nested parentheses — exactly one parenthetical per heading: the count.)
 
+**The block reports the session's FULL ledger delta, not just close-time writes.** An increment or singleton applied live mid-session (the correction was ledgered the moment it happened) is still listed and still counted — mark it `(applied live)` after its paraphrase. Omitting live-applied entries under-reports the session and under-counts the headings.
+
 ## Step 8: Learning forcing function (after the change report)
 
 Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha learning as an inline multiple-choice question (AskUserQuestion-style — the user must pick, not scroll past). One question per learning:
