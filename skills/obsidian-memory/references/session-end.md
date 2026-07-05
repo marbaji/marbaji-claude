@@ -179,6 +179,15 @@ Scan the ending session for moments the user corrected or redirected the agent (
 
 Ledger writes are direct Edit-tool edits (Read the ledger first this session); they are NOT part of the helper manifest. Zero corrections in the session = zero ledger writes — never invent entries.
 
+**Report format (mandatory, user-set 2026-07-05):** present the sweep's outcome to the user as ONE `LEDGER SWEEP` block with exactly three ALL-CAPS subsections, each spelled out even when empty — never collapse the block into a single prose line:
+
+```
+LEDGER SWEEP
+- INCREMENTS TO EXISTING CATEGORIES: <category +1 (id8: ≤1-line paraphrase); ...> | none
+- NEW SINGLETONS PARKED: <name — one-line definition (id8)> | none
+- PROMOTION CANDIDATES (drafts just reaching 2+ sessions): <name (sessions)> | none
+```
+
 ## Step 8: Learning forcing function (after the change report)
 
 Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha learning as an inline multiple-choice question (AskUserQuestion-style — the user must pick, not scroll past). One question per learning:
