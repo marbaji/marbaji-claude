@@ -149,6 +149,47 @@ Both are independent token-cost optimizations. Skill works without them.
 
 ---
 
+## Optional: correction-taxonomy evidence ledger (opt-in)
+
+The session-end ritual has an opt-in step (Step 3b in `session-end.md`) that turns the moments you **correct the agent** into a maintained, evidence-backed taxonomy of your own recurring preferences. Skipped entirely unless you opt in.
+
+Same public/private split as everything else here: the skill repo ships the *procedure* (the sweep, the four tests, the promotion rule); your vault holds the *evidence* (categories, citations, archived transcripts) and it never leaves.
+
+To opt in, create the ledger file and transcript archive in your vault:
+
+```bash
+mkdir -p "$VAULT/Personal/Projects/agentic-loops/transcripts"
+```
+
+Then create `$VAULT/Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md` with this skeleton:
+
+```markdown
+# Correction-taxonomy evidence ledger
+
+**The contract: every category exists because of cited evidence** — moments you
+corrected the agent (cited as session-id + date + a one-line paraphrase, or as
+transcript-file:line into transcripts/) and/or published external sources (URL).
+A category with no citations has no right to exist.
+
+## Categories
+
+(none yet — the session-end sweep populates this)
+
+## Unverified drafts (singletons — promote on 2nd occurrence)
+
+## Category-maintenance discipline
+
+Four tests in order for every new correction: (1) definition test — fits an
+existing category without adding an "and/except" clause? (2) checker test —
+would that category's existing check have caught it? (3) axis test — does it
+constrain a different axis than every existing category? (4) two-instance rule —
+singletons stay drafts. Record WHICH test decided each placement.
+```
+
+From then on, every session-end sweeps your corrections into it automatically: matches increment a category's count with a citation, novel patterns park as drafts, a draft's 2nd occurrence prompts a one-click promotion, and sessions that mint or promote a category get their transcript archived into `transcripts/` as a durable receipt (Claude Code deletes transcripts after months; the archive is forever). Promoted rules get routed to a home that future sessions actually load (a skill's gotchas file, auto-memory, repo rules).
+
+---
+
 ## Ongoing
 
 Keep the vault in sync as your org changes:
@@ -178,6 +219,7 @@ These are two **independent** lists, not 1-to-1 mappings. They're laid out side 
 - `Personal/Quarterly Reviews/*`
 - `org-chart.yaml` (your private YAML — the schema is in `references/org-chart-source.md`)
 - `Sessions/*` (session logs)
+- `Personal/Projects/agentic-loops/*` (correction-taxonomy ledger + archived transcripts, if you opted in)
 
 ### Lives in this skill repo (public — fork-safe)
 

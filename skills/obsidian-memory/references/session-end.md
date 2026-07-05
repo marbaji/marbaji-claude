@@ -160,7 +160,7 @@ Approved auto-memory items are written directly with the Write tool after the us
 
 ## Step 3b: Correction-taxonomy sweep (evidence-ledger reconcile)
 
-Ledger: `$VAULT_PATH/Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md`. If that file doesn't exist (non-Mo installs), skip this step entirely.
+This step is an **opt-in** correction-taxonomy loop. Ledger: `$VAULT_PATH/Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md`. It activates only if that file exists in your vault — create one to opt in (see `adopting-this-skill.md` § "Optional: correction-taxonomy evidence ledger"); otherwise skip this step entirely.
 
 Scan the ending session for moments the user corrected or redirected the agent (the same moments the capture rule logged to `tasks/lessons.md` with a category tag). For EACH correction, run the ledger's four category-maintenance tests in order — (1) definition test: fits an existing category without adding an "and/except" clause? (2) checker test: would that category's existing check have caught it? (3) axis test: does it constrain a different axis? (4) two-instance rule: singletons stay drafts — then:
 
@@ -175,7 +175,7 @@ Scan the ending session for moments the user corrected or redirected the agent (
    cp "$SESSION_JSONL" "$VAULT_PATH/Personal/Projects/agentic-loops/transcripts/<date>-<slug>__<first-8-of-session-id>.jsonl"
    ```
 
-   No privacy gate (Mo 2026-07-04: the ledger is personal, not shared). Do NOT archive otherwise — routine citations stay session-id + date only, accepting that IDs decay with the retention window while the tally survives.
+   No privacy gate — the ledger and its transcript archive live only in your private vault, never in a shared repo. Do NOT archive otherwise — routine citations stay session-id + date only, accepting that IDs decay with the retention window while the tally survives.
 
 Ledger writes are direct Edit-tool edits (Read the ledger first this session); they are NOT part of the helper manifest. Zero corrections in the session = zero ledger writes — never invent entries.
 
