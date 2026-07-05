@@ -330,8 +330,14 @@ FOCUS_META_REL = "Context/.focus-meta.json"
 
 
 class FocusUpsert(BaseModel):
-    slug: str = Field(pattern=SLUG_RE)
+    slug: str
     status_line: str
+    category: Literal["work", "personal"] = "work"
+
+    @model_validator(mode="after")
+    def _validate_slug(self) -> "FocusUpsert":
+        _validate_slug_for_category(self.slug, self.category)
+        return self
 
 
 class SnoozeOp(BaseModel):
@@ -981,12 +987,23 @@ def _find_entry_block(lines: list[str], slug: str, org_name: str) -> Optional[tu
     Matches both plain wikilinks ([[.../slug]]) and aliased wikilinks
     ([[.../slug|Display Name]]) so that upserts correctly replace entries
     written by humans or prose-generated session-end rituals that may include
-    a display-name pipe alias.
+    a display-name pipe alias. Matches both entry forms for a slug — work
+    (``[[Work/<org>/Projects/<slug>]]``) and personal
+    (``[[Personal/Projects/<slug>/overview|...]]``) — so remove / move / upsert
+    operations, which carry only a slug, work on personal entries too.
     """
-    prefix = f"### [[Work/{org_name}/Projects/{slug}"
+    prefixes = (
+        f"### [[Work/{org_name}/Projects/{slug}",
+        f"### [[Personal/Projects/{slug}/overview",
+    )
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith(prefix) and len(stripped) > len(prefix) and stripped[len(prefix)] in ("]", "|"):
+        if any(
+            stripped.startswith(prefix)
+            and len(stripped) > len(prefix)
+            and stripped[len(prefix)] in ("]", "|")
+            for prefix in prefixes
+        ):
             end = len(lines)
             for j in range(i + 1, len(lines)):
                 if lines[j].startswith("### ") or lines[j].startswith("## "):
@@ -1240,8 +1257,12 @@ def process_focus_updates(
     # 3. Upsert
     for upsert in updates.upsert:
         existing = _find_entry_block(lines, upsert.slug, org_name)
+        if upsert.category == "personal":
+            heading = f"### [[Personal/Projects/{upsert.slug}/overview|{upsert.slug}]]"
+        else:
+            heading = f"### [[Work/{org_name}/Projects/{upsert.slug}]]"
         new_block = [
-            f"### [[Work/{org_name}/Projects/{upsert.slug}]]",
+            heading,
             upsert.status_line.rstrip(),
             "",
         ]

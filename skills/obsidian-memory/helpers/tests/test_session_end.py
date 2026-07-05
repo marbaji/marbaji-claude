@@ -436,6 +436,83 @@ class TestCurrentFocusUpdates:
         # The new status is present exactly once.
         assert result.count("Foo is now blocked after alias test") == 1
 
+    def test_upsert_personal_new_writes_personal_wikilink(self, tmp_path):
+        """category: personal must emit the Personal/.../overview pipe-alias
+        heading, not the Work/<Org>/Projects form (which would be a broken link)."""
+        vault = self._setup_vault(tmp_path)
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="My Side Project",
+                    category="personal",
+                    status_line="**🟢 Kickoff.** First milestone planned.",
+                ),
+            ],
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        text = (vault / "Context/current-focus.md").read_text()
+        assert "### [[Personal/Projects/My Side Project/overview|My Side Project]]" in text
+        assert "Work/Chalktalk/Projects/My Side Project" not in text
+
+    def test_upsert_personal_replaces_existing_personal_block(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        focus_path = vault / "Context/current-focus.md"
+        text = focus_path.read_text()
+        text = text.replace(
+            "## Active Projects\n",
+            "## Active Projects\n\n"
+            "### [[Personal/Projects/side-thing/overview|side-thing]]\n"
+            "Old side-thing status.\n",
+        )
+        focus_path.write_text(text)
+        updates = session_end.FocusUpdates(
+            upsert=[
+                session_end.FocusUpsert(
+                    slug="side-thing",
+                    category="personal",
+                    status_line="New side-thing status.",
+                ),
+            ],
+        )
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        result = focus_path.read_text()
+        assert "Old side-thing status." not in result
+        assert result.count("### [[Personal/Projects/side-thing/overview|side-thing]]") == 1
+        assert "New side-thing status." in result
+
+    def test_remove_finds_personal_entry(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        focus_path = vault / "Context/current-focus.md"
+        text = focus_path.read_text()
+        text = text.replace(
+            "## Active Projects\n",
+            "## Active Projects\n\n"
+            "### [[Personal/Projects/side-thing/overview|side-thing]]\n"
+            "Side-thing status to be removed.\n",
+        )
+        focus_path.write_text(text)
+        updates = session_end.FocusUpdates(remove=["side-thing"])
+        session_end.process_focus_updates(
+            vault=vault, updates=updates,
+            last_updated_slug="2026-05-09-test", org_name="Chalktalk",
+        )
+        result = focus_path.read_text()
+        assert "side-thing" not in result
+
+    def test_focus_upsert_personal_slug_validation(self):
+        from pydantic import ValidationError
+
+        # Personal slugs allow spaces / Title Case; work slugs stay kebab-case.
+        session_end.FocusUpsert(slug="My Side Project", category="personal", status_line="x")
+        with pytest.raises(ValidationError):
+            session_end.FocusUpsert(slug="My Side Project", status_line="x")
+
     def test_remove_deletes_heading_and_block(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         updates = session_end.FocusUpdates(remove=["bar"])

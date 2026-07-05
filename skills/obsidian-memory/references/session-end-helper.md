@@ -273,8 +273,9 @@ Operations are applied in order: removes first, then move-to-complete, then move
 
 | Field | Type | Req/Opt | Validation | Example |
 |---|---|---|---|---|
-| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. | `obsidian-memory` |
+| `slug` | `str` | Required | **work** (default): pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`. **personal**: same relaxed rules as `ProjectTouched.slug`. | `obsidian-memory` |
 | `status_line` | `str` | Required | Single-line status written directly below the `### [[...]]` heading. | `"Writing session-end reference docs — Task 15/15 in progress."` |
+| `category` | `Literal["work", "personal"]` | Optional (default `"work"`) | Controls the heading wikilink: `"work"` → `### [[Work/<Org>/Projects/<slug>]]`; `"personal"` → `### [[Personal/Projects/<slug>/overview\|<slug>]]`. Remove / move operations carry only a slug and match either entry form automatically. | `personal` |
 
 ---
 
