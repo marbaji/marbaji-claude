@@ -26,6 +26,19 @@ Persistent memory and context management for Claude Code via an Obsidian vault. 
 | `current-focus.md` edits | `Context/current-focus.md` (upsert, remove, move-to-complete) |
 | Source citation files | `Sources/YYYY-MM-DD-<name>.md` |
 | People note flags | Stdout only — operator creates the note manually |
+| Correction-taxonomy ledger updates (opt-in) | `Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md` |
+| Archived session transcripts (opt-in; only when a session mints/promotes a taxonomy category) | `Personal/Projects/agentic-loops/transcripts/` |
+
+---
+
+## The feedback loops
+
+The artifact table above says *what* gets written; this is *why*. Session-end isn't just a save — it runs four loops that compound across sessions:
+
+- **Extraction loop.** Decisions, shipping events, and brag-worthy moments get promoted out of the chronological session log into their own indexable files, after one batched approval. Six months later you find the decision by searching Decisions/, not by re-reading session logs.
+- **Staleness sweep.** Any active project untouched for 14 days (backlog: 30) surfaces a retire / complete / snooze question at close. Code-enforced — the helper refuses to write if a due project goes unaddressed — so the Active list stays honest instead of only ever growing.
+- **Learning routing.** A lesson that lives only in a session log is a lesson the next session repeats — nothing loads it in time. At close, each lesson is routed to a home future sessions actually read: auto-memory (cross-session habits), repo rules (path-scoped standards, opened as a PR before the session ends), or a skill's gotchas file (task-scoped). The session log keeps the story; the home keeps the enforcement.
+- **Correction-taxonomy loop (opt-in).** Sweeps the moments you *corrected the agent* into a private evidence ledger in your vault. First occurrence of a pattern parks as an unverified draft; the second occurrence triggers a one-click promotion prompt; a promoted rule is routed via the learning-routing loop above, while the ledger keeps counts + citations as the audit trail. Sessions that mint or promote a category get their transcript archived permanently (Claude Code deletes transcripts after months; the archive is the durable receipt). Activates only if the ledger file exists — create it via `references/adopting-this-skill.md` § "Optional: correction-taxonomy evidence ledger"; otherwise the step is skipped.
 
 ---
 
@@ -55,7 +68,7 @@ On-demand reference docs — the agent loads only the one it needs for the curre
 |---|---|
 | `session-end-helper.md` | Full CLI reference, Pydantic schema for every manifest field, exit codes, and three worked examples for `session_end.py` |
 | `session-start.md` | Step-by-step session-start ritual (context loading, weekly lint trigger) |
-| `session-end.md` | Step-by-step session-end ritual (project identification, manifest assembly, approval) |
+| `session-end.md` | Step-by-step session-end ritual (project identification, staleness sweep, extraction approval, learning routing, opt-in correction-taxonomy sweep, manifest assembly) |
 | `session-start-hook.md` | How to wire up the SessionStart hook for the ~3-4x token reduction at session start |
 | `installation-flow.md` | First-time setup wizard (vault path, org name, hook installation, vault scaffolding) |
 | `qmd-setup.md` | How to install and register the QMD semantic search MCP for chunked vault recall |
@@ -69,7 +82,7 @@ On-demand reference docs — the agent loads only the one it needs for the curre
 | `competency-tagging.md` | When and how to tag competency evidence in session logs with wikilinks so `employee-review` can walk backlinks |
 | `guidelines.md` | Always-do vs ask-first behavioral rules for vault writes |
 | `conventions.md` | File naming, tag vocabulary, troubleshooting tips, and skill-integration notes |
-| `adopting-this-skill.md` | How to populate your own vault with org-specific data (org chart, People notes, Values, etc.) |
+| `adopting-this-skill.md` | How to populate your own vault with org-specific data (org chart, People notes, Values, etc.) + how to opt in to the correction-taxonomy evidence ledger |
 | `gotchas.md` | Failure modes accumulated from real runs — read before using the skill |
 | `people-template.md` | Schema and section layout for `Work/<Org>/People/<Name>.md` |
 | `competency-template.md` | Schema and section layout for `Work/<Org>/Competencies/<Competency>.md` |
