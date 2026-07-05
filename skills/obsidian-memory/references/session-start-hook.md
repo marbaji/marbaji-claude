@@ -33,7 +33,7 @@ Add this entry to `~/.claude/settings.json` under `hooks.SessionStart`:
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/<username>/.claude/skills/obsidian-memory/scripts/session-start-context.sh"
+            "command": "/Users/<username>/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/scripts/session-start-context.sh"
           }
         ]
       }
@@ -42,7 +42,7 @@ Add this entry to `~/.claude/settings.json` under `hooks.SessionStart`:
 }
 ```
 
-Replace `<username>` with your macOS username. The path matches where the marketplace install syncs the skill locally.
+Replace `<username>` with your macOS username. This path is where the `marbaji-claude` marketplace plugin installs the skill. If you installed the skill standalone (cloned directly into `~/.claude/skills/obsidian-memory/`), use `~/.claude/skills/obsidian-memory/scripts/session-start-context.sh` instead.
 
 If you keep the skill in a non-standard location, point at that path instead.
 
@@ -51,7 +51,7 @@ If you keep the skill in a non-standard location, point at that path instead.
 Run the script manually to verify output looks right:
 
 ```bash
-~/.claude/skills/obsidian-memory/scripts/session-start-context.sh
+~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/scripts/session-start-context.sh
 ```
 
 The script is a no-op if `~/.claude/obsidian-vault-name` is missing (skill not configured) or the vault path doesn't exist (new machine). Safe to wire up before the vault is fully populated — it'll start emitting context once setup completes.
