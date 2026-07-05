@@ -179,14 +179,16 @@ Scan the ending session for moments the user corrected or redirected the agent (
 
 Ledger writes are direct Edit-tool edits (Read the ledger first this session); they are NOT part of the helper manifest. Zero corrections in the session = zero ledger writes — never invent entries.
 
-**Report format (mandatory, user-set 2026-07-05):** present the sweep's outcome to the user as ONE `LEDGER SWEEP` block with exactly three ALL-CAPS subsections, each spelled out even when empty — never collapse the block into a single prose line:
+**Report format (mandatory, user-set 2026-07-05):** present the sweep's outcome to the user as ONE `LEDGER SWEEP` block with exactly three ALL-CAPS subsections. Every heading carries its count in parentheses — the block heading carries the total (sum of the three) — and each subsection is spelled out even when its count is 0 ("none"). Never collapse the block into a single prose line:
 
 ```
-LEDGER SWEEP
-- INCREMENTS TO EXISTING CATEGORIES: <category +1 (id8: ≤1-line paraphrase); ...> | none
-- NEW SINGLETONS PARKED: <name — one-line definition (id8)> | none
-- PROMOTION CANDIDATES (drafts just reaching 2+ sessions): <name (sessions)> | none
+LEDGER SWEEP (2)
+- INCREMENTS TO EXISTING CATEGORIES (2): <category +1 (id8: ≤1-line paraphrase); ...> | none
+- NEW SINGLETONS PARKED (0): <name — one-line definition (id8)> | none
+- PROMOTION CANDIDATES - DRAFTS REACHING 2+ SESSIONS (0): <name (sessions)> | none
 ```
+
+(The third heading uses a hyphen for its qualifier, not nested parentheses — exactly one parenthetical per heading: the count.)
 
 ## Step 8: Learning forcing function (after the change report)
 
