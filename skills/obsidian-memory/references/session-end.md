@@ -90,16 +90,18 @@ Walk the session for content that should live in its own structured file. Read [
 1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema)
 2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/$ORG_NAME/Shipping Log.md` under current month
 3. **Brag-worthy moments** → append to `Personal/Brag Doc.md` under current quarter. Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? No default frequency in either direction — let the test decide.
-4. **New-person mentions** (someone referenced who has no `Work/$ORG_NAME/People/<slug>.md` yet) → flag for confirmation; the helper does NOT auto-create People notes
+4. **New-person mentions** (someone referenced in the session) → resolve it yourself: check for `Work/$ORG_NAME/People/<slug>.md`. If it exists, the bucket is **none**. If it's missing, create it after approval (the helper does NOT auto-create — write it with the Write tool from `people-template.md`). **Never ask the user whether a People note exists** — check and act.
 
 Surface candidates as a SINGLE batched confirmation prompt:
 
+Every bucket carries a count with **0s shown**. Do NOT tag items "(candidate)" — the whole batch is pending the user's approval by definition, so tagging some items is redundant. A bucket with more than one item breaks its items onto indented sub-bullets; a single item or "none" stays inline.
+
 ```
 At session-end I found these to file:
-  • DECISION: "<headline>" → Decisions/YYYY-MM-DD-<slug>.md
-  • SHIPPING: "<event>" → append to Shipping Log
-  • BRAG: "<moment>" → append to Brag Doc YYYY Q<N>
-  • NEW PERSON: "<First Last>" referenced, no People note exists → flag for manual creation? [y/n]
+  • SHIPPING (N): "<event>" → Shipping Log | none
+  • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
+  • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
+  • NEW PERSON (N): "<First Last>" — creating a People note | none
 Approve all? Edit any? Skip any?
 ```
 
@@ -132,6 +134,7 @@ See [`extraction-rules.md`](extraction-rules.md) for the full rule.
 
 **Do NOT extract** when:
 - A decision is a one-off implementation choice (mid-task pivot, captured by `git log`)
+- A decision is a **project-narrative or positioning choice already captured in the project doc**. Reserve a Decision file for a cross-cutting, re-litigable choice someone will search for *out of the session's context* (an architecture call, a policy, a strategic bet). If the project doc already holds it next to the work it governs, a second Decision copy nobody greps for is over-extraction — fold it into the project doc instead.
 - A shipping event is internal-only churn (commit pushed, no feature/customer impact)
 - A brag fails the Cold-Reader Test in `extraction-rules.md` section (c) (meta-cognition, copy iteration, normal craftwork, anything only intelligible if you were in the room)
 
@@ -148,12 +151,22 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 
 The routing test for the first three rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home.
 
-Append the routed items to the SAME batched confirmation prompt as Step 3 (for visibility), e.g.:
+Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
+
+- The block heading carries the total (sum of the escalation buckets); each bucket heading carries its own count, **0s shown** (never drop an empty bucket).
+- Each bucket = a **bold label** + a one-line description of what that home is and when a lesson goes there, then the value(s) on **indented nested `- →` sub-bullets** — always indented, even for a single item or "none" (the arrow alone won't indent; the `-` is what nests it, and the descriptions are long so the value never sits inline).
+- **Omit the VAULT-ONLY route** from the presented block: it is the null route (no escalation) and the session log's `learnings:` field already covers it. Show only the escalation homes (auto-memory, repo-rule, skill-gotcha).
+- Fold `.claude/rules` and "session log" into the description sentences instead of a `/`-style label.
+- (This indented-even-when-single rule is specific to LEARNING ROUTING. Every other section — extractions, ledger sweep — only indents a bucket's items when there is more than one.)
 
 ```
-  • LEARNING → auto-memory: "<one-line lesson>" → feedback_<slug>.md
-  • LEARNING → repo rule (queued for after the save): "<one-line lesson>" → .claude/rules/<area>.md
-  • LEARNING → vault-only: "<one-line lesson>" (no routing)
+🧠 LEARNING ROUTING (N): where each lesson's durable home is —
+- **AUTO-MEMORY (n):** Claude Code's persistent memory; auto-loads into every future session, for agent-behavior habits that must reach the next session before it repeats a mistake.
+  - → "<one-line lesson>"
+- **REPO-RULE (n):** a committed rule file in `.claude/rules` that both Claude and CodeRabbit read on every PR, for stable standards scoped to a path glob.
+  - → none
+- **SKILL-GOTCHA (n):** a specific skill's own gotchas or reference file, for a convention unique to that one skill.
+  - → "<one-line lesson>"
 ```
 
 Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8.
