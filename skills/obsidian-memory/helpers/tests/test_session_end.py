@@ -2910,3 +2910,70 @@ class TestRefreshQmdIndex:
 
         monkeypatch.setattr(session_end.subprocess, "run", boom)
         session_end.refresh_qmd_index(quiet=True)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Nested work project slugs (Projects/<Folder>/<slug>)
+#
+# Added 2026-07-27 after a vault consolidation moved several project docs under
+# Work/<org>/Projects/Content/. The helper rejected every nested slug, so those
+# project docs and the current-focus upsert had to be written by hand. Every
+# write site already does mkdir(parents=True) and every path/wikilink is
+# f-string interpolated, so only the validator needed widening.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("slug", [
+    "curriculum-synthesis-skill",          # flat - the pre-existing case, must still pass
+    "a",
+    "Content/curriculum-synthesis-skill",  # one folder segment
+    "Content/lesson-production/index",     # two folder segments
+    "Some Folder/nested-doc",              # spaces are legal in a folder segment
+])
+def test_work_slug_accepts_flat_and_nested(slug):
+    assert session_end._validate_slug_for_category(slug, "work") == slug
+
+
+@pytest.mark.parametrize("slug", [
+    "../etc/passwd",     # path traversal
+    "Content/../../x",
+    "/leading",
+    "trailing/",
+    "double//slash",
+    "Content/",
+    "Content/UPPER",     # final segment must stay kebab-case (it becomes a filename)
+    "has space",         # ...and may not contain spaces
+])
+def test_work_slug_rejects_unsafe_or_malformed(slug):
+    with pytest.raises(ValueError):
+        session_end._validate_slug_for_category(slug, "work")
+
+
+def test_project_doc_path_handles_nested_work_slug():
+    assert session_end.project_doc_path(
+        "Content/curriculum-synthesis-skill", "work", "Chalktalk"
+    ) == "Work/Chalktalk/Projects/Content/curriculum-synthesis-skill.md"
+    # flat slugs are unchanged
+    assert session_end.project_doc_path(
+        "renewal-storytelling", "work", "Chalktalk"
+    ) == "Work/Chalktalk/Projects/renewal-storytelling.md"
+
+
+def test_personal_slug_still_forbids_slash():
+    """Personal slugs become a DIRECTORY name (Personal/Projects/<slug>/overview.md),
+    so '/' stays illegal there even though work slugs now allow it."""
+    with pytest.raises(ValueError):
+        session_end._validate_slug_for_category("Some/Nested", "personal")
+    assert session_end._validate_slug_for_category("InBloom Early Learning", "personal")
+
+
+def test_nested_slug_round_trips_through_a_new_project_doc(tmp_path):
+    """End-to-end: a nested slug creates the parent folder and lands at the right path."""
+    doc = session_end.NewProjectDoc(
+        slug="Content/brand-new-thing",
+        frontmatter={"type": "project", "status": "active"},
+        body="# Brand new thing\n\nBody.",
+    )
+    report = session_end.write_new_project_doc(tmp_path, doc, org_name="Chalktalk")
+    written = tmp_path / "Work/Chalktalk/Projects/Content/brand-new-thing.md"
+    assert written.is_file(), f"expected {written}"
+    assert report.path == "Work/Chalktalk/Projects/Content/brand-new-thing.md"
