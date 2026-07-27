@@ -32,8 +32,16 @@ class ChangeReport:
 
 
 SLUG_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+# Work project docs may live in a subfolder of Projects/ (e.g. Work/<org>/Projects/Content/<slug>.md
+# after a domain consolidation). A work slug is therefore zero or more folder segments followed by a
+# kebab-case file slug. Folder segments allow Title Case and spaces because vault folders commonly use
+# them; the final segment stays kebab-case because it becomes a filename.
+# Path traversal is impossible: "." is not in the folder-segment character class, so ".." cannot match,
+# and the pattern forbids leading, trailing, and doubled separators.
+WORK_SLUG_RE = r"^(?:[A-Za-z0-9][A-Za-z0-9 _-]*/)*[a-z0-9]+(?:-[a-z0-9]+)*$"
 DATED_SLUG_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
 _SLUG_RE_COMPILED = re.compile(SLUG_RE)
+_WORK_SLUG_RE_COMPILED = re.compile(WORK_SLUG_RE)
 
 # HTML-looking tag in prose: <noscript>, </div>, <area>, <details class="x">,
 # and even path placeholders like <skill-root>. With or without attributes.
@@ -96,7 +104,9 @@ def _dedup_preserve_order(items: list[str]) -> list[str]:
 def _validate_slug_for_category(slug: str, category: str) -> str:
     """Validate slug based on category.
 
-    work: must match SLUG_RE (kebab-case lowercase).
+    work: must match WORK_SLUG_RE - a kebab-case slug, optionally prefixed by folder
+          segments (e.g. "Content/curriculum-synthesis-skill" for a project doc that lives
+          in Work/<org>/Projects/Content/).
     personal: any non-empty string; no leading/trailing whitespace, no '/' or newlines.
     """
     if category == "personal":
@@ -106,9 +116,10 @@ def _validate_slug_for_category(slug: str, category: str) -> str:
                 f"no '/' or newline characters; got {slug!r}"
             )
     else:
-        if not _SLUG_RE_COMPILED.match(slug):
+        if not _WORK_SLUG_RE_COMPILED.match(slug):
             raise ValueError(
-                f"work slug must match {SLUG_RE}; got {slug!r}"
+                f"work slug must match {WORK_SLUG_RE} (kebab-case, optionally nested "
+                f"under folder segments); got {slug!r}"
             )
     return slug
 
@@ -117,6 +128,7 @@ def project_doc_path(slug: str, category: str, org_name: str) -> str:
     """Return the vault-relative path for a project doc.
 
     work:     Work/{org_name}/Projects/{slug}.md
+              (slug may contain "/" for docs nested under Projects/, e.g. Content/foo)
     personal: Personal/Projects/{slug}/overview.md
     """
     if category == "personal":
