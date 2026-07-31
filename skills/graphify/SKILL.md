@@ -1,6 +1,6 @@
 ---
 name: graphify
-description: any input (code, docs, papers, images) → knowledge graph → clustered communities → HTML + JSON + audit report
+description: "Turn any input (code, docs, papers, images) into a clustered knowledge graph, emitting an HTML viewer, JSON, and an audit report. Use on \"/graphify\", \"graph this\", \"build a knowledge graph from X\", or when a corpus needs its entities and relationships mapped."
 trigger: /graphify
 ---
 
