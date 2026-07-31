@@ -61,14 +61,34 @@ def _make_vault(tmp_path: Path, *, live_entries: int = 5, archived_entries: int 
     return vault
 
 
-def _run(vault: Path, tmp_path: Path, cwd: Path | None = None) -> str:
-    """Invoke the hook with HOME redirected so it reads our synthetic config."""
+BUDGET_VARS = ("OBSIDIAN_MEMORY_FOCUS_MAX_BYTES", "OBSIDIAN_MEMORY_BACKLOG_MAX_BYTES")
+
+
+def _run(
+    vault: Path,
+    tmp_path: Path,
+    cwd: Path | None = None,
+    *,
+    budgets: dict[str, str] | None = None,
+) -> str:
+    """Invoke the hook with HOME redirected so it reads our synthetic config.
+
+    Budget env vars are scrubbed from the inherited environment and set only from
+    the explicit `budgets` argument. Without this, a developer who happens to
+    export OBSIDIAN_MEMORY_FOCUS_MAX_BYTES in their shell would silently exercise
+    a different ceiling than the one under test, and the ceiling assertions would
+    pass or fail for reasons unrelated to the code. Tests must behave identically
+    from a fresh clone on any machine.
+    """
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True, exist_ok=True)
     (home / ".claude" / "obsidian-vault-path").write_text(str(vault), encoding="utf-8")
     (home / ".claude" / "obsidian-org-name").write_text("TestOrg", encoding="utf-8")
 
-    env = dict(os.environ, HOME=str(home))
+    env = {k: v for k, v in os.environ.items() if k not in BUDGET_VARS}
+    env["HOME"] = str(home)
+    env.update(budgets or {})
+
     proc = subprocess.run(
         ["bash", str(SCRIPT)],
         capture_output=True,
@@ -156,6 +176,78 @@ def test_truncation_notice_fires_on_emoji_heavy_content(tmp_path: Path) -> None:
     # And the emitted bytes must still be valid UTF-8: a byte-wise cut could
     # otherwise split a multi-byte character mid-sequence.
     out.encode("utf-8").decode("utf-8")
+
+
+def test_long_backlog_lines_cannot_blow_the_budget(tmp_path: Path) -> None:
+    """`head -50` bounds line COUNT, not size. 50 pathological lines must not win.
+
+    Caught in review: the backlog preview was capped at 50 lines with no byte
+    ceiling, so a file with 50 very long lines could dominate the whole hook's
+    output even though current-focus was properly bounded.
+    """
+    vault = _make_vault(tmp_path, live_entries=2, archived_entries=0)
+    # 40 lines x 2,000 chars = 80,000 chars, well inside the 50-line limit.
+    (vault / "Context" / "Project Backlog.md").write_text(
+        "".join(f"- backlog item {i} " + ("y" * 2000) + "\n" for i in range(40)),
+        encoding="utf-8",
+    )
+    out = _run(vault, tmp_path)
+    assert len(out) <= MAX_OUTPUT_CHARS, (
+        f"hook emitted {len(out)} chars; long backlog lines bypassed the ceiling"
+    )
+    assert "_(truncated" in out
+
+
+def test_malformed_budget_falls_back_to_default(tmp_path: Path) -> None:
+    """A non-numeric budget must warn and use the default, not emit nothing.
+
+    `awk -v max=abc` compares against 0 and drops every line. `set -u` cannot
+    catch this because the variable IS set, just nonsense.
+    """
+    vault = _make_vault(tmp_path, live_entries=3, archived_entries=0)
+    # An EMPTY value is not in this list: `${VAR:-8000}` substitutes the default for
+    # unset *and* empty, so it never reaches validation and warrants no warning.
+    # Covered separately by test_empty_budget_uses_default_silently.
+    for bad in ("abc", "0", "-5", "12x", "8000 "):
+        home = tmp_path / f"home-{bad.strip() or 'empty'}"
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / ".claude" / "obsidian-vault-path").write_text(str(vault), encoding="utf-8")
+        (home / ".claude" / "obsidian-org-name").write_text("TestOrg", encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k not in BUDGET_VARS}
+        env["HOME"] = str(home)
+        env["OBSIDIAN_MEMORY_FOCUS_MAX_BYTES"] = bad
+        proc = subprocess.run(
+            ["bash", str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(tmp_path),
+            check=False,
+            timeout=60,
+        )
+        assert proc.returncode == 0, f"budget={bad!r} exited {proc.returncode}"
+        assert "Live Project 0" in proc.stdout, (
+            f"budget={bad!r} silently produced no focus content"
+        )
+        assert "not a positive integer" in proc.stderr or "must be > 0" in proc.stderr
+
+
+def test_empty_budget_uses_default_silently(tmp_path: Path) -> None:
+    """`${VAR:-8000}` treats empty as unset, so no warning and normal output."""
+    vault = _make_vault(tmp_path, live_entries=3, archived_entries=0)
+    out = _run(vault, tmp_path, budgets={"OBSIDIAN_MEMORY_FOCUS_MAX_BYTES": ""})
+    assert "Live Project 0" in out
+    assert "_(truncated" not in out
+
+
+def test_explicit_budget_override_is_honoured(tmp_path: Path) -> None:
+    """The knob works, and the tests can drive it deterministically."""
+    vault = _make_vault(tmp_path, live_entries=60, archived_entries=0)
+    tight = _run(vault, tmp_path, budgets={"OBSIDIAN_MEMORY_FOCUS_MAX_BYTES": "400"})
+    loose = _run(vault, tmp_path, budgets={"OBSIDIAN_MEMORY_FOCUS_MAX_BYTES": "20000"})
+    assert len(tight) < len(loose)
+    assert "_(truncated at ~400 bytes" in tight
+    assert "_(truncated at ~20000 bytes" not in loose
 
 
 def test_no_git_section(tmp_path: Path) -> None:

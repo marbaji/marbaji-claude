@@ -78,9 +78,9 @@ echo ""
 # hook's entire output, injected into every single session. That blew the ~2K-token
 # budget in this script's header by 3.1x.
 #
-# Stop at the first archival heading, and keep a hard char ceiling as a backstop so
+# Stop at the first archival heading, and keep a hard byte ceiling as a backstop so
 # the next growth spurt can't silently blow the budget again. Nothing is deleted
-# from the vault — the history stays in the file, it just stops being injected.
+# from the vault: the history stays in the file, it just stops being injected.
 CURRENT_FOCUS="$VAULT_PATH/Context/current-focus.md"
 # Budget is in BYTES, and every measurement below is in bytes under LC_ALL=C.
 # This matters: the vault is UTF-8 and these headings carry emoji status markers
@@ -92,34 +92,68 @@ CURRENT_FOCUS="$VAULT_PATH/Context/current-focus.md"
 # multi-byte character mid-sequence. Truncating at a LINE boundary instead fixes
 # both: never mid-character, and the notice fires iff bytes were actually dropped.
 FOCUS_MAX_BYTES="${OBSIDIAN_MEMORY_FOCUS_MAX_BYTES:-8000}"
+BACKLOG_MAX_BYTES="${OBSIDIAN_MEMORY_BACKLOG_MAX_BYTES:-4000}"
+
+# Reject a malformed budget rather than silently emitting nothing. A non-numeric
+# or non-positive value would make `awk -v max=...` compare against 0 and drop
+# every line, with no warning; `set -u` can't catch it because the var IS set.
+_validate_budget() {  # $1=name $2=value $3=default -> echoes a usable value
+    case "$2" in
+        '' | *[!0-9]*)
+            printf '[obsidian-memory hook] %s=%s is not a positive integer; using %s.\n' \
+                "$1" "$2" "$3" >&2
+            printf '%s' "$3" ;;
+        *)
+            if [[ "$2" -le 0 ]]; then
+                printf '[obsidian-memory hook] %s=%s must be > 0; using %s.\n' "$1" "$2" "$3" >&2
+                printf '%s' "$3"
+            else
+                printf '%s' "$2"
+            fi ;;
+    esac
+}
+FOCUS_MAX_BYTES="$(_validate_budget OBSIDIAN_MEMORY_FOCUS_MAX_BYTES "$FOCUS_MAX_BYTES" 8000)"
+BACKLOG_MAX_BYTES="$(_validate_budget OBSIDIAN_MEMORY_BACKLOG_MAX_BYTES "$BACKLOG_MAX_BYTES" 4000)"
+
+# Emit at most $1 bytes of stdin, cut at a line boundary so a multi-byte
+# character is never split. LC_ALL=C makes awk's length() count bytes.
+_emit_capped() {  # $1=max-bytes ; stdin -> stdout
+    LC_ALL=C awk -v max="$1" '{ n += length($0) + 1; if (n > max) exit; print }'
+}
+
 if [[ -f "$CURRENT_FOCUS" ]]; then
     echo "### Current focus"
     echo ""
     FOCUS_LIVE="$(awk '/^## (Complete|Retired Projects)/ { exit } { print }' "$CURRENT_FOCUS")"
-    FOCUS_SHOWN="$(printf '%s\n' "$FOCUS_LIVE" \
-        | LC_ALL=C awk -v max="$FOCUS_MAX_BYTES" '{ n += length($0) + 1; if (n > max) exit; print }')"
+    FOCUS_SHOWN="$(printf '%s\n' "$FOCUS_LIVE" | _emit_capped "$FOCUS_MAX_BYTES")"
     printf '%s\n' "$FOCUS_SHOWN"
     FOCUS_LIVE_BYTES="$(printf '%s' "$FOCUS_LIVE" | LC_ALL=C wc -c | tr -d ' ')"
     FOCUS_SHOWN_BYTES="$(printf '%s' "$FOCUS_SHOWN" | LC_ALL=C wc -c | tr -d ' ')"
     if [[ "$FOCUS_SHOWN_BYTES" -lt "$FOCUS_LIVE_BYTES" ]]; then
-        printf '\n_(truncated at ~%s bytes of %s — read `Context/current-focus.md` for the rest)_\n' \
+        printf '\n_(truncated at ~%s bytes of %s. Read `Context/current-focus.md` for the rest.)_\n' \
             "$FOCUS_MAX_BYTES" "$FOCUS_LIVE_BYTES"
     fi
     echo ""
-    echo "_Completed and retired projects live in the same file under \`## Complete\` / \`## Retired Projects\` — deliberately not injected. Read the file if you need them._"
+    echo "_Completed and retired projects live in the same file under \`## Complete\` / \`## Retired Projects\`, deliberately not injected. Read the file if you need them._"
     echo ""
 fi
 
-# Project backlog — read-only, user-maintained
+# Project backlog (read-only, user-maintained).
+# Bounded on BOTH lines and bytes: `head -50` alone caps line count but not size,
+# so 50 pathologically long lines could blow the whole hook's budget.
 BACKLOG="$VAULT_PATH/Context/Project Backlog.md"
 if [[ -f "$BACKLOG" ]]; then
     echo "### Project backlog (read-only, user-maintained)"
     echo ""
-    head -50 "$BACKLOG"
-    BACKLOG_LINES=$(wc -l < "$BACKLOG" | tr -d ' ')
-    if [[ "$BACKLOG_LINES" -gt 50 ]]; then
+    BACKLOG_HEAD="$(head -50 "$BACKLOG")"
+    BACKLOG_SHOWN="$(printf '%s\n' "$BACKLOG_HEAD" | _emit_capped "$BACKLOG_MAX_BYTES")"
+    printf '%s\n' "$BACKLOG_SHOWN"
+    BACKLOG_LINES="$(wc -l < "$BACKLOG" | tr -d ' ')"
+    BACKLOG_HEAD_BYTES="$(printf '%s' "$BACKLOG_HEAD" | LC_ALL=C wc -c | tr -d ' ')"
+    BACKLOG_SHOWN_BYTES="$(printf '%s' "$BACKLOG_SHOWN" | LC_ALL=C wc -c | tr -d ' ')"
+    if [[ "$BACKLOG_LINES" -gt 50 || "$BACKLOG_SHOWN_BYTES" -lt "$BACKLOG_HEAD_BYTES" ]]; then
         echo ""
-        echo "_(truncated; full file is $BACKLOG_LINES lines — read via \`obsidian read file=\"Context/Project Backlog\" vault=\"$VAULT_NAME\"\` if needed)_"
+        echo "_(truncated; full file is $BACKLOG_LINES lines. Read via \`obsidian read file=\"Context/Project Backlog\" vault=\"$VAULT_NAME\"\` if needed.)_"
     fi
     echo ""
 fi
@@ -151,7 +185,7 @@ if [[ -d "$PROJECTS_DIR" ]]; then
         | awk '{print "- `" $0 "`"}' \
         | head -20
     if [[ "$PROJECT_COUNT" -gt 20 ]]; then
-        echo "- _($((PROJECT_COUNT - 20)) more — see Work/$ORG_NAME/Projects/)_"
+        echo "- _($((PROJECT_COUNT - 20)) more; see Work/$ORG_NAME/Projects/)_"
     fi
     echo ""
 fi
