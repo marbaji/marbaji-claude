@@ -144,32 +144,30 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 
 | Lesson shape | Durable home | Action at session-end |
 |---|---|---|
-| Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | Write with the Write tool immediately after approval — auto-memory is the only home that loads into every future session |
+| Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | **No session-end enumeration.** Auto-memory writes happen natively at correction time, at Claude's discretion — do not trawl the learnings list for auto-memory candidates at session-end. Only write one here if a clearly durable habit lesson was somehow missed mid-session (rare). Dropped from the counted block 2026-07-31 (Mo, memory-bloat audit: MEMORY.md at 111 entries / ~4k tokens loaded per session, +47 memory files in July alone — the counted bucket double-forced writes on top of the harness's native correction-time behavior). |
 | Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Queue for the **Step 8 forcing function** below — never park it as a `next_steps` bullet |
 | Skill-specific gotcha | That skill's gotchas/reference file | Queue for Step 8 |
 | Session-specific detail with no future reader | Vault session log only | Nothing extra — `learnings:` already covers it |
 
-The routing test for the first three rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home.
+The routing test for the repo-standard and skill-gotcha rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home. (The same test governs the discretionary correction-time auto-memory write — it just isn't enumerated or counted here.)
 
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
 - The block heading carries the total (sum of the escalation buckets); each bucket heading carries its own count, **0s shown** (never drop an empty bucket).
 - Each bucket = a **bold label** + a one-line description of what that home is and when a lesson goes there, then the value(s) on **indented nested `- →` sub-bullets** — always indented, even for a single item or "none" (the arrow alone won't indent; the `-` is what nests it, and the descriptions are long so the value never sits inline).
-- **Omit the VAULT-ONLY route** from the presented block: it is the null route (no escalation) and the session log's `learnings:` field already covers it. Show only the escalation homes (auto-memory, repo-rule, skill-gotcha).
+- **Omit the VAULT-ONLY and AUTO-MEMORY routes** from the presented block: vault-only is the null route (no escalation), and auto-memory is handled natively at correction time (see the table above — 2026-07-31). Show only the escalation homes that session-end alone can catch (repo-rule, skill-gotcha).
 - Fold `.claude/rules` and "session log" into the description sentences instead of a `/`-style label.
 - (This indented-even-when-single rule is specific to LEARNING ROUTING. Every other section — extractions, ledger sweep — only indents a bucket's items when there is more than one.)
 
 ```
 🧠 LEARNING ROUTING (N): where each lesson's durable home is —
-- **AUTO-MEMORY (n):** Claude Code's persistent memory; auto-loads into every future session, for agent-behavior habits that must reach the next session before it repeats a mistake.
-  - → "<one-line lesson>"
 - **REPO-RULE (n):** a committed rule file in `.claude/rules` that both Claude and CodeRabbit read on every PR, for stable standards scoped to a path glob.
   - → none
 - **SKILL-GOTCHA (n):** a specific skill's own gotchas or reference file, for a convention unique to that one skill.
   - → "<one-line lesson>"
 ```
 
-Approved auto-memory items are written directly with the Write tool after the user confirms — they are NOT part of the helper manifest. Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8.
+Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8. (In the rare missed-habit case where an auto-memory write does happen at session-end, it is a direct Write-tool write outside both the block and the manifest, and it still gets a `MEMORY.md` index line.)
 
 ## Step 3b: Correction-taxonomy sweep (evidence-ledger reconcile)
 
