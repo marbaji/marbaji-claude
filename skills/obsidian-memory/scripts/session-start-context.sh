@@ -69,12 +69,30 @@ echo "Vault path: \`$VAULT_PATH\`"
 echo "Org folder: \`$ORG_NAME\` (under Work/)"
 echo ""
 
-# Current focus — the dashboard
+# Current focus — the dashboard. Emit ONLY the live sections.
+#
+# current-focus.md also carries `## Complete` and `## Retired Projects`, which
+# accumulate finished work forever by design. An unbounded `cat` therefore grows
+# without limit: on 2026-07-31 the file was 17,758 chars / 53 project entries, of
+# which 40 were marked done (✅) or archived (🗄️) — 13,585 chars, 54% of this
+# hook's entire output, injected into every single session. That blew the ~2K-token
+# budget in this script's header by 3.1x.
+#
+# Stop at the first archival heading, and keep a hard char ceiling as a backstop so
+# the next growth spurt can't silently blow the budget again. Nothing is deleted
+# from the vault — the history stays in the file, it just stops being injected.
 CURRENT_FOCUS="$VAULT_PATH/Context/current-focus.md"
+FOCUS_MAX_CHARS="${OBSIDIAN_MEMORY_FOCUS_MAX_CHARS:-8000}"
 if [[ -f "$CURRENT_FOCUS" ]]; then
     echo "### Current focus"
     echo ""
-    cat "$CURRENT_FOCUS"
+    FOCUS_LIVE="$(awk '/^## (Complete|Retired Projects)/ { exit } { print }' "$CURRENT_FOCUS")"
+    printf '%s\n' "$FOCUS_LIVE" | head -c "$FOCUS_MAX_CHARS"
+    if [[ "${#FOCUS_LIVE}" -gt "$FOCUS_MAX_CHARS" ]]; then
+        printf '\n_(truncated at %s chars — read `Context/current-focus.md` for the rest)_\n' "$FOCUS_MAX_CHARS"
+    fi
+    echo ""
+    echo "_Completed and retired projects live in the same file under \`## Complete\` / \`## Retired Projects\` — deliberately not injected. Read the file if you need them._"
     echo ""
 fi
 
@@ -124,28 +142,16 @@ if [[ -d "$PROJECTS_DIR" ]]; then
     echo ""
 fi
 
-# Git activity in current working directory if it's a repo
-if git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    REPO_NAME="$(basename "$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)")"
-    BRANCH="$(git -C "$PWD" branch --show-current 2>/dev/null || echo '(detached)')"
-    echo "### Git: $REPO_NAME @ $BRANCH"
-    echo ""
-    echo "**Recent commits:**"
-    echo ""
-    echo '```'
-    git -C "$PWD" log --oneline -10 2>/dev/null
-    echo '```'
-    echo ""
-    DIRTY=$(git -C "$PWD" status --short 2>/dev/null | head -10)
-    if [[ -n "$DIRTY" ]]; then
-        echo "**Working tree changes:**"
-        echo ""
-        echo '```'
-        echo "$DIRTY"
-        echo '```'
-        echo ""
-    fi
-fi
+# NO git section here — deliberately removed 2026-07-31 (was ~963 chars/session).
+#
+# Repo name, current branch, working-tree status, and recent commits are already in
+# context twice over before this hook runs:
+#   1. Claude Code injects its own `gitStatus` block into every session (branch, main
+#      branch, status, recent commits). Always present, can't drift.
+#   2. The separate `CHANGES=$(git status --porcelain ...)` SessionStart hook in
+#      ~/.claude/settings.json reports the uncommitted-change count and repo name.
+# A third copy bought nothing and cost a `git log` subprocess on the session-start
+# critical path. If you need more git detail, ask for it — don't preload it.
 
 # Operating reminders
 echo "### Reminders"
