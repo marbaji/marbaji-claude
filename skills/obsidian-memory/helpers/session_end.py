@@ -379,6 +379,41 @@ class FocusUpdates(BaseModel):
         return v
 
 
+# Emitted by `--example`. Kept adjacent to the model it must satisfy, and asserted
+# valid by tests, so it cannot rot into an example that no longer parses.
+MINIMAL_MANIFEST_EXAMPLE = """
+# Minimal valid session-end manifest. Every REQUIRED field is present.
+# Optional collections (sources_captured, extractions, project_doc_updates,
+# new_project_docs, focus_updates) are omitted; add them as needed.
+# Authoritative field contract: `session_end.py --print-schema`.
+
+date: 2026-01-31
+topic: short-kebab-case-slug          # must match ^[a-z0-9]+(?:-[a-z0-9]+)*$
+tags: [context, active]
+last_updated_slug: short-kebab-case-slug
+summary: |
+  One or two sentences on what this session accomplished.
+projects_touched:
+  - slug: some-project                # category: personal|work (default work)
+    note: What changed for this project.
+streams:
+  - title: What We Did
+    body: |
+      Narrative prose for this stream of work.
+key_decisions: |
+  Decisions made, or "None." if there were none.
+learnings: |
+  What was learned, or "None." if nothing.
+files_modified:
+  chalktalk:                          # all four repo keys are optional
+    - message: commit or PR subject
+      sha: abc1234                    # optional
+      pr: 123                         # optional
+next_steps: |
+  What happens next.
+"""
+
+
 class SessionEndManifest(BaseModel):
     date: Date
     topic: str = Field(pattern=SLUG_RE)
@@ -1600,6 +1635,23 @@ def build_parser() -> argparse.ArgumentParser:
             "current-focus outside the helper."
         ),
     )
+    p.add_argument(
+        "--print-schema",
+        action="store_true",
+        help=(
+            "Print the manifest JSON Schema (generated from the Pydantic models) "
+            "and exit. This is the authoritative contract -- prefer it over any "
+            "prose field table, which can drift from the models."
+        ),
+    )
+    p.add_argument(
+        "--example",
+        action="store_true",
+        help=(
+            "Print a minimal valid manifest (YAML) and exit. Every required field "
+            "is present with a placeholder value; optional collections are omitted."
+        ),
+    )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
     p.add_argument("--only", type=_comma_list, default=None)
@@ -1939,6 +1991,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     home = Path.home()
+
+    # Self-describing contract. These exist so the manifest schema does not have to
+    # be mirrored in prose: `references/session-end-helper.md` used to carry 664
+    # table rows of hand-maintained field documentation for the same 18 Pydantic
+    # models validated below, which is both ~10.8k est. tokens to read on every
+    # session-end and free to drift from the code. The models are the contract.
+    if args.print_schema:
+        print(
+            json.dumps(
+                SessionEndManifest.model_json_schema(), indent=2, ensure_ascii=False
+            )
+        )
+        return 0
+
+    if args.example:
+        print(MINIMAL_MANIFEST_EXAMPLE.strip())
+        return 0
 
     if args.stale_check:
         vault = resolve_vault_path(args.vault_path, home)
