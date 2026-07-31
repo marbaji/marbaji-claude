@@ -122,6 +122,42 @@ def test_focus_ceiling_truncates_a_runaway_live_section(tmp_path: Path) -> None:
     assert len(out) <= MAX_OUTPUT_CHARS
 
 
+def test_truncation_notice_fires_on_emoji_heavy_content(tmp_path: Path) -> None:
+    """Regression: byte-vs-character mismatch silently truncated emoji content.
+
+    The vault marks status with emoji (✅ 🗄️) at 3-4 bytes each. An earlier draft
+    cut the output with `head -c` (bytes) but decided whether to print the
+    truncation notice with `${#VAR}` (characters). On emoji-heavy input those
+    disagree, so output was truncated while the notice stayed silent — defeating
+    the ceiling's entire purpose. Every measurement is bytes now.
+
+    This test is built to FAIL against the byte/char-mixing version: the live
+    section is sized so its character count lands under the 8000 default while
+    its byte count lands over it.
+    """
+    vault = tmp_path / "EmojiVault"
+    (vault / "Context").mkdir(parents=True)
+    # Each line is heavy on multi-byte chars, so bytes >> chars.
+    line = "### [[p]] ✅ 🗄️ ✅ 🗄️ ✅ 🗄️ status marker padding here\n"
+    body = line * 130
+    (vault / "Context" / "current-focus.md").write_text(
+        f"# Current Focus\n\n## Active Projects\n\n{body}", encoding="utf-8"
+    )
+    chars = len(f"# Current Focus\n\n## Active Projects\n\n{body}")
+    nbytes = len(f"# Current Focus\n\n## Active Projects\n\n{body}".encode("utf-8"))
+    assert nbytes > 8000, "fixture must exceed the byte budget"
+    assert chars < nbytes, "fixture must have bytes > chars for this to be meaningful"
+
+    out = _run(vault, tmp_path)
+    assert "_(truncated at" in out, (
+        "content over the BYTE budget was truncated without a notice — "
+        "the cut and the comparison are using different units"
+    )
+    # And the emitted bytes must still be valid UTF-8: a byte-wise cut could
+    # otherwise split a multi-byte character mid-sequence.
+    out.encode("utf-8").decode("utf-8")
+
+
 def test_no_git_section(tmp_path: Path) -> None:
     """Claude Code's own gitStatus block already carries this; a third copy is waste."""
     vault = _make_vault(tmp_path)

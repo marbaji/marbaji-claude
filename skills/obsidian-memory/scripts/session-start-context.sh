@@ -82,14 +82,28 @@ echo ""
 # the next growth spurt can't silently blow the budget again. Nothing is deleted
 # from the vault — the history stays in the file, it just stops being injected.
 CURRENT_FOCUS="$VAULT_PATH/Context/current-focus.md"
-FOCUS_MAX_CHARS="${OBSIDIAN_MEMORY_FOCUS_MAX_CHARS:-8000}"
+# Budget is in BYTES, and every measurement below is in bytes under LC_ALL=C.
+# This matters: the vault is UTF-8 and these headings carry emoji status markers
+# (✅ 🗄️) at 3-4 bytes each. An earlier draft cut with `head -c` (bytes) but
+# decided whether to print the truncation notice with `${#VAR}` (characters).
+# On emoji-heavy content those disagree — 5,399 chars measured 5,799 bytes in
+# testing — so output could be truncated while the notice stayed silent, which
+# is the exact failure the ceiling exists to surface. `head -c` can also split a
+# multi-byte character mid-sequence. Truncating at a LINE boundary instead fixes
+# both: never mid-character, and the notice fires iff bytes were actually dropped.
+FOCUS_MAX_BYTES="${OBSIDIAN_MEMORY_FOCUS_MAX_BYTES:-8000}"
 if [[ -f "$CURRENT_FOCUS" ]]; then
     echo "### Current focus"
     echo ""
     FOCUS_LIVE="$(awk '/^## (Complete|Retired Projects)/ { exit } { print }' "$CURRENT_FOCUS")"
-    printf '%s\n' "$FOCUS_LIVE" | head -c "$FOCUS_MAX_CHARS"
-    if [[ "${#FOCUS_LIVE}" -gt "$FOCUS_MAX_CHARS" ]]; then
-        printf '\n_(truncated at %s chars — read `Context/current-focus.md` for the rest)_\n' "$FOCUS_MAX_CHARS"
+    FOCUS_SHOWN="$(printf '%s\n' "$FOCUS_LIVE" \
+        | LC_ALL=C awk -v max="$FOCUS_MAX_BYTES" '{ n += length($0) + 1; if (n > max) exit; print }')"
+    printf '%s\n' "$FOCUS_SHOWN"
+    FOCUS_LIVE_BYTES="$(printf '%s' "$FOCUS_LIVE" | LC_ALL=C wc -c | tr -d ' ')"
+    FOCUS_SHOWN_BYTES="$(printf '%s' "$FOCUS_SHOWN" | LC_ALL=C wc -c | tr -d ' ')"
+    if [[ "$FOCUS_SHOWN_BYTES" -lt "$FOCUS_LIVE_BYTES" ]]; then
+        printf '\n_(truncated at ~%s bytes of %s — read `Context/current-focus.md` for the rest)_\n' \
+            "$FOCUS_MAX_BYTES" "$FOCUS_LIVE_BYTES"
     fi
     echo ""
     echo "_Completed and retired projects live in the same file under \`## Complete\` / \`## Retired Projects\` — deliberately not injected. Read the file if you need them._"
