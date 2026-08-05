@@ -151,6 +151,44 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 
 The routing test for the repo-standard and skill-gotcha rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home. (The same test governs the discretionary correction-time auto-memory write — it just isn't enumerated or counted here.)
 
+### Step 3a.1: What may enter memory at all, and where (settled with Mo 2026-08-05)
+
+The 2026-07-31 amendment above pulled the FREQUENCY lever (stop enumerating auto-memory candidates
+at session-end). It did not fix placement, so the index kept growing anyway: by 2026-08-05 a
+**148-file, 6-silo** audit found the chalktalk silo at 97 files / 124 index lines / ~3.4k tokens
+loaded per session, a second silo at 43 files, and the two duplicating each other by concept with
+zero filename overlap (`user_role` vs `user_profile`, `feedback_no-em-dashes` vs
+`feedback_no_em_dashes`, one 95-line "where plans live" file vs four separate ones). Several
+memories restated rules already in the global `CLAUDE.md`, paying index tokens to duplicate a file
+that already loads everywhere.
+
+Three rules now govern every memory write, including the discretionary correction-time one:
+
+**1. Admission test — is it a principle?** A memory earns a slot only if it **changes what I would
+DO on a future task in ANY project**. Otherwise route it:
+
+| shape | home | why |
+|---|---|---|
+| Cross-project working principle | **`~/.claude/work-principles.md`** (imported by `~/.claude/CLAUDE.md`, so it loads in EVERY project) | project-scoped memory silos cannot see each other; a principle filed in one is invisible in the other six |
+| Project fact or state (a deadline, who owns an account, a data table, one analysis's findings) | the Obsidian vault | project state already lives there, it is searchable, and it costs zero per-session tokens |
+| Command recipe / tool-specific lookup that only makes sense in one repo | that project's `memory/` | genuinely local; not a principle |
+| Already stated in `CLAUDE.md` or `work-principles.md` | nowhere — drop it | a second copy is drift waiting to happen |
+
+Discriminator, applied literally: *"use `git rm -rf --cached` for path-based tree replacement"* is a
+command recipe (project memory). *"Verify a backup against live before deleting it"* is a principle
+(`work-principles.md`).
+
+**2. Fold before you create.** Before writing a NEW memory file, search existing memories for the
+lesson's subject. If one covers it, **append to that file and leave the index alone**. An append
+costs zero index lines; a new file costs a line in the file that loads every session, forever. New
+files are the exception, not the default. (2026-08-05: two learnings both folded into existing
+memories — `MEMORY.md` stayed at 124 lines.)
+
+**3. Rule first, incident second.** State the rule, then the incident as a short parenthetical
+citation. A memory that opens with the incident and buries the rule in paragraph three reads as *"do
+exactly what happened last time"* — which is what makes memories railroady, and railroady memories
+get ignored or, worse, over-applied to situations that only rhyme.
+
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
 - The block heading carries the total (sum of the escalation buckets); each bucket heading carries its own count, **0s shown** (never drop an empty bucket).
@@ -387,6 +425,15 @@ Format:
 The `diff` language tag is what triggers the markdown renderer to color `- ` lines red and `+ ` lines green. Without it the block renders as plain monospaced text.
 
 If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote ...` line; the in-line block is short and you can summarize separately. Default (with the change report) is the recommended mode.
+
+**Also report the memory-index budget** (added 2026-08-05). The cost of a new memory file is invisible at the moment you decide to write one, which is how an index reaches 124 lines. Surface it in the same reply as the change report, one line:
+
+```bash
+M="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory/MEMORY.md"
+[ -f "$M" ] && awk 'END{printf "  memory index: %d lines, ~%dk tokens loaded per session\n", NR, (NR*110)/4000}' "$M"
+```
+
+If it has grown since the last session-end, say by how much and why. Past ~120 lines, recommend `/dream` (it merges duplicates, deletes contradicted facts, and prunes the index) rather than adding to it — and check Step 3a.1 first, because a line that should have been an append or a `work-principles.md` entry is the usual cause.
 
 The block typically runs ~50-80 lines / ~1.5-2k tokens of conversation history per session-end (depends on how much content gets replaced or appended), which is a fixed cost well below the ~30k-token cost of the prose flow's 8-12 echoed Read/Edit/Write tool calls.
 
