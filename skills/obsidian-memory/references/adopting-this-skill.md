@@ -186,7 +186,7 @@ constrain a different axis than every existing category? (4) two-instance rule â
 singletons stay drafts. Record WHICH test decided each placement.
 ```
 
-From then on, every session-end sweeps your corrections into it automatically: matches increment a category's count with a citation, novel patterns park as drafts, a draft's 2nd occurrence prompts a one-click promotion, and sessions that mint or promote a category get their transcript archived into `transcripts/` as a durable receipt (Claude Code deletes transcripts after months; the archive is forever). Promoted rules get routed to a home that future sessions actually load (a skill's gotchas file, auto-memory, repo rules).
+From then on, every session-end sweeps your corrections into it automatically: matches increment a category's count with a citation, novel patterns park as drafts, a draft's 2nd occurrence prompts a one-click promotion, and sessions that mint or promote a category get their transcript archived into `transcripts/` as a durable receipt (Claude Code deletes transcripts after months; the archive is forever). Promoted rules get routed to a home that future sessions actually load (a skill's gotchas file, `~/.claude/work-principles.md`, or repo rules â€” not the per-project auto-memory directories, which are frozen as of 2026-08-05; see `session-end.md` Step 3a.1).
 
 ---
 
