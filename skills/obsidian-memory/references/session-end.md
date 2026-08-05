@@ -144,7 +144,7 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 
 | Lesson shape | Durable home | Action at session-end |
 |---|---|---|
-| Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | **No session-end enumeration.** Auto-memory writes happen natively at correction time, at Claude's discretion — do not trawl the learnings list for auto-memory candidates at session-end. Only write one here if a clearly durable habit lesson was somehow missed mid-session (rare). Dropped from the counted block 2026-07-31 (Mo, memory-bloat audit: MEMORY.md at 111 entries / ~4k tokens loaded per session, +47 memory files in July alone — the counted bucket double-forced writes on top of the harness's native correction-time behavior). |
+| Agent behavior / cross-session habit ("when X, always Y") | **`~/.claude/work-principles.md`** — NOT the project memory dir, which is frozen (see Step 3a.1). The harness may still stage a `feedback_*.md` at correction time; Step 3a.2 sweeps it. | **No session-end enumeration.** Auto-memory writes happen natively at correction time, at Claude's discretion — do not trawl the learnings list for auto-memory candidates at session-end. Only write one here if a clearly durable habit lesson was somehow missed mid-session (rare). Dropped from the counted block 2026-07-31 (Mo, memory-bloat audit: MEMORY.md at 111 entries / ~4k tokens loaded per session, +47 memory files in July alone — the counted bucket double-forced writes on top of the harness's native correction-time behavior). |
 | Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Queue for the **Step 8 forcing function** below — never park it as a `next_steps` bullet |
 | Skill-specific gotcha | That skill's gotchas/reference file | Queue for Step 8 |
 | Session-specific detail with no future reader | Vault session log only | Nothing extra — `learnings:` already covers it |
@@ -155,7 +155,7 @@ The routing test for the repo-standard and skill-gotcha rows: **would a future s
 
 The 2026-07-31 amendment above pulled the FREQUENCY lever (stop enumerating auto-memory candidates
 at session-end). It did not fix placement, so the index kept growing anyway: by 2026-08-05 a
-**148-file, 6-silo** audit found the chalktalk silo at 97 files / 124 index lines / ~3.4k tokens
+**148-file, 7-silo** audit found the chalktalk silo at 97 files / 124 index lines / ~3.4k tokens
 loaded per session, a second silo at 43 files, and the two duplicating each other by concept with
 zero filename overlap (`user_role` vs `user_profile`, `feedback_no-em-dashes` vs
 `feedback_no_em_dashes`, one 95-line "where plans live" file vs four separate ones). Several
@@ -189,11 +189,13 @@ path-based tree replacement"* is a procedure I need AT the moment of acting, so 
 `work-principles.md`'s Procedures section. *"Which SQL backs which Canvas model"* is a lookup →
 vault.
 
-**2. Fold before you create.** Before writing a NEW memory file, search existing memories for the
-lesson's subject. If one covers it, **append to that file and leave the index alone**. An append
-costs zero index lines; a new file costs a line in the file that loads every session, forever. New
-files are the exception, not the default. (2026-08-05: two learnings both folded into existing
-memories — `MEMORY.md` stayed at 124 lines.)
+**2. Fold before you add.** `work-principles.md` has fixed sections, so the question is never
+"should I add a principle?" but **"which existing bullet does this sharpen?"** Search it first and
+edit in place; add a bullet only when nothing there covers the lesson, and a new SECTION only when
+the lesson belongs to no existing group. Editing costs nothing; every addition is loaded in every
+session of every project, forever. This is the whole reason a curated file replaced a directory: a
+directory accretes by construction, a file can only be edited. (2026-08-05: two learnings both
+folded into existing entries — the index did not grow.)
 
 **3. Rule first, incident second.** State the rule, then the incident as a short parenthetical
 citation. A memory that opens with the incident and buries the rule in paragraph three reads as *"do
@@ -213,19 +215,22 @@ So treat the memory directory as a **staging area**, not a store. At every sessi
 
 ```bash
 MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
-find "$MEM" -name '*.md' ! -name 'MEMORY.md' -newermt '-1 day' 2>/dev/null
+ls "$MEM"/*.md 2>/dev/null | grep -v '/MEMORY\.md$'
 ```
 
-For each file the sweep finds, re-home it per the table above and **delete the file**. Report the
-sweep in the Step 7 block: how many were staged, where each went. A memory directory that is not
-empty at session-end is unfinished work, not a store.
+**Every file it lists is staged**, because under the freeze the directory is supposed to be empty —
+so no date filtering is needed, and none should be used. (An earlier draft used
+`find ... -newermt '-1 day'`; that both assumed GNU `find` — `bfs`, the default on some macOS
+setups, rejects the relative timestamp with `Invalid timestamp` — and would have missed anything
+staged more than a day earlier. Emptiness is the simpler and stricter test.)
 
-Two known limits, so this is not trusted blindly:
+For each file listed, re-home it per the table above and **delete the file**. Report the sweep in the
+Step 7 block: how many were staged and where each went. A memory directory that is not empty at
+session-end is unfinished work, not a store.
 
-- The sweep keys on mtime. That is reliable going forward but cannot retroactively classify files
-  written before the convention (in the 2026-08-05 audit only 60 of 148 carried a `modified:` stamp).
-- If the harness re-adds a memory it believes is missing, the sweep becomes a loop. Watch for the
-  same slug reappearing across consecutive sessions and say so rather than silently re-deleting it.
+One known limit, so this is not trusted blindly: if the harness re-adds a memory it believes is
+missing, the sweep becomes a loop. Watch for the same slug reappearing across consecutive sessions
+and say so rather than silently re-deleting it.
 
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
@@ -467,11 +472,15 @@ If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote 
 **Also report the memory-index budget** (added 2026-08-05). The cost of a new memory file is invisible at the moment you decide to write one, which is how an index reaches 124 lines. Surface it in the same reply as the change report, one line:
 
 ```bash
-M="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory/MEMORY.md"
-[ -f "$M" ] && awk 'END{printf "  memory index: %d lines, ~%dk tokens loaded per session\n", NR, (NR*110)/4000}' "$M"
+MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
+staged=$(ls "$MEM"/*.md 2>/dev/null | grep -vc '/MEMORY\.md$')
+# awk, not `grep -c ... || echo 0`: grep exits 1 on zero matches, so the fallback
+# fires ON TOP of grep's own "0" and the variable becomes "0\n0".
+pointers=$(awk '/^- \[/{n++} END{print n+0}' "$MEM/MEMORY.md" 2>/dev/null || echo 0)
+echo "  memory: $staged staged file(s), $pointers index pointer(s)"
 ```
 
-If it has grown since the last session-end, say by how much and why. Past ~120 lines, recommend `/dream` (it merges duplicates, deletes contradicted facts, and prunes the index) rather than adding to it — and check Step 3a.1 first, because a line that should have been an append or a `work-principles.md` entry is the usual cause.
+Count **files and index pointers, not raw lines** — since the freeze, `MEMORY.md` is a boilerplate stub explaining where things went, so a line count reports ~25 for an empty directory and reads as 25 memories. Both numbers should be **0**; anything else is the sweep's work. If pointers have grown since the last close, say by how much and why, and check Step 3a.1 — a pointer that should have been a `work-principles.md` edit is the usual cause. Past ~120, `/dream` (merges duplicates, deletes contradicted facts, prunes the index) before adding anything.
 
 The block typically runs ~50-80 lines / ~1.5-2k tokens of conversation history per session-end (depends on how much content gets replaced or appended), which is a fixed cost well below the ~30k-token cost of the prose flow's 8-12 echoed Read/Edit/Write tool calls.
 
