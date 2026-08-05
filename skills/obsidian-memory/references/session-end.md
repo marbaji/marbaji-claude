@@ -102,6 +102,7 @@ At session-end I found these to file:
   • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
   • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
+  • STAGED MEMORY (N): "<file>" → <home it is going to> | none
 Approve all? Edit any? Skip any?
 ```
 
@@ -229,10 +230,13 @@ GNU-only: stock macOS ships BSD `find` with no `-newermt`, and Claude Code's own
 
 **The sweep is destructive, so it is approval-gated and verified — never fire-and-forget.**
 
-1. **Surface it in the Step 3 batched approval**, alongside the extractions, as
-   `SWEEP: <n> staged memory file(s) → <home each one is going to>`. Nothing is deleted before the
-   user approves that batch. This keeps the ritual's standing promise that the user sees a summary
-   before any write.
+1. **Surface it in the Step 3 batched approval** as its own bucket, following that block's
+   formatting contract exactly — `• STAGED MEMORY (N): "<file>" → <home it is going to> | none`,
+   count shown even at 0, multiple items broken onto indented sub-bullets. Call it **STAGED MEMORY**,
+   not "sweep": the correction-taxonomy step already owns a differently-formatted `LEDGER SWEEP`
+   block, and two things called sweep in one ritual is how a format contract gets misapplied.
+   Nothing is deleted before the user approves that batch, which keeps the ritual's standing promise
+   that the user sees a summary before any write.
 2. **Re-home the content first**, per the Step 3a.1 table.
 3. **Verify it landed**: confirm a distinctive phrase from the file is present in the destination.
    This is the same protocol the 2026-08-05 consolidation used by hand for all 148 files — a
