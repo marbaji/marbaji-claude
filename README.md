@@ -73,7 +73,7 @@ This gives Claude lightweight session-to-session continuity with zero effort. Bu
 > | Write-up, tool recipe, project fact | the Obsidian vault | on search |
 > | Personal, non-shareable, one repo | that repo's `CLAUDE.local.md` | in that repo |
 >
-> The session-end ritual sweeps the memory directory each close, re-homes what the harness staged, and deletes the file — so **a non-empty memory directory is unfinished work, not a store**. A directory accretes by construction; a curated file can only be edited, which is what makes the growth stop. See `skills/obsidian-memory/references/session-end.md` Steps 3a.1 and 3a.2.
+> The session-end ritual sweeps the memory directory each close: what the harness staged gets re-homed, verified in its new home, and only then deleted — approval-gated in the same batch as the extractions, never fire-and-forget. So **a non-empty memory directory is unfinished work, not a store**. A directory accretes by construction; a curated file can only be edited, which is what makes the growth stop. See `skills/obsidian-memory/references/session-end.md` Steps 3a.1 and 3a.2.
 
 ### 2. obsidian-memory (This Skill)
 

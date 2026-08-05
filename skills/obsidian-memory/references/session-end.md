@@ -215,22 +215,43 @@ So treat the memory directory as a **staging area**, not a store. At every sessi
 
 ```bash
 MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
-ls "$MEM"/*.md 2>/dev/null | grep -v '/MEMORY\.md$'
+find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null || true
 ```
 
-**Every file it lists is staged**, because under the freeze the directory is supposed to be empty —
-so no date filtering is needed, and none should be used. (An earlier draft used
-`find ... -newermt '-1 day'`; that both assumed GNU `find` — `bfs`, the default on some macOS
-setups, rejects the relative timestamp with `Invalid timestamp` — and would have missed anything
-staged more than a day earlier. Emptiness is the simpler and stricter test.)
+Two details that were each wrong in an earlier draft, both verified by running them: `find` rather
+than `ls "$MEM"/*.md`, because zsh prints `no matches found` when a glob misses even with stderr
+redirected (the glob fails before `ls` runs); and `|| true`, because both forms exit nonzero on the
+healthy empty case and can abort an agent shell running `set -e` / `pipefail`. Do NOT date-filter. Under the freeze the
+directory is supposed to be empty, so **every file listed is staged** — which is stricter than mtime
+and does not care when a file arrived. (An earlier draft used `find ... -newermt '-1 day'`, which is
+GNU-only: stock macOS ships BSD `find` with no `-newermt`, and Claude Code's own `find` shim routes to
+`bfs`, which rejects the relative timestamp outright. It would have failed silently in both.)
 
-For each file listed, re-home it per the table above and **delete the file**. Report the sweep in the
-Step 7 block: how many were staged and where each went. A memory directory that is not empty at
-session-end is unfinished work, not a store.
+**The sweep is destructive, so it is approval-gated and verified — never fire-and-forget.**
 
-One known limit, so this is not trusted blindly: if the harness re-adds a memory it believes is
-missing, the sweep becomes a loop. Watch for the same slug reappearing across consecutive sessions
-and say so rather than silently re-deleting it.
+1. **Surface it in the Step 3 batched approval**, alongside the extractions, as
+   `SWEEP: <n> staged memory file(s) → <home each one is going to>`. Nothing is deleted before the
+   user approves that batch. This keeps the ritual's standing promise that the user sees a summary
+   before any write.
+2. **Re-home the content first**, per the Step 3a.1 table.
+3. **Verify it landed**: confirm a distinctive phrase from the file is present in the destination.
+   This is the same protocol the 2026-08-05 consolidation used by hand for all 148 files — a
+   fingerprint check in the destination before every removal, which is why nothing was lost.
+4. **Only then delete the file, AND remove its `MEMORY.md` pointer line** in the same step. Deleting
+   the file alone leaves a dangling pointer and a permanently nonzero pointer count that reports
+   unfinished work forever.
+5. **If verification fails, leave the file in place and say so.** An unverified re-home is a deletion
+   with extra steps.
+
+Report in the Step 7 block: how many were staged, where each went, and any left in place.
+A memory directory that is not empty at session-end is unfinished work, not a store — unless a file
+was deliberately left by step 5 or the loop guard below, in which case say which.
+
+**Loop guard.** If the harness re-creates a memory it believes is missing, sweeping it again every
+session is a loop. So: **the same slug swept twice across sessions gets left alone the third time.**
+Leave the file, stop sweeping it, and tell the user the harness appears to be re-asserting it — that
+is information about the harness, not a chore to repeat. Record the strike in the session log so the
+next session can count it.
 
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
@@ -248,7 +269,7 @@ Present the routing as a counted **LEARNING ROUTING** block appended to the Step
   - → "<one-line lesson>"
 ```
 
-Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8. (In the rare missed-habit case where an auto-memory write does happen at session-end, it is a direct Write-tool write outside both the block and the manifest, and it still gets a `MEMORY.md` index line.)
+Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8. (Since the 2026-08-05 freeze there is no session-end auto-memory write at all: a missed habit lesson goes to `~/.claude/work-principles.md`, not to the project memory dir. Anything the harness staged there mid-session is swept by Step 3a.2.)
 
 ## Step 3b: Correction-taxonomy sweep (evidence-ledger reconcile)
 
@@ -258,7 +279,7 @@ Scan the ending session for moments the user corrected or redirected the agent (
 
 1. **Existing category fits** → increment that category's hit count and append a citation: session-id + date + a ≤1-line paraphrase. Distillation only — NEVER copy transcript content into the ledger.
 2. **No clean fit** → park it as a new singleton under `## Unverified drafts` (same citation format).
-3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its four-homes home (skill gotchas | WORKFLOW-GOTCHAS.md | auto-memory | .claude/rules | CR Learning — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
+3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its home per the Step 3a.1 table (skill gotchas | WORKFLOW-GOTCHAS.md | `work-principles.md` | .claude/rules | CR Learning — NOT project memory, which is frozen — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
 4. **This session MINTED or PROMOTED a category** → auto-archive the transcript as a durable receipt:
 
    ```bash
@@ -291,7 +312,7 @@ Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha
 ```
 Route the learning "<one-line lesson>"?
   1. Open the PR now (Recommended) — write the rule into .claude/rules/<area>.md (with source citation), branch, PR. Rules are single-sourced: CodeRabbit ingests the same file via code_guidelines.filePatterns — no .coderabbit.yaml edit.
-  2. Auto-memory instead — personal habit, not a repo standard
+  2. `~/.claude/work-principles.md` instead — a cross-project habit rather than a repo standard (never the project memory dir, which is frozen)
   3. Vault-only — session log already captured it
 ```
 
@@ -473,7 +494,7 @@ If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote 
 
 ```bash
 MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
-staged=$(ls "$MEM"/*.md 2>/dev/null | grep -vc '/MEMORY\.md$')
+staged=$(find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null | grep -c . || true)
 # awk, not `grep -c ... || echo 0`: grep exits 1 on zero matches, so the fallback
 # fires ON TOP of grep's own "0" and the variable becomes "0\n0".
 pointers=$(awk '/^- \[/{n++} END{print n+0}' "$MEM/MEMORY.md" 2>/dev/null || echo 0)
