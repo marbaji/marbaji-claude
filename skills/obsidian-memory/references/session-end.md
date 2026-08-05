@@ -106,7 +106,7 @@ At session-end I found these to file:
 Approve all? Edit any? Skip any?
 ```
 
-Wait for user approval. Approved items go into the manifest's `extractions` section in Step 4. Skipped items go nowhere.
+Wait for user approval. Approved EXTRACTION items go into the manifest's `extractions` section in Step 4; skipped items go nowhere. **`STAGED MEMORY` is the exception** — it shares this approval block but is not an extraction and has no manifest field. Approving it authorizes the Step 3a.2 sweep, which the agent performs directly with Read/Write/rm; putting it in the manifest would fail schema validation.
 
 **Cross-link shipping/brag entries to extracted Decisions.** When a shipping or brag bullet references substance captured in a Decision extraction from the same session, populate that entry's `see_also` field with the Decision's wikilink (`[[Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>]]`). The bullet renders with ` · See [[<wikilink>]]` segments after the session back-link, giving a Shipping Log / Brag Doc reader a direct path to the canonical record without round-tripping through the session log. Multiple `see_also` entries render in array order. See [`session-end-helper.md`](session-end-helper.md) schema for the field.
 
@@ -219,10 +219,14 @@ MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
 find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null || true
 ```
 
-Two details that were each wrong in an earlier draft, both verified by running them: `find` rather
-than `ls "$MEM"/*.md`, because zsh prints `no matches found` when a glob misses even with stderr
-redirected (the glob fails before `ls` runs); and `|| true`, because both forms exit nonzero on the
-healthy empty case and can abort an agent shell running `set -e` / `pipefail`. Do NOT date-filter. Under the freeze the
+Two details, both verified by running them rather than reasoning about them. **`find` rather than
+`ls "$MEM"/*.md`**, because zsh prints `no matches found` when a glob misses even with stderr
+redirected — the glob fails before `ls` runs. And **`|| true`** for the case where the memory
+directory does not exist at all (a project that never had one): `find` exits `1` there, which can
+abort an agent shell running `set -e` / `pipefail`. Note it exits `0` on the ordinary
+zero-matches-but-directory-exists case, so the guard is for the missing directory specifically. The
+Step 7 snippet needs it for a second reason as well: `grep -c .` exits `1` on empty input. Do NOT
+date-filter. Under the freeze the
 directory is supposed to be empty, so **every file listed is staged** — which is stricter than mtime
 and does not care when a file arrived. (An earlier draft used `find ... -newermt '-1 day'`, which is
 GNU-only: stock macOS ships BSD `find` with no `-newermt`, and Claude Code's own `find` shim routes to
