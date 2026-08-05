@@ -1,11 +1,28 @@
 ---
 name: dream
-description: Use to consolidate Claude Code auto-memory files — merges duplicates, fixes stale dates, deletes contradicted facts, and prunes the MEMORY.md index. Run after long sessions or any time you notice memory referencing something outdated. Triggers on "dream", "/dream", "consolidate memory", "clean up memory", or "organize memories".
+description: Use to consolidate durable memory — merges duplicate principles, fixes stale dates, deletes contradicted facts, and tightens wording. Since 2026-08-05 the target is `~/.claude/work-principles.md` (the always-loaded curated file), not the per-project auto-memory directories, which are frozen and swept empty each session-end. Run after long sessions or any time you notice a principle referencing something outdated. Triggers on "dream", "/dream", "consolidate memory", "clean up memory", or "organize memories".
 ---
 
 # Dream — Memory Consolidation
 
-You are performing a dream — a reflective pass over your auto-memory files. Synthesize what you've learned recently into durable, well-organized memories so future sessions can orient quickly.
+You are performing a dream — a reflective consolidation pass over durable memory. Synthesize what
+you've learned recently into well-organized principles so future sessions orient quickly.
+
+> **Target changed 2026-08-05.** The per-project auto-memory directories are **frozen** and swept
+> empty at every session-end (see `obsidian-memory/references/session-end.md` Steps 3a.1 and 3a.2),
+> and each `MEMORY.md` is now a stub explaining where things went. So there is nothing to consolidate
+> there. **The target is `~/.claude/work-principles.md`** — the curated file imported by
+> `~/.claude/CLAUDE.md`, which loads in every project.
+>
+> The job is unchanged and the failure mode is identical: merge bullets that say the same thing in
+> different words, delete principles the codebase or a later decision has contradicted, verify any
+> principle that names a file path, function or flag still refers to something real, and tighten
+> anything that opens with an incident instead of its rule. Approval-gating matters MORE here than it
+> did across scattered files: this is one file that every project loads, so a bad pass degrades every
+> session rather than one project's.
+>
+> If a memory directory is NOT empty when you run, that is a signal the session-end sweep did not
+> happen — report it rather than consolidating in place.
 
 ## Setup — Resolve paths
 
