@@ -164,19 +164,30 @@ that already loads everywhere.
 
 Three rules now govern every memory write, including the discretionary correction-time one:
 
-**1. Admission test — is it a principle?** A memory earns a slot only if it **changes what I would
-DO on a future task in ANY project**. Otherwise route it:
+**1. Admission test — which home, and project memory is NOT one of them.** A lesson goes to the home
+that loads when it will be needed. **Project `memory/` is frozen (2026-08-05)** — do not write there.
+Its scope key was the working directory, not the project, so a lesson learned in one directory was
+invisible in every other; that mismatch produced parallel copies of the same rules under different
+names across seven silos.
 
-| shape | home | why |
+| lesson shape | home | loads |
 |---|---|---|
-| Cross-project working principle | **`~/.claude/work-principles.md`** (imported by `~/.claude/CLAUDE.md`, so it loads in EVERY project) | project-scoped memory silos cannot see each other; a principle filed in one is invisible in the other six |
-| Project fact or state (a deadline, who owns an account, a data table, one analysis's findings) | the Obsidian vault | project state already lives there, it is searchable, and it costs zero per-session tokens |
-| Command recipe / tool-specific lookup that only makes sense in one repo | that project's `memory/` | genuinely local; not a principle |
-| Already stated in `CLAUDE.md` or `work-principles.md` | nowhere — drop it | a second copy is drift waiting to happen |
+| Cross-project working principle or procedure | **`~/.claude/work-principles.md`** (imported by `~/.claude/CLAUDE.md`) | every session, every project |
+| Repo standard scoped to a path glob | that repo's `.claude/rules/<area>.md` | when editing matching paths — and it is versioned and PR-reviewed, so it cannot rot silently |
+| Skill-specific trap | that skill's gotchas / references file | when the skill runs |
+| Write-up, architecture note, tool recipe, project fact | Obsidian vault (`Knowledge/`, or the project doc) | on search |
+| Personal, non-shareable fact about one repo | that repo's `CLAUDE.local.md` (gitignored) | in that repo |
+| Already stated in `CLAUDE.md` / `work-principles.md` | nowhere — drop it | a second copy is drift waiting to happen |
+| Session-specific detail with no future reader | the vault session log | on search |
 
-Discriminator, applied literally: *"use `git rm -rf --cached` for path-based tree replacement"* is a
-command recipe (project memory). *"Verify a backup against live before deleting it"* is a principle
-(`work-principles.md`).
+The ordering test: **when will this need to fire?** Unprompted before I act → `work-principles.md`.
+While editing certain paths → repo rules. While running one skill → that skill. Looked up
+deliberately → the vault.
+
+Discriminator on the principle/vault line, applied literally: *"use `git rm -rf --cached` for
+path-based tree replacement"* is a procedure I need AT the moment of acting, so it belongs in
+`work-principles.md`'s Procedures section. *"Which SQL backs which Canvas model"* is a lookup →
+vault.
 
 **2. Fold before you create.** Before writing a NEW memory file, search existing memories for the
 lesson's subject. If one covers it, **append to that file and leave the index alone**. An append
@@ -188,6 +199,33 @@ memories — `MEMORY.md` stayed at 124 lines.)
 citation. A memory that opens with the incident and buries the rule in paragraph three reads as *"do
 exactly what happened last time"* — which is what makes memories railroady, and railroady memories
 get ignored or, worse, over-applied to situations that only rhyme.
+
+### Step 3a.2: Sweep the staging area (MANDATORY)
+
+The harness writes memory files at correction time, at its own discretion — that is correct
+behavior (a correction should be captured the moment it happens) and the ritual cannot and should
+not suppress it. What the ritual CAN do is stop those captures accumulating. Diagnosis behind this
+step: after the 2026-07-31 amendment removed auto-memory from the counted block, **11 new files
+still appeared in 5 days**, every one a mid-session correction — so the leak was never session-end
+enumeration, it was that each capture minted a permanent file plus an index line.
+
+So treat the memory directory as a **staging area**, not a store. At every session-end:
+
+```bash
+MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
+find "$MEM" -name '*.md' ! -name 'MEMORY.md' -newermt '-1 day' 2>/dev/null
+```
+
+For each file the sweep finds, re-home it per the table above and **delete the file**. Report the
+sweep in the Step 7 block: how many were staged, where each went. A memory directory that is not
+empty at session-end is unfinished work, not a store.
+
+Two known limits, so this is not trusted blindly:
+
+- The sweep keys on mtime. That is reliable going forward but cannot retroactively classify files
+  written before the convention (in the 2026-08-05 audit only 60 of 148 carried a `modified:` stamp).
+- If the harness re-adds a memory it believes is missing, the sweep becomes a loop. Watch for the
+  same slug reappearing across consecutive sessions and say so rather than silently re-deleting it.
 
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
