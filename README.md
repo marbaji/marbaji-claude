@@ -61,6 +61,20 @@ Claude Code ships with built-in memory: **MEMORY.md** (auto-loaded facts about y
 
 This gives Claude lightweight session-to-session continuity with zero effort. But it's a black box — you can't browse it outside Claude, there are no session logs, no deep search across past sessions, and no way to generate a project history report for someone else.
 
+> **Update 2026-08-05 — this layer is now a staging area, not a store.** Auto Memory is scoped per *working directory*, not per project, so the same lesson learned in two directories produced two copies that could not see each other. An audit found **148 files across 7 silos**, one index at 124 lines (~3.4k tokens loaded every session), and the two largest silos duplicating each other by concept with zero filename overlap.
+>
+> Auto Memory still captures corrections at the moment they happen — that part is right. What changed is where they *end up*:
+>
+> | lesson shape | home | loads |
+> |---|---|---|
+> | Cross-project principle or procedure | `~/.claude/work-principles.md`, imported by `~/.claude/CLAUDE.md` via a one-line `@` stub | every session, every project |
+> | Repo standard scoped to a path glob | that repo's `.claude/rules/<area>.md` | when editing matching paths, and PR-reviewed so it cannot rot silently |
+> | Skill-specific trap | that skill's gotchas file | when the skill runs |
+> | Write-up, tool recipe, project fact | the Obsidian vault | on search |
+> | Personal, non-shareable, one repo | that repo's `CLAUDE.local.md` | in that repo |
+>
+> The session-end ritual sweeps the memory directory each close: what the harness staged gets re-homed, verified in its new home, and only then deleted — approval-gated in the same batch as the extractions, never fire-and-forget. So **a non-empty memory directory is unfinished work, not a store**. A directory accretes by construction; a curated file can only be edited, which is what makes the growth stop. See `skills/obsidian-memory/references/session-end.md` Steps 3a.1 and 3a.2.
+
 ### 2. obsidian-memory (This Skill)
 
 Writes to an Obsidian vault — a local folder of markdown files you can open and browse anytime. Maintains curated project docs, session logs with wikilinks, and a current-focus dashboard.

@@ -102,10 +102,11 @@ At session-end I found these to file:
   • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
   • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
+  • STAGED MEMORY (N): "<file>" → <home it is going to> | none
 Approve all? Edit any? Skip any?
 ```
 
-Wait for user approval. Approved items go into the manifest's `extractions` section in Step 4. Skipped items go nowhere.
+Wait for user approval. Approved EXTRACTION items go into the manifest's `extractions` section in Step 4; skipped items go nowhere. **`STAGED MEMORY` is the exception** — it shares this approval block but is not an extraction and has no manifest field. Approving it authorizes the Step 3a.2 sweep, which the agent performs directly with Read/Write/rm; putting it in the manifest would fail schema validation.
 
 **Cross-link shipping/brag entries to extracted Decisions.** When a shipping or brag bullet references substance captured in a Decision extraction from the same session, populate that entry's `see_also` field with the Decision's wikilink (`[[Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>]]`). The bullet renders with ` · See [[<wikilink>]]` segments after the session back-link, giving a Shipping Log / Brag Doc reader a direct path to the canonical record without round-tripping through the session log. Multiple `see_also` entries render in array order. See [`session-end-helper.md`](session-end-helper.md) schema for the field.
 
@@ -144,12 +145,121 @@ Vault session logs are searchable storage, not write-time context. A lesson that
 
 | Lesson shape | Durable home | Action at session-end |
 |---|---|---|
-| Agent behavior / cross-session habit ("when X, always Y") | Claude Code auto-memory (`feedback_*.md` + `MEMORY.md` index line in the project's memory dir) | **No session-end enumeration.** Auto-memory writes happen natively at correction time, at Claude's discretion — do not trawl the learnings list for auto-memory candidates at session-end. Only write one here if a clearly durable habit lesson was somehow missed mid-session (rare). Dropped from the counted block 2026-07-31 (Mo, memory-bloat audit: MEMORY.md at 111 entries / ~4k tokens loaded per session, +47 memory files in July alone — the counted bucket double-forced writes on top of the harness's native correction-time behavior). |
+| Agent behavior / cross-session habit ("when X, always Y") | **`~/.claude/work-principles.md`** — NOT the project memory dir, which is frozen (see Step 3a.1). The harness may still stage a `feedback_*.md` at correction time; Step 3a.2 sweeps it. | **No session-end enumeration.** Auto-memory writes happen natively at correction time, at Claude's discretion — do not trawl the learnings list for auto-memory candidates at session-end. Only write one here if a clearly durable habit lesson was somehow missed mid-session (rare). Dropped from the counted block 2026-07-31 (Mo, memory-bloat audit: MEMORY.md at 111 entries / ~4k tokens loaded per session, +47 memory files in July alone — the counted bucket double-forced writes on top of the harness's native correction-time behavior). |
 | Repo standard (applies to a path glob in a work repo) | The repo's rules layer (e.g. `.claude/rules/<area>.md` + its `.coderabbit.yaml` lockstep block) | Queue for the **Step 8 forcing function** below — never park it as a `next_steps` bullet |
 | Skill-specific gotcha | That skill's gotchas/reference file | Queue for Step 8 |
 | Session-specific detail with no future reader | Vault session log only | Nothing extra — `learnings:` already covers it |
 
 The routing test for the repo-standard and skill-gotcha rows: **would a future session need this lesson BEFORE it repeats the mistake?** If yes, the session log alone is the wrong home. (The same test governs the discretionary correction-time auto-memory write — it just isn't enumerated or counted here.)
+
+### Step 3a.1: What may enter memory at all, and where (settled with Mo 2026-08-05)
+
+The 2026-07-31 amendment above pulled the FREQUENCY lever (stop enumerating auto-memory candidates
+at session-end). It did not fix placement, so the index kept growing anyway: by 2026-08-05 a
+**148-file, 7-silo** audit found the chalktalk silo at 97 files / 124 index lines / ~3.4k tokens
+loaded per session, a second silo at 43 files, and the two duplicating each other by concept with
+zero filename overlap (`user_role` vs `user_profile`, `feedback_no-em-dashes` vs
+`feedback_no_em_dashes`, one 95-line "where plans live" file vs four separate ones). Several
+memories restated rules already in the global `CLAUDE.md`, paying index tokens to duplicate a file
+that already loads everywhere.
+
+Three rules now govern every memory write, including the discretionary correction-time one:
+
+**1. Admission test — which home, and project memory is NOT one of them.** A lesson goes to the home
+that loads when it will be needed. **Project `memory/` is frozen (2026-08-05)** — do not write there.
+Its scope key was the working directory, not the project, so a lesson learned in one directory was
+invisible in every other; that mismatch produced parallel copies of the same rules under different
+names across seven silos.
+
+| lesson shape | home | loads |
+|---|---|---|
+| Cross-project working principle or procedure | **`~/.claude/work-principles.md`** (imported by `~/.claude/CLAUDE.md`) | every session, every project |
+| Repo standard scoped to a path glob | that repo's `.claude/rules/<area>.md` | when editing matching paths — and it is versioned and PR-reviewed, so it cannot rot silently |
+| Skill-specific trap | that skill's gotchas / references file | when the skill runs |
+| Write-up, architecture note, tool recipe, project fact | Obsidian vault (`Knowledge/`, or the project doc) | on search |
+| Personal, non-shareable fact about one repo | that repo's `CLAUDE.local.md` (gitignored) | in that repo |
+| Already stated in `CLAUDE.md` / `work-principles.md` | nowhere — drop it | a second copy is drift waiting to happen |
+| Session-specific detail with no future reader | the vault session log | on search |
+
+The ordering test: **when will this need to fire?** Unprompted before I act → `work-principles.md`.
+While editing certain paths → repo rules. While running one skill → that skill. Looked up
+deliberately → the vault.
+
+Discriminator on the principle/vault line, applied literally: *"use `git rm -rf --cached` for
+path-based tree replacement"* is a procedure I need AT the moment of acting, so it belongs in
+`work-principles.md`'s Procedures section. *"Which SQL backs which Canvas model"* is a lookup →
+vault.
+
+**2. Fold before you add.** `work-principles.md` has fixed sections, so the question is never
+"should I add a principle?" but **"which existing bullet does this sharpen?"** Search it first and
+edit in place; add a bullet only when nothing there covers the lesson, and a new SECTION only when
+the lesson belongs to no existing group. Editing costs nothing; every addition is loaded in every
+session of every project, forever. This is the whole reason a curated file replaced a directory: a
+directory accretes by construction, a file can only be edited. (2026-08-05: two learnings both
+folded into existing entries — the index did not grow.)
+
+**3. Rule first, incident second.** State the rule, then the incident as a short parenthetical
+citation. A memory that opens with the incident and buries the rule in paragraph three reads as *"do
+exactly what happened last time"* — which is what makes memories railroady, and railroady memories
+get ignored or, worse, over-applied to situations that only rhyme.
+
+### Step 3a.2: Sweep the staging area (MANDATORY)
+
+The harness writes memory files at correction time, at its own discretion — that is correct
+behavior (a correction should be captured the moment it happens) and the ritual cannot and should
+not suppress it. What the ritual CAN do is stop those captures accumulating. Diagnosis behind this
+step: after the 2026-07-31 amendment removed auto-memory from the counted block, **11 new files
+still appeared in 5 days**, every one a mid-session correction — so the leak was never session-end
+enumeration, it was that each capture minted a permanent file plus an index line.
+
+So treat the memory directory as a **staging area**, not a store. At every session-end:
+
+```bash
+MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
+find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null || true
+```
+
+Two details, both verified by running them rather than reasoning about them. **`find` rather than
+`ls "$MEM"/*.md`**, because zsh prints `no matches found` when a glob misses even with stderr
+redirected — the glob fails before `ls` runs. And **`|| true`** for the case where the memory
+directory does not exist at all (a project that never had one): `find` exits `1` there, which can
+abort an agent shell running `set -e` / `pipefail`. Note it exits `0` on the ordinary
+zero-matches-but-directory-exists case, so the guard is for the missing directory specifically. The
+Step 7 snippet needs it for a second reason as well: `grep -c .` exits `1` on empty input. Do NOT
+date-filter. Under the freeze the
+directory is supposed to be empty, so **every file listed is staged** — which is stricter than mtime
+and does not care when a file arrived. (An earlier draft used `find ... -newermt '-1 day'`, which is
+GNU-only: stock macOS ships BSD `find` with no `-newermt`, and Claude Code's own `find` shim routes to
+`bfs`, which rejects the relative timestamp outright. It would have failed silently in both.)
+
+**The sweep is destructive, so it is approval-gated and verified — never fire-and-forget.**
+
+1. **Surface it in the Step 3 batched approval** as its own bucket, following that block's
+   formatting contract exactly — `• STAGED MEMORY (N): "<file>" → <home it is going to> | none`,
+   count shown even at 0, multiple items broken onto indented sub-bullets. Call it **STAGED MEMORY**,
+   not "sweep": the correction-taxonomy step already owns a differently-formatted `LEDGER SWEEP`
+   block, and two things called sweep in one ritual is how a format contract gets misapplied.
+   Nothing is deleted before the user approves that batch, which keeps the ritual's standing promise
+   that the user sees a summary before any write.
+2. **Re-home the content first**, per the Step 3a.1 table.
+3. **Verify it landed**: confirm a distinctive phrase from the file is present in the destination.
+   This is the same protocol the 2026-08-05 consolidation used by hand for all 148 files — a
+   fingerprint check in the destination before every removal, which is why nothing was lost.
+4. **Only then delete the file, AND remove its `MEMORY.md` pointer line** in the same step. Deleting
+   the file alone leaves a dangling pointer and a permanently nonzero pointer count that reports
+   unfinished work forever.
+5. **If verification fails, leave the file in place and say so.** An unverified re-home is a deletion
+   with extra steps.
+
+Report in the Step 7 block: how many were staged, where each went, and any left in place.
+A memory directory that is not empty at session-end is unfinished work, not a store — unless a file
+was deliberately left by step 5 or the loop guard below, in which case say which.
+
+**Loop guard.** If the harness re-creates a memory it believes is missing, sweeping it again every
+session is a loop. So: **the same slug swept twice across sessions gets left alone the third time.**
+Leave the file, stop sweeping it, and tell the user the harness appears to be re-asserting it — that
+is information about the harness, not a chore to repeat. Record the strike in the session log so the
+next session can count it.
 
 Present the routing as a counted **LEARNING ROUTING** block appended to the Step 3 batch. Formatting contract (settled with Mo 2026-07-07):
 
@@ -167,7 +277,7 @@ Present the routing as a counted **LEARNING ROUTING** block appended to the Step
   - → "<one-line lesson>"
 ```
 
-Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8. (In the rare missed-habit case where an auto-memory write does happen at session-end, it is a direct Write-tool write outside both the block and the manifest, and it still gets a `MEMORY.md` index line.)
+Repo-rule and gotcha items do NOT go into the manifest at all; they carry forward to Step 8. (Since the 2026-08-05 freeze there is no session-end auto-memory write at all: a missed habit lesson goes to `~/.claude/work-principles.md`, not to the project memory dir. Anything the harness staged there mid-session is swept by Step 3a.2.)
 
 ## Step 3b: Correction-taxonomy sweep (evidence-ledger reconcile)
 
@@ -177,7 +287,7 @@ Scan the ending session for moments the user corrected or redirected the agent (
 
 1. **Existing category fits** → increment that category's hit count and append a citation: session-id + date + a ≤1-line paraphrase. Distillation only — NEVER copy transcript content into the ledger.
 2. **No clean fit** → park it as a new singleton under `## Unverified drafts` (same citation format).
-3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its four-homes home (skill gotchas | WORKFLOW-GOTCHAS.md | auto-memory | .claude/rules | CR Learning — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
+3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its home per the Step 3a.1 table (skill gotchas | WORKFLOW-GOTCHAS.md | `work-principles.md` | .claude/rules | CR Learning — NOT project memory, which is frozen — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
 4. **This session MINTED or PROMOTED a category** → auto-archive the transcript as a durable receipt:
 
    ```bash
@@ -210,7 +320,7 @@ Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha
 ```
 Route the learning "<one-line lesson>"?
   1. Open the PR now (Recommended) — write the rule into .claude/rules/<area>.md (with source citation), branch, PR. Rules are single-sourced: CodeRabbit ingests the same file via code_guidelines.filePatterns — no .coderabbit.yaml edit.
-  2. Auto-memory instead — personal habit, not a repo standard
+  2. `~/.claude/work-principles.md` instead — a cross-project habit rather than a repo standard (never the project memory dir, which is frozen)
   3. Vault-only — session log already captured it
 ```
 
@@ -387,6 +497,19 @@ Format:
 The `diff` language tag is what triggers the markdown renderer to color `- ` lines red and `+ ` lines green. Without it the block renders as plain monospaced text.
 
 If you ran with `--quiet`, the helper's stdout will be just the trailing `Wrote ...` line; the in-line block is short and you can summarize separately. Default (with the change report) is the recommended mode.
+
+**Also report the memory-index budget** (added 2026-08-05). The cost of a new memory file is invisible at the moment you decide to write one, which is how an index reaches 124 lines. Surface it in the same reply as the change report, one line:
+
+```bash
+MEM="$HOME/.claude/projects/$(pwd | sed 's|[/.]|-|g')/memory"
+staged=$(find "$MEM" -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' 2>/dev/null | grep -c . || true)
+# awk, not `grep -c ... || echo 0`: grep exits 1 on zero matches, so the fallback
+# fires ON TOP of grep's own "0" and the variable becomes "0\n0".
+pointers=$(awk '/^- \[/{n++} END{print n+0}' "$MEM/MEMORY.md" 2>/dev/null || echo 0)
+echo "  memory: $staged staged file(s), $pointers index pointer(s)"
+```
+
+Count **files and index pointers, not raw lines** — since the freeze, `MEMORY.md` is a boilerplate stub explaining where things went, so a line count reports ~25 for an empty directory and reads as 25 memories. Both numbers should be **0**; anything else is the sweep's work. If pointers have grown since the last close, say by how much and why, and check Step 3a.1 — a pointer that should have been a `work-principles.md` edit is the usual cause. Past ~120, `/dream` (merges duplicates, deletes contradicted facts, prunes the index) before adding anything.
 
 The block typically runs ~50-80 lines / ~1.5-2k tokens of conversation history per session-end (depends on how much content gets replaced or appended), which is a fixed cost well below the ~30k-token cost of the prose flow's 8-12 echoed Read/Edit/Write tool calls.
 
