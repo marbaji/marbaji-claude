@@ -94,7 +94,7 @@ Walk the session for content that should live in its own structured file. Read [
 
 Surface candidates as a SINGLE batched confirmation prompt:
 
-Every bucket carries a count with **0s shown**. Do NOT tag items "(candidate)" — the whole batch is pending the user's approval by definition, so tagging some items is redundant. A bucket with more than one item breaks its items onto indented sub-bullets; a single item or "none" stays inline.
+Every bucket carries a count with **0s shown** — with ONE exception, `STAGED MEMORY`, which is omitted entirely at 0 (see Step 3a.2 for why). Do NOT tag items "(candidate)" — the whole batch is pending the user's approval by definition, so tagging some items is redundant. A bucket with more than one item breaks its items onto indented sub-bullets; a single item or "none" stays inline.
 
 ```
 At session-end I found these to file:
@@ -102,7 +102,7 @@ At session-end I found these to file:
   • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
   • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
-  • STAGED MEMORY (N): "<file>" → <home it is going to> | none
+  • STAGED MEMORY (N): "<file>" → <home it is going to>      ← OMIT this line entirely when N is 0
 Approve all? Edit any? Skip any?
 ```
 
@@ -235,10 +235,18 @@ GNU-only: stock macOS ships BSD `find` with no `-newermt`, and Claude Code's own
 **The sweep is destructive, so it is approval-gated and verified — never fire-and-forget.**
 
 1. **Surface it in the Step 3 batched approval** as its own bucket, following that block's
-   formatting contract exactly — `• STAGED MEMORY (N): "<file>" → <home it is going to> | none`,
-   count shown even at 0, multiple items broken onto indented sub-bullets. Call it **STAGED MEMORY**,
-   not "sweep": the correction-taxonomy step already owns a differently-formatted `LEDGER SWEEP`
-   block, and two things called sweep in one ritual is how a format contract gets misapplied.
+   formatting contract exactly — `• STAGED MEMORY (N): "<file>" → <home it is going to>`, multiple
+   items broken onto indented sub-bullets. Call it **STAGED MEMORY**, not "sweep": the
+   correction-taxonomy step already owns a differently-formatted `LEDGER SWEEP` block, and two things
+   called sweep in one ritual is how a format contract gets misapplied.
+
+   **Omit the bucket entirely when nothing was staged** — the one documented exception to the block's
+   0s-shown rule (Mo, 2026-08-05). The other buckets show a 0 because it is informative: `SHIPPING (0)`
+   could have been 2. This bucket is expected to read 0 *forever*, since the directory staying empty is
+   the whole design, so printing it every close is noise that trains the reader to skip the block it
+   sits in. **And never narrate the freeze itself.** The routing table is reference material, not
+   output: a session that routed a habit lesson to `work-principles.md` should say that and stop, not
+   explain why project memory was not eligible.
    Nothing is deleted before the user approves that batch, which keeps the ritual's standing promise
    that the user sees a summary before any write.
 2. **Re-home the content first**, per the Step 3a.1 table.
@@ -509,7 +517,7 @@ pointers=$(awk '/^- \[/{n++} END{print n+0}' "$MEM/MEMORY.md" 2>/dev/null || ech
 echo "  memory: $staged staged file(s), $pointers index pointer(s)"
 ```
 
-Count **files and index pointers, not raw lines** — since the freeze, `MEMORY.md` is a boilerplate stub explaining where things went, so a line count reports ~25 for an empty directory and reads as 25 memories. Both numbers should be **0**; anything else is the sweep's work. If pointers have grown since the last close, say by how much and why, and check Step 3a.1 — a pointer that should have been a `work-principles.md` edit is the usual cause. Past ~120, `/dream` (merges duplicates, deletes contradicted facts, prunes the index) before adding anything.
+Count **files and index pointers, not raw lines** — since the freeze, `MEMORY.md` is a boilerplate stub explaining where things went, so a line count reports ~25 for an empty directory and reads as 25 memories. Both numbers should be **0**, and **when both are 0, report nothing at all** — a line that says "0 staged, 0 pointers" every single close is noise for the same reason the STAGED MEMORY bucket is omitted at 0. Surface it only when a number is non-zero, which means it is the sweep's work. If pointers have grown since the last close, say by how much and why, and check Step 3a.1 — a pointer that should have been a `work-principles.md` edit is the usual cause. Past ~120, `/dream` (merges duplicates, deletes contradicted facts, prunes the index) before adding anything.
 
 The block typically runs ~50-80 lines / ~1.5-2k tokens of conversation history per session-end (depends on how much content gets replaced or appended), which is a fixed cost well below the ~30k-token cost of the prose flow's 8-12 echoed Read/Edit/Write tool calls.
 
