@@ -253,7 +253,7 @@ class TestBragDocAppend:
         shutil.copytree(fixtures, vault)
         return vault
 
-    def test_create_new_quarter(self, tmp_path):
+    def test_creates_staging_section_at_end_of_file(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
             date="2026-05-09",
@@ -263,21 +263,26 @@ class TestBragDocAppend:
             vault=vault, entry=entry, session_log_filename="2026-05-09-may",
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
-        assert "## 2026 Q2" in log
-        assert log.index("## 2026 Q2") < log.index("## 2026 Q1")
+        assert "## Staging" in log
+        # Staging lives BELOW the accepted quarter sections, not at the top.
+        assert log.index("## Staging") > log.index("## 2026 Q1")
         assert "codified the cross-model review pattern." in log
 
-    def test_append_under_existing_quarter(self, tmp_path):
+    def test_prepends_under_existing_staging_and_leaves_quarters_alone(self, tmp_path):
         vault = self._setup_vault(tmp_path)
-        entry = session_end.BragEntry(
-            date="2026-03-20",
-            body="another Q1 brag.",
+        first = session_end.BragEntry(date="2026-05-08", body="older staged item.")
+        second = session_end.BragEntry(date="2026-05-09", body="newer staged item.")
+        session_end.append_to_brag_doc(
+            vault=vault, entry=first, session_log_filename="2026-05-08-a",
         )
         session_end.append_to_brag_doc(
-            vault=vault, entry=entry, session_log_filename="2026-03-20-thing",
+            vault=vault, entry=second, session_log_filename="2026-05-09-b",
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
-        assert log.index("another Q1 brag.") < log.index("old brag entry")
+        assert log.count("## Staging") == 1
+        assert log.index("newer staged item.") < log.index("older staged item.")
+        # Quarter content untouched, still above staging.
+        assert log.index("old brag entry") < log.index("## Staging")
 
     def test_bullet_format(self, tmp_path):
         vault = self._setup_vault(tmp_path)
@@ -1009,6 +1014,7 @@ class TestEndToEnd:
 
         brag = (vault / "Personal/Brag Doc.md").read_text()
         assert "did the thing" in brag
+        assert "## Staging" in brag
 
         proj = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
         assert "## 2026-05-09 — Today's work" in proj
@@ -2500,7 +2506,7 @@ extractions:
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
         # Header line names the op, "+ " line carries full bullet content
-        assert any("## 2026 Q2:" in s and "prepended 1 entry" in s for s in rpt.summary), (
+        assert any(s.startswith("## Staging:") and "1 entry" in s for s in rpt.summary), (
             f"expected header line, got: {rpt.summary}"
         )
         assert any(

@@ -761,14 +761,20 @@ def append_to_brag_doc(
     entry: BragEntry,
     session_log_filename: str,
 ) -> ChangeReport:
-    """Insert one bullet under the correct ## YYYY Q<N> heading. Newest at top of quarter."""
+    """Insert one bullet under ## Staging. Newest at top of the section.
+
+    Staging (not a quarter section) is the write target by design: quarter
+    sections are promotion-only, populated by the monthly promotion pass
+    (extraction-rules.md section (c)). The heading is created at the END of
+    the file when absent, below the accepted quarter sections.
+    """
     rel_path = "Personal/Brag Doc.md"
     log_path = vault / rel_path
     if not log_path.exists():
         raise FileNotFoundError(f"Brag Doc not found at {log_path}")
 
     bullet = format_brag_bullet(entry, session_log_filename)
-    target_heading = f"## {entry.quarter}"
+    target_heading = "## Staging"
 
     text = log_path.read_text()
     lines = text.splitlines()
@@ -786,22 +792,22 @@ def append_to_brag_doc(
         )
         return ChangeReport(
             path=rel_path,
-            summary=[f"## {entry.quarter}: skipped (bullet already present)"],
+            summary=["## Staging: skipped (bullet already present)"],
         )
 
     if heading_idx is None:
-        insert_idx = _find_first_h2(lines)
-        new_block = [target_heading, bullet, ""]
-        lines = lines[:insert_idx] + new_block + lines[insert_idx:]
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([target_heading, bullet])
         summary = [
-            f"## {entry.quarter}: heading created; prepended 1 entry",
+            "## Staging: heading created at end of file; added 1 entry",
             f"+ {target_heading}",
             f"+ {bullet}",
         ]
     else:
         lines.insert(heading_idx + 1, bullet)
         summary = [
-            f"## {entry.quarter}: prepended 1 entry",
+            "## Staging: prepended 1 entry",
             f"+ {bullet}",
         ]
 
