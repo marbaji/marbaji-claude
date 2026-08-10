@@ -212,7 +212,8 @@ class ShippingEntry(BaseModel):
 
 
 class BragEntry(BaseModel):
-    quarter: str = Field(pattern=r"^\d{4} Q[1-4]$")
+    model_config = {"extra": "forbid"}
+
     date: Date
     body: str
     see_also: list[str] = Field(default_factory=list)

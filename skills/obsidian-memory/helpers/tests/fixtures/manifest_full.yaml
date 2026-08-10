@@ -44,8 +44,7 @@ extractions:
       label: "shipped thing"
       context: "context"
   brag:
-    - quarter: "2026 Q2"
-      date: 2026-05-09
+    - date: 2026-05-09
       body: "did the thing"
 
 project_doc_updates:

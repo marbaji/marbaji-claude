@@ -256,7 +256,6 @@ class TestBragDocAppend:
     def test_create_new_quarter(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="codified the cross-model review pattern.",
         )
@@ -271,7 +270,6 @@ class TestBragDocAppend:
     def test_append_under_existing_quarter(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q1",
             date="2026-03-20",
             body="another Q1 brag.",
         )
@@ -284,13 +282,26 @@ class TestBragDocAppend:
     def test_bullet_format(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2", date="2026-05-09", body="did the thing.",
+            date="2026-05-09", body="did the thing.",
         )
         session_end.append_to_brag_doc(
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
         assert "- **2026-05-09** — did the thing. [[Sessions/2026-05/2026-05-09-test]]" in log
+
+    def test_quarter_field_rejected(self):
+        """Schema change is loud: a stale manifest still carrying `quarter` must fail
+        validation, not be silently ignored (pydantic default is extra='ignore')."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            session_end.BragEntry(
+                quarter="2026 Q2",
+                date="2026-05-09",
+                body="did the thing.",
+            )
+        assert "quarter" in str(exc.value)
 
 
 class TestProjectDocOps:
@@ -1955,7 +1966,6 @@ class TestAppendIdempotency:
     def test_brag_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="already bragged about this.",
         )
@@ -2483,7 +2493,6 @@ extractions:
         """Brag append's report shows the full bullet line (no truncation) on a + line."""
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="did the thing",
         )
@@ -2503,7 +2512,6 @@ extractions:
         vault = self._setup_vault(tmp_path)
         long_body = "x" * 100
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body=long_body,
         )
@@ -2789,7 +2797,6 @@ class TestSeeAlsoCrossLinks:
 
     def test_brag_entry_with_two_see_also_preserves_order(self):
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="did the exceptional thing",
             see_also=[
@@ -2817,7 +2824,7 @@ class TestSeeAlsoCrossLinks:
         )
 
         brag = session_end.BragEntry(
-            quarter="2026 Q2", date="2026-05-09", body="did the thing",
+            date="2026-05-09", body="did the thing",
         )
         brag_bullet = session_end.format_brag_bullet(brag, "2026-05-09-test")
         assert brag_bullet == (
@@ -2838,7 +2845,6 @@ class TestSeeAlsoCrossLinks:
 
         with pytest.raises(ValidationError):
             session_end.BragEntry(
-                quarter="2026 Q2",
                 date="2026-05-09",
                 body="did",
                 see_also=["[[bad nested [[brackets]]]]"],
