@@ -212,15 +212,29 @@ naturally at the first session-end of each new month.
 Re-dispatch is possible and must be handled, NOT assumed away: the trigger reads file state, and a
 previously dispatched pass may still be running (it is backgrounded and can outlive its session),
 so a concurrent session-end sees the same un-promoted staging lines and dispatches a second pass.
-Step 2's no-op exit only helps once a pass has already written. Two mitigations, both required:
-before dispatching, skip if `Personal/Brag Archive.md` already carries a `pass run` trace line
-dated today; and inside the pass, re-read `Personal/Brag Doc.md` immediately before writing and
-re-apply the edit to that fresh copy.
+Step 2's no-op exit only helps once a pass has already written. Before dispatching, skip if
+`Personal/Brag Archive.md` already carries a `pass run` trace line dated today.
+
+**`Personal/Brag Doc.md` has two independent writers**, and neither can lock the other out: this
+pass, and `append_to_brag_doc` in the session-end helper, which rewrites the whole file. So the
+pass must NEVER write the whole file back. Every mutation below is a **targeted string edit** —
+match the exact line being promoted, culled, or removed, and replace just that line (the Edit
+tool's exact-match semantics are the mechanism; `Write` on `Brag Doc.md` is forbidden).
+
+This is what makes concurrency safe, and it is not a nicety:
+
+- A brag the helper inserts under `## Staging` while this pass is thinking is untouched by the
+  pass's edits, because no anchor of the pass's refers to it. A whole-file write would erase it
+  silently — no error, no trace, and the only record in a terminal that may already be closed.
+- If a racing second pass already moved a line, this pass's edit for that line matches nothing and
+  fails LOUDLY. Report the failure and stop rather than reconstructing the file; a visible halt is
+  the correct outcome, and every line is still recoverable from the archive.
 
 **Dispatch** — a BACKGROUND subagent with fresh context (session-end typically runs at context
-exhaustion; the ranking judgment must not inherit a bloated context). Tools: Read, Edit, Write,
-Glob on the vault. No approval gate — it may finish after the dispatching session has ended, so
-a gate would stall it. Its writes are recoverable by construction (archive below).
+exhaustion; the ranking judgment must not inherit a bloated context). Tools: Read, Edit, Glob on
+the vault, plus Write ONLY to create `Personal/Brag Archive.md` on first use — never to
+`Brag Doc.md`. No approval gate — it may finish after the dispatching session has ended, so a
+gate would stall it. Its writes are recoverable by construction (archive below).
 
 **The pass:**
 
@@ -233,10 +247,9 @@ a gate would stall it. Its writes are recoverable by construction (archive below
    and every Brag Doc reader assume.
 4. Move culled lines verbatim to `Personal/Brag Archive.md` under a `## YYYY-MM` heading,
    creating the file with a short header on first use. Archive, never delete.
-5. Remove the processed lines from `## Staging`; current-month lines stay untouched. Re-read the
-   file immediately before this write: the session-end helper writes the whole file too, so an
-   edit computed against a stale copy would silently drop a brag approved while the pass was
-   thinking. Never write back a copy read minutes earlier.
+5. Remove the processed lines from `## Staging`, one targeted edit per line; current-month lines
+   stay untouched. Do not rewrite the section, and do not rebuild the file from the copy read in
+   step 1 — by now it may be minutes stale and missing a just-approved brag.
 6. Leave a durable trace under the archive month heading:
    `Promoted N, archived M — pass run YYYY-MM-DD.`
 7. Final message: counts first (`Promoted N of M; archived K`), then the promoted lines in full
