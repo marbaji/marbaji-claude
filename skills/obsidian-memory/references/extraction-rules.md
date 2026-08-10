@@ -133,9 +133,9 @@ None. The Shipping Log entry stands alone; the back-reference to the session log
 
 ## (c) Brag-Worthy Moment
 
-Appends an entry to `Personal/Brag Doc.md` under the current quarter section.
+Stages an entry in `Personal/Brag Doc.md` under `## Staging`, for later promotion into a quarter section.
 
-Apply the **Cold-Reader Test** (below) to every candidate. There is no default frequency in either direction — some periods produce many brag entries because rare things actually happened; others produce none because nothing exceptional occurred. Let the test decide each time.
+Apply the **Cold-Reader Test** (below) to every candidate. Exceptional is less common than it feels from inside the session — by definition, most sessions produce no brag entry. Let the test decide each time.
 
 ### The Cold-Reader Test
 
@@ -163,9 +163,30 @@ If the answer is "thoughtful," skip it. The bar is the first reaction, not the s
 - Anything that only makes sense to someone who was in the room
 - Already logged this quarter — dedupe by substring match
 
+### Blind cold-read judge (runs before the approval prompt)
+
+The session agent cannot run the Cold-Reader Test on itself: it holds full session context and
+authored the candidate line. So every candidate is judged by a subagent with neither.
+
+- If there are one or more candidates, dispatch ONE subagent (fresh context). Its input is ONLY:
+  the candidate one-liners, the Cold-Reader Test text above, and the filters-in / filters-out
+  lists above. No session log, no conversation history, no project context.
+- Charter (adversarial): judge each line independently; actively try to refute brag-worthiness;
+  routine engineering executed well is not exceptional; when uncertain, reject. Return a per-line
+  verdict (pass/reject) with a one-line reason.
+- Survivors go into the `BRAG (N)` line of the batched approval prompt as usual. Rejections are
+  surfaced in the same prompt as a visible note — `cold-read judge rejected N: "<line>" —
+  <reason>` — never silently dropped.
+- Zero candidates → no subagent call.
+
+Known residual weakness (accepted): the judge still reads the author's flattering wording. The
+monthly promotion pass below is the backstop.
+
 ### Destination
 
-`Personal/Brag Doc.md` — append under the heading `## YYYY Q<N>` (e.g. `## 2026 Q2`). Create the quarter section if it doesn't exist.
+`Personal/Brag Doc.md` — the helper appends approved entries under `## Staging` (created at the
+end of the file if absent). **Never write directly into a `## YYYY Q<N>` section at session-end**
+— quarter sections are promotion-only, populated by the monthly promotion pass below.
 
 ### Entry format
 
@@ -178,6 +199,42 @@ Newest entry at the top.
 ### Stub left in session log
 
 None. Brag Doc lives in `Personal/`; the session log keeps the original prose. Cross-link is via the wikilink in the Brag Doc entry.
+
+### Monthly promotion pass (staging → quarters)
+
+Staged entries age before final judgment: time distance plus side-by-side comparison is the real
+Cold-Reader Test, and neither is available at session-end.
+
+**Trigger** — checked during EVERY session-end ritual, after the helper run: if any `## Staging`
+entry's date is in a month earlier than the current month, dispatch the promotion pass. It fires
+naturally at the first session-end of each new month and cannot double-fire (after a pass,
+staging holds only current-month entries).
+
+**Dispatch** — a BACKGROUND subagent with fresh context (session-end typically runs at context
+exhaustion; the ranking judgment must not inherit a bloated context). Tools: Read, Edit, Write,
+Glob on the vault. No approval gate — it may finish after the dispatching session has ended, so
+a gate would stall it. Its writes are recoverable by construction (archive below).
+
+**The pass:**
+
+1. Read all of `Personal/Brag Doc.md` and `Personal/Brag Archive.md` (if present).
+2. Consider ONLY staged entries from completed months. None → exit as a no-op (race-safety).
+3. Rank them comparatively against each other; promote the few that still clear the Cold-Reader
+   Test with a month-plus of hindsight into their `## YYYY Q<N>` section (derive the quarter
+   from the entry date; create the heading if needed; newest at top).
+4. Move culled lines verbatim to `Personal/Brag Archive.md` under a `## YYYY-MM` heading,
+   creating the file with a short header on first use. Archive, never delete.
+5. Remove the processed lines from `## Staging`; current-month lines stay untouched.
+6. Leave a durable trace under the archive month heading:
+   `Promoted N, archived M — pass run YYYY-MM-DD.`
+7. Final message: counts first (`Promoted N of M; archived K`), then the promoted lines in full
+   and the archived lines as short labels.
+
+**Inline report** — when the background agent completes, the dispatching session (if still alive)
+prints a light summary: "Brag promotion pass done: promoted N of M staged entries, moved K to the
+archive sidecar — open the background agent's session for the line-by-line detail." Counts and
+pointer only; do not re-print the full report into an exhausted context. If the session is gone,
+the agent's own session record and the step-6 trace line are the record.
 
 ---
 
@@ -243,7 +300,7 @@ SHIPPING LOG (1):
 1. 🟢 Renewal report PR merged for Highline → append to Shipping Log.md under "2026-05 May"
 
 BRAG-WORTHY (1):
-1. "Pushed back on premature schema lock" → append to Personal/Brag Doc.md under "2026 Q2"
+1. "Pushed back on premature schema lock" → passed cold-read judge → Personal/Brag Doc.md ## Staging
 
 NEW PERSON FLAGS (1):
 1. "Sarah Chen" mentioned but no Work/Chalktalk/People/Sarah Chen.md exists.
@@ -256,7 +313,7 @@ Approve all? [y/n/edit]
 6. On approval, apply each extraction:
    - Decisions: create the Decision note, replace the session-log bullet with a wikilink stub.
    - Shipping Log: prepend entry to the appropriate month section.
-   - Brag Doc: prepend entry to the appropriate quarter section.
+   - Brag Doc: prepend entry under ## Staging (quarter placement happens at the monthly promotion pass).
    - New-person: create People note (if `Yes`), do nothing (if `No`), or skip and note alias for next time (if `Alias`).
 7. Print a one-line confirmation: `Applied N extractions: D decisions, S shipping entries, B brag entries, P people notes.`
 
