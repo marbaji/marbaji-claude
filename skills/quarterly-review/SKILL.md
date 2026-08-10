@@ -51,7 +51,7 @@ Pull broadly across the vault for the quarter:
    - First check `Context/about-me.md`.
    - If not there, grep `Sessions/` for "North Star" or "annual goal" and use the most recent definitive mention.
    - If still not found, ask Mo to state it before continuing — alignment can't be scored against an unstated target.
-7. **Brag Doc** — `Personal/Brag Doc.md` (full file).
+7. **Brag Doc** — `Personal/Brag Doc.md` (full file), plus `Personal/Brag Archive.md` if it exists. The archive holds candidates the monthly promotion pass deliberately culled; read it so they are not re-proposed as gaps.
 8. **People notes** — `Work/Chalktalk/People/*.md` (or wherever People notes live in this vault). Identify direct reports via `manager: Mo Arbaji` in frontmatter.
 
 ---
@@ -68,7 +68,7 @@ Produce four synthesis blocks:
 
 ### 2b. Brag Doc gaps
 
-- Scan sessions and shipping log for brag-worthy moments not yet in `Personal/Brag Doc.md`.
+- Scan sessions and shipping log for brag-worthy moments not yet in `Personal/Brag Doc.md` (including its `## Staging` section) **and not already culled into `Personal/Brag Archive.md`** — an archived line is a rejection by the promotion pass, not a gap to refill.
 - Heuristics: "shipped", "launched", "closed", "saved", "unblocked", "hired", named recognition from team/customers.
 - Propose 3 to 8 candidate entries in Brag Doc style (terse, first-person, dated).
 - At Phase 3 time, offer to append them. Do not auto-append.

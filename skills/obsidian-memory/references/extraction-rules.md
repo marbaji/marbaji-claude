@@ -161,7 +161,7 @@ If the answer is "thoughtful," skip it. The bar is the first reaction, not the s
 - Receiving mentorship or feedback (growth journaling, not a brag)
 - Failures or near-misses without resolution ("almost shipped a bug" — only brag-worthy if the user caught it AND the consequence of missing it was real)
 - Anything that only makes sense to someone who was in the room
-- Already logged this quarter — dedupe by substring match
+- Already logged — dedupe by substring match across **all three** homes: `## Staging`, the quarter sections, and `Personal/Brag Archive.md`. The archive matters most: a line the promotion pass culled is a rejection, so re-proposing it re-opens a closed judgment.
 
 ### Blind cold-read judge (runs before the approval prompt)
 
@@ -207,8 +207,15 @@ Cold-Reader Test, and neither is available at session-end.
 
 **Trigger** — checked during EVERY session-end ritual, after the helper run: if any `## Staging`
 entry's date is in a month earlier than the current month, dispatch the promotion pass. It fires
-naturally at the first session-end of each new month and cannot double-fire (after a pass,
-staging holds only current-month entries).
+naturally at the first session-end of each new month.
+
+Re-dispatch is possible and must be handled, NOT assumed away: the trigger reads file state, and a
+previously dispatched pass may still be running (it is backgrounded and can outlive its session),
+so a concurrent session-end sees the same un-promoted staging lines and dispatches a second pass.
+Step 2's no-op exit only helps once a pass has already written. Two mitigations, both required:
+before dispatching, skip if `Personal/Brag Archive.md` already carries a `pass run` trace line
+dated today; and inside the pass, re-read `Personal/Brag Doc.md` immediately before writing and
+re-apply the edit to that fresh copy.
 
 **Dispatch** — a BACKGROUND subagent with fresh context (session-end typically runs at context
 exhaustion; the ranking judgment must not inherit a bloated context). Tools: Read, Edit, Write,
@@ -221,10 +228,15 @@ a gate would stall it. Its writes are recoverable by construction (archive below
 2. Consider ONLY staged entries from completed months. None → exit as a no-op (race-safety).
 3. Rank them comparatively against each other; promote the few that still clear the Cold-Reader
    Test with a month-plus of hindsight into their `## YYYY Q<N>` section (derive the quarter
-   from the entry date; create the heading if needed; newest at top).
+   from the entry date; create the heading if needed; newest at top). A created quarter heading
+   goes ABOVE `## Staging` — staging stays the last section in the file, which is what the helper
+   and every Brag Doc reader assume.
 4. Move culled lines verbatim to `Personal/Brag Archive.md` under a `## YYYY-MM` heading,
    creating the file with a short header on first use. Archive, never delete.
-5. Remove the processed lines from `## Staging`; current-month lines stay untouched.
+5. Remove the processed lines from `## Staging`; current-month lines stay untouched. Re-read the
+   file immediately before this write: the session-end helper writes the whole file too, so an
+   edit computed against a stale copy would silently drop a brag approved while the pass was
+   thinking. Never write back a copy read minutes earlier.
 6. Leave a durable trace under the archive month heading:
    `Promoted N, archived M — pass run YYYY-MM-DD.`
 7. Final message: counts first (`Promoted N of M; archived K`), then the promoted lines in full

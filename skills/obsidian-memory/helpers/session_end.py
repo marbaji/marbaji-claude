@@ -767,6 +767,10 @@ def append_to_brag_doc(
     sections are promotion-only, populated by the monthly promotion pass
     (extraction-rules.md section (c)). The heading is created at the END of
     the file when absent, below the accepted quarter sections.
+
+    Dedupe spans BOTH files. The promotion pass MOVES culled lines out to
+    Personal/Brag Archive.md, so checking only this file would fail open on a
+    re-run and resurrect an entry the promotion judge deliberately rejected.
     """
     rel_path = "Personal/Brag Doc.md"
     log_path = vault / rel_path
@@ -775,6 +779,18 @@ def append_to_brag_doc(
 
     bullet = format_brag_bullet(entry, session_log_filename)
     target_heading = "## Staging"
+
+    archive_path = vault / "Personal/Brag Archive.md"
+    if archive_path.exists() and bullet in archive_path.read_text().splitlines():
+        print(
+            f"warning: brag bullet was culled to {archive_path} by the promotion pass; "
+            "skipped (not re-staging a rejected entry)",
+            file=sys.stderr,
+        )
+        return ChangeReport(
+            path=rel_path,
+            summary=["## Staging: skipped (entry previously culled to the archive)"],
+        )
 
     text = log_path.read_text()
     lines = text.splitlines()

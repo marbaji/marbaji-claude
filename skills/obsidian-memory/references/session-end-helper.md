@@ -497,7 +497,7 @@ Artifacts written:
 - `Work/Chalktalk/Decisions/2026-05-09-preflight-before-writes.md`
 - `Work/Chalktalk/Decisions/2026-05-09-skip-collision-with-warning.md`
 - `Work/Chalktalk/Shipping Log.md` — one bullet appended under `## 2026-05`
-- `Personal/Brag Doc.md` — one bullet appended under `## 2026 Q2`
+- `Personal/Brag Doc.md` — one bullet appended under `## Staging` (never into a quarter section)
 - `Work/Chalktalk/Projects/obsidian-memory.md` — structured updates: status replaced, recent_activity prepended, next_steps replaced, related_session bullet appended
 - `Context/current-focus.md` — `obsidian-memory` block upserted, `last-updated:` bumped
 
