@@ -20,7 +20,7 @@ Persistent memory and context management for Claude Code via an Obsidian vault. 
 | Session log | `Sessions/YYYY-MM/YYYY-MM-DD-<topic>.md` |
 | Decision files | `Work/<Org>/Decisions/YYYY-MM-DD-<slug>.md` |
 | Shipping Log bullets | `Work/<Org>/Shipping Log.md` (prepended under `## YYYY-MM` heading) |
-| Brag Doc bullets | `Personal/Brag Doc.md` (prepended under `## YYYY Q<N>` heading) |
+| Brag Doc bullets | `Personal/Brag Doc.md` (prepended under `## Staging`; promoted to `## YYYY Q<N>` monthly) |
 | Project doc updates | `Work/<Org>/Projects/<slug>.md` (section appended) |
 | New project docs | `Work/<Org>/Projects/<slug>.md` (new file) |
 | `current-focus.md` edits | `Context/current-focus.md` (upsert, remove, move-to-complete) |

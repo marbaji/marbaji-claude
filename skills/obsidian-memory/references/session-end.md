@@ -89,7 +89,7 @@ Walk the session for content that should live in its own structured file. Read [
 
 1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema)
 2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/$ORG_NAME/Shipping Log.md` under current month
-3. **Brag-worthy moments** → append to `Personal/Brag Doc.md` under current quarter. Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? No default frequency in either direction — let the test decide.
+3. **Brag-worthy moments** → staged to `Personal/Brag Doc.md` `## Staging` (quarter sections are promotion-only). Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? Exceptional is less common than it feels from inside the session — by definition, most sessions produce no brag entry. Let the test decide each time. Before the approval prompt, every candidate must pass the **blind cold-read judge** (same section): one fresh-context subagent that sees only the candidate lines + the rubric, charged to refute and reject by default. Judge rejections are shown in the prompt, not silently dropped.
 4. **New-person mentions** (someone referenced in the session) → resolve it yourself: check for `Work/$ORG_NAME/People/<slug>.md`. If it exists, the bucket is **none**. If it's missing, create it after approval (the helper does NOT auto-create — write it with the Write tool from `people-template.md`). **Never ask the user whether a People note exists** — check and act.
 
 Surface candidates as a SINGLE batched confirmation prompt:
@@ -99,7 +99,8 @@ Every bucket carries a count with **0s shown** — with ONE exception, `STAGED M
 ```
 At session-end I found these to file:
   • SHIPPING (N): "<event>" → Shipping Log | none
-  • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
+  • BRAG (N): "<moment>" → Brag Doc ## Staging | none
+  • (cold-read judge rejected R: "<line>" — <reason>)          ← OMIT when R is 0
   • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
   • STAGED MEMORY (N): "<file>" → <home it is going to>      ← OMIT this line entirely when N is 0
@@ -137,7 +138,7 @@ See [`extraction-rules.md`](extraction-rules.md) for the full rule.
 - A decision is a one-off implementation choice (mid-task pivot, captured by `git log`)
 - A decision is a **project-narrative or positioning choice already captured in the project doc**. Reserve a Decision file for a cross-cutting, re-litigable choice someone will search for *out of the session's context* (an architecture call, a policy, a strategic bet). If the project doc already holds it next to the work it governs, a second Decision copy nobody greps for is over-extraction — fold it into the project doc instead.
 - A shipping event is internal-only churn (commit pushed, no feature/customer impact)
-- A brag fails the Cold-Reader Test in `extraction-rules.md` section (c) (meta-cognition, copy iteration, normal craftwork, anything only intelligible if you were in the room)
+- A brag fails the Cold-Reader Test or the blind cold-read judge in `extraction-rules.md` section (c) (meta-cognition, copy iteration, normal craftwork, anything only intelligible if you were in the room)
 
 ## Step 3a: Route learnings to write-time homes (closed learning loop)
 
@@ -486,6 +487,18 @@ Valid section names: `session_log`, `extractions`, `project_doc_updates`, `new_p
 
 On exit 0, the helper prints a per-file change report showing what each mutator did at the section level (e.g. `## Status: replaced (2 to 4 lines)`, `created (30 lines)`, `skipped (already exists)`). This is visible in the terminal immediately after the run. Pass `--quiet` to suppress the per-file blocks if you only need the trailing `Wrote ...` confirmation line.
 
+## Step 6b: Monthly brag promotion dispatch
+
+After the helper run, check whether the brag promotion pass is due: read the `## Staging` section
+of `Personal/Brag Doc.md`; if any entry's date (`- **YYYY-MM-DD**` prefix) is in a month earlier
+than the current month, dispatch the promotion subagent IN THE BACKGROUND and note "brag
+promotion pass dispatched" in the Step 7 confirmation. Full contract — charter, archive sidecar,
+no-approval-gate rationale, inline report wording — lives in
+[`extraction-rules.md`](extraction-rules.md) section (c), "Monthly promotion pass". Do not
+perform the ranking in the main session: it runs at context exhaustion and the judgment belongs
+to a fresh context. When the background agent's completion notification arrives, relay its counts
+inline ("promoted N of M, archived K — open the background agent's session for detail").
+
 ## Step 7: Confirm to user
 
 **MANDATORY: quote the helper's per-file change report INLINE in your reply, wrapped in a `diff`-fenced code block.** Claude Code's terminal collapses long Bash tool results by default (`+N lines (ctrl+o to expand)`), so the change report the helper printed is technically visible but practically buried. To surface it AND get red/green coloring on the `- ` and `+ ` lines, paste the helper's stdout into a triple-backtick code block tagged `diff`. Don't summarize the block; quote it verbatim. The user gets the exact section-level view of what changed, in color, without expanding anything.
@@ -641,7 +654,7 @@ For each item from Step 3 the user approved:
 
 - **Decisions** → write `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` using `decision-template.md`. Leave a wikilink stub in the source session log's Key Decisions section.
 - **Shipping** → append to `Work/$ORG_NAME/Shipping Log.md` under current `## YYYY-MM` (create heading if missing). Format: `- **YYYY-MM-DD** — <label> — <context>. [[Sessions/YYYY-MM/<session-log-name>]]`.
-- **Brag** → append to `Personal/Brag Doc.md` under current `## YYYY Q<N>` (create heading if missing). Format: `- **YYYY-MM-DD** — <body>. [[Sessions/YYYY-MM/<session-log-name>]]`.
+- **Brag** → append to `Personal/Brag Doc.md` under `## Staging` (created at end of file if missing; quarters are promotion-only). Format: `- **YYYY-MM-DD** — <body>. [[Sessions/YYYY-MM/<session-log-name>]]`.
 - **New people** → print to confirm with the user; do NOT auto-create.
 
 ### Fallback Step E: Confirm to user
