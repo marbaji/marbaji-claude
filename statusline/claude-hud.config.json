@@ -1,0 +1,34 @@
+{
+  "lineLayout": "expanded",
+  "elementOrder": [
+    "context",
+    "usage",
+    "tools",
+    "skills",
+    "mcp",
+    "agents",
+    "todos"
+  ],
+  "gitStatus": {
+    "enabled": false
+  },
+  "display": {
+    "showModel": false,
+    "showProject": false,
+    "showAddedDirs": false,
+    "showUsage": true,
+    "usageCompact": false,
+    "usageBarEnabled": true,
+    "showResetLabel": true,
+    "timeFormat": "both",
+    "hourCycle": "h12",
+    "sevenDayThreshold": 0,
+    "showTools": true,
+    "showSkills": true,
+    "showMcp": false,
+    "showAgents": true,
+    "showTodos": true,
+    "externalUsagePath": "$HOME/.claude/usage-external.json",
+    "externalUsageFreshnessMs": 900000
+  }
+}
