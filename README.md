@@ -49,7 +49,10 @@ Compares all skills across GitHub repos (`ChalkTalk/claude`, `marbaji/marbaji-cl
 
 ## Hooks
 
-> **Canonical source:** Hooks are now maintained in [ChalkTalk/claude](https://github.com/ChalkTalk/claude) at `skills/references/hooks/`. The copies in this repo's `hooks/` directory are historical — the `chalktalk-setup` skill installs from the ChalkTalk repo.
+Two homes, no strays:
+
+- **ChalkTalk hooks** are maintained in [ChalkTalk/claude](https://github.com/ChalkTalk/claude) at `skills/references/hooks/`, and the `chalktalk-setup` skill installs them from there. This repo keeps no copies — the historical `hooks/` directory was removed on 2026-08-19 once its last file (a retired spec/plan prefix checker) was confirmed unreferenced by any manifest, README, or live `settings.json`.
+- **Status-line hooks** — the extra-usage gate and its acknowledgement companion — live in [`statusline/hooks/`](statusline/hooks), alongside the status line they read state from. See [`statusline/README.md`](statusline/README.md).
 
 ## Three-Layer Memory Architecture: How `/obsidian-memory`, `claude-mem`, and Claude's Native Memory Create Persistent Context Across Sessions
 
