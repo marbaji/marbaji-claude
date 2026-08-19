@@ -45,12 +45,9 @@ treating a missing segment as a bug, check the condition:
 
 - **`⚠ EXTRA USAGE` (red, line 1)** — only at **100%** of the 5h or 7d window. Between 90% and
   99% you get an orange `◔ 5h NN% · resets in …` instead. Below 90%, nothing at all.
-- **`Extra (Monthly) $N` (claude-hud line)** — `fetch-usage-snapshot.sh` only emits this label
-  when the account reports `extra_usage.is_enabled == true` **and** `used_credits > 0`. An
-  account whose extra-usage credits are exhausted comes back `is_enabled: false` with
-  `disabled_reason: "out_of_credits"`, and the label correctly disappears. To check the live
-  values rather than guessing, run `scripts/fetch-usage-snapshot.sh` and read
-  `~/.claude/usage-external.json`, or query the endpoint directly.
+- **The extra-usage label (claude-hud line)** — always present now; see below. It goes missing
+  only if the account reports no `extra_usage` block at all, or the snapshot has gone stale
+  past `externalUsageFreshnessMs`.
 - **`Agent <name>` (line 1, magenta)** — only when the payload carries `.agent.name`.
 - **`general-purpose [sonnet-5]` and friends (claude-hud activity line)** — only while a
   subagent is actually running. It vanishes the moment the agent finishes, so seeing it is a
@@ -63,6 +60,34 @@ Known limitation: a background agent's status line receives the **host session's
 line 1's Model segment names the host's model, not the agent's. Per-agent identity on line 1
 needs upstream support; claude-hud's activity line is the workaround, since it lists each
 running agent with its own model.
+
+## The extra-usage label
+
+Originally this label appeared only while extra usage was both enabled and being spent, which
+meant the three states that matter most — off, capped, out of credits — all looked identical to
+a broken feeder. It now always says something whenever the account reports an `extra_usage`
+block:
+
+| Account state | Label |
+|---|---|
+| Enabled, spending, monthly cap set | `Extra $583.84 of $250` |
+| Enabled, spending, no cap | `Extra $12.50` |
+| Turned off by you | `Extra OFF · turned off` |
+| Monthly spend cap reached | `Extra OFF · $250 cap reached` |
+| Credits exhausted | `Extra OFF · out of credits` |
+| Any other reason the API reports | `Extra OFF · <reason, underscores to spaces>` |
+| Disabled with no reason given | `Extra OFF` |
+
+Unknown reasons are rendered rather than special-cased, so a reason introduced after this was
+written shows up readably instead of silently collapsing to the generic `Extra OFF`.
+
+claude-hud appends the label to its usage line after a `|`, caps it at 50 characters, and strips
+control and escape sequences. Every string above is well inside that cap.
+
+One thing the label does **not** tell you: whether continuing past 100% will actually bill. When
+credits are exhausted, hitting a window limit blocks rather than charges — but the gate hook's
+prompt still says continuing "bills extra usage credits", which is wrong in that state. Worth
+fixing when the gate is next touched.
 
 ## Verifying a change without waiting for a real render
 
