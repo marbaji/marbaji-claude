@@ -295,7 +295,7 @@ Scan the ending session for moments the user corrected or redirected the agent (
 
 1. **Existing category fits** → increment that category's hit count and append a citation: session-id + date + a ≤1-line paraphrase. Distillation only — NEVER copy transcript content into the ledger.
 2. **No clean fit** → park it as a new singleton under `## Unverified drafts` (same citation format).
-3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its home per the Step 3a.1 table (skill gotchas | WORKFLOW-GOTCHAS.md | `work-principles.md` | .claude/rules | CR Learning — NOT project memory, which is frozen — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement.
+3. **A draft just hit its 2nd independent occurrence** → ask the user ONE multiple-choice confirm (recommended option first) to promote it. On promotion: route the RULE to its home per the Step 3a.1 table (skill gotchas | WORKFLOW-GOTCHAS.md | `work-principles.md` | .claude/rules | CR Learning — NOT project memory, which is frozen — reuse the Step 3a / Step 8 machinery for that write) and record in the ledger WHICH of the four tests decided the placement. The rule's home carries the STATEMENT plus at most a one-clause anchor; the ledger keeps the full cited EVIDENCE — that one-hop chain is the settled progressive-disclosure design (Mo, 2026-08-18/19), and the ledger header's admissibility bar governs what counts as evidence.
 4. **This session MINTED or PROMOTED a category** → auto-archive the transcript as a durable receipt:
 
    ```bash
