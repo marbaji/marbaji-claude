@@ -37,6 +37,8 @@ A decision in the session log's `## Key Decisions` section qualifies if **any on
 
 `Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md` — date from the session log, slug derived from the decision title (kebab-case, ~5 words, noun phrase).
 
+For a **personal** decision (a purchase, a household or family choice, anything outside the work org), set `category: personal` on the manifest entry and it writes to `Personal/Decisions/YYYY-MM-DD-<slug>.md`. Filing a personal choice under the work org corrupts the same boundary the Step 2 category approval exists to protect. The slug rule is unchanged in both categories — a decision slug is a filename, so it stays kebab-case even though personal PROJECT slugs allow spaces and Title Case. (Mo, 2026-08-31: the Plaud device purchase had nowhere correct to land.)
+
 ### Schema
 
 Use `decision-template.md`. Populate from the session log:

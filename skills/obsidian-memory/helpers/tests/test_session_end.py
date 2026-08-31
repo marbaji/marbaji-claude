@@ -183,6 +183,69 @@ class TestDecisionFile:
         path = session_end.decision_file_path(decision, session_date=Date(2026, 5, 9))
         assert path == "Work/Chalktalk/Decisions/2026-05-09-test-decision.md"
 
+    def test_category_defaults_to_work(self):
+        # Premise: the fixture does not set `category`, so this test measures the DEFAULT
+        # rather than an explicit value. If the fixture ever starts passing one, this
+        # assertion stops testing what it claims to.
+        assert "category" not in self._decision().model_fields_set
+        assert self._decision().category == "work"
+
+    def test_personal_decision_lands_outside_the_work_org(self):
+        """A personal decision must not be filed in the work org's decision log.
+
+        The assertion is a RELATIONSHIP, not a retyped path: whatever the work org is
+        called, a personal decision's path must not sit under it, and the two categories
+        must disagree on destination while agreeing on filename.
+        """
+        session_date = Date(2026, 5, 9)
+        work = self._decision(slug="test-decision", category="work")
+        personal = self._decision(slug="test-decision", category="personal")
+
+        work_path = session_end.decision_file_path(work, session_date, org_name="Chalktalk")
+        personal_path = session_end.decision_file_path(personal, session_date, org_name="Chalktalk")
+
+        assert personal_path != work_path
+        assert not personal_path.startswith("Work/")
+        assert personal_path.startswith("Personal/")
+        # Same slug and date => same filename; only the parent differs.
+        assert personal_path.rsplit("/", 1)[1] == work_path.rsplit("/", 1)[1]
+
+    def test_personal_destination_is_org_name_independent(self):
+        """Renaming the work org must not move personal decisions."""
+        decision = self._decision(slug="test-decision", category="personal")
+        session_date = Date(2026, 5, 9)
+        assert session_end.decision_file_path(
+            decision, session_date, org_name="Chalktalk"
+        ) == session_end.decision_file_path(decision, session_date, org_name="SomeOtherOrg")
+
+    def test_personal_decision_slug_stays_kebab_case(self):
+        """Personal PROJECT slugs allow spaces/Title Case; decision slugs do not.
+
+        A decision slug becomes a filename, so it keeps the same validation in both
+        categories. Guards against someone loosening it to match project slugs.
+        """
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            self._decision(slug="Some Personal Decision", category="personal")
+
+    def test_personal_decision_file_written_under_personal(self, tmp_path):
+        """End-to-end: the file actually lands on disk where the path function says."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        decision = self._decision(slug="test-decision", category="personal")
+        reports = session_end.write_decision_files(
+            vault=vault,
+            decisions=[decision],
+            session_date=Date(2026, 5, 9),
+            session_log_filename="2026-05-09-test-session",
+        )
+        expected = session_end.decision_file_path(decision, Date(2026, 5, 9))
+        assert (vault / expected).exists()
+        assert [r.path for r in reports] == [expected]
+        # The parent directory is created on demand — Personal/Decisions/ need not pre-exist.
+        assert not (vault / "Work").exists()
+
 
 import shutil
 

@@ -67,6 +67,26 @@ When recalling past work, **extract from the index, don't traverse via LLM**. Th
 
 If the agent is reading whole files for retrieval rather than searching, it's burning tokens.
 
+### Answering "did we ever discuss X?" — hits are not evidence
+
+A semantic search returns its best matches whether or not any of them is about your topic, so a
+non-empty result set is not an answer to an existence question. Before telling the user "yes, we
+discussed this," confirm the term actually appears:
+
+- **Read what came back, don't count it.** A search for a product name returned 24 confident-looking
+  results, every one an irrelevant semantic match on a neighbouring word — none mentioned the product.
+- **Then grep for the literal term, with word boundaries.** Short product names and proper nouns hide
+  inside ordinary words: `grep -i plaud` matched **applaud** across dozens of vault files and session
+  transcripts, which reads as overwhelming evidence of a past discussion that never happened. Use
+  `grep -riE "(^|[^a-z])<term>"` and check the surviving matches are real.
+- **Search the raw transcripts too**, not just the vault — `~/.claude/projects/**/*.jsonl` holds
+  conversations that were never written up.
+- **"No" is a complete answer.** Say the topic never came up and name where you looked, rather than
+  assembling a plausible recollection out of adjacent hits.
+
+(Mo, 2026-08-31: asked where we landed on a device choice; all three backends implied prior
+discussion and there had been none.)
+
 ## Session-Start Hook
 
 The skill ships a SessionStart hook (`scripts/session-start-context.sh`) that injects vault context (current focus, recent sessions, project listing, git activity) procedurally — no LLM tokens for that work. Wire-up: `references/session-start-hook.md`.

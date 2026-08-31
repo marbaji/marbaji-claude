@@ -87,7 +87,7 @@ The sweep catches *abandoned* work AND *shipped-but-forgotten* work (a merged pr
 
 Walk the session for content that should live in its own structured file. Read [`references/extraction-rules.md`](extraction-rules.md) for full triggers + templates. Four extraction types:
 
-1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema)
+1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema). Set `category: personal` on the entry for a personal decision and it writes to `Personal/Decisions/` instead — a personal choice does not belong in the work org's decision log, and the slug stays kebab-case either way because it is a filename.
 2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/$ORG_NAME/Shipping Log.md` under current month
 3. **Brag-worthy moments** → append to `Personal/Brag Doc.md` under current quarter. Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? No default frequency in either direction — let the test decide.
 4. **New-person mentions** (someone referenced in the session) → resolve it yourself: check for `Work/$ORG_NAME/People/<slug>.md`. If it exists, the bucket is **none**. If it's missing, create it after approval (the helper does NOT auto-create — write it with the Write tool from `people-template.md`). **Never ask the user whether a People note exists** — check and act.
