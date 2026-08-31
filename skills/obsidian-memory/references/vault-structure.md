@@ -53,6 +53,7 @@ Personal/Projects/
     (other docs as needed)
 
 Personal/Brag Doc.md       — User's running log of personal wins; separate from the company Shipping Log
+Personal/Brag Archive.md   — Culled brag candidates, archived monthly by the promotion pass; created on first cull
 Personal/Quarterly Reviews/  — Cross-quarter syntheses produced by the quarterly-review skill
   YYYY-Q[1-4].md
 

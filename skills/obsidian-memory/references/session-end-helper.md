@@ -195,10 +195,11 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 
 | Field | Type | Req/Opt | Validation | Example |
 |---|---|---|---|---|
-| `quarter` | `str` | Required | Pattern `^\d{4} Q[1-4]$` (e.g. `2026 Q2`). | `2026 Q2` |
 | `date` | `date` | Required | ISO 8601 date of the achievement. | `2026-05-09` |
 | `body` | `str` | Required | One-line or short description of the achievement. Trailing period is stripped before appending the session wikilink. | `"Shipped session_end.py with 47 passing tests"` |
 | `see_also` | `list[str]` | Optional (default `[]`) | List of wikilink strings to cross-reference (e.g. a Decision file extracted in the same manifest). Each entry must match `^\[\[[^\[\]\|]+(\|[^\[\]]+)?\]\]$`. Rendered as ` · See [[<wikilink>]]` after the session back-link, in array order. | `["[[Work/Chalktalk/Decisions/2026-05-09-foo]]"]` |
+
+`BragEntry` sets `extra: forbid` — a manifest still carrying the retired `quarter` field fails validation loudly instead of being silently ignored. The target quarter is derived at promotion time from `date` (see `extraction-rules.md` section (c), "Monthly promotion pass").
 
 ---
 
@@ -293,7 +294,7 @@ Operations are applied in order: removes first, then move-to-complete, then move
 | `summary`, `projects_touched`, `streams`, `key_decisions`, `learnings`, `files_modified`, `sources_captured`, `next_steps` | `session_log` | `Sessions/YYYY-MM/YYYY-MM-DD-<topic>.md` — new file; parent directory created if absent. |
 | `extractions.decisions[]` | `extractions` | `Work/<Org>/Decisions/<slug>.md`, or `Personal/Decisions/<slug>.md` when `category: personal` — one file per entry (dated slug used verbatim; undated slug prefixed with session date). Parent directory created on demand. Skip-with-warning on collision; no overwrite. |
 | `extractions.shipping_log[]` | `extractions` | `Work/<Org>/Shipping Log.md` — one bullet inserted immediately after the `## YYYY-MM` heading. Heading is created at top of first `## ` block if absent. File must exist or preflight fails. **Idempotent:** if the exact formatted bullet line is already in the file (from a partial earlier run), the helper skips with a stderr warning instead of double-appending. |
-| `extractions.brag[]` | `extractions` | `Personal/Brag Doc.md` — one bullet inserted immediately after the `## YYYY Q<N>` heading. Heading created if absent. File must exist or preflight fails. **Idempotent:** same skip-on-exact-match behavior as shipping. |
+| `extractions.brag[]` | `extractions` | `Personal/Brag Doc.md` — one bullet inserted immediately after the `## Staging` heading (heading created at the END of the file if absent — quarter sections stay above it and are promotion-only). File must exist or preflight fails. **Idempotent:** same skip-on-exact-match behavior as shipping. |
 | `extractions.new_people[]` | `extractions` | Stdout only — flag printed, no file written. Operator creates People notes manually. |
 | `project_doc_updates[]` (work) | `project_doc_updates` | Structured updates (status / recent_activity / next_steps / related_session) and/or legacy free-form append to `Work/<Org>/Projects/<slug>.md`. Preflight fails with exit 2 if file does not exist. |
 | `project_doc_updates[]` (personal) | `project_doc_updates` | Same structured operations applied to `Personal/Projects/<slug>/overview.md`. Requires `category: personal`. Preflight fails with exit 2 if file does not exist. |
@@ -462,8 +463,7 @@ extractions:
       project_slug: obsidian-memory
       context: "Tasks 1-15 of the session-end CLI plan"
   brag:
-    - quarter: 2026 Q2
-      date: 2026-05-09
+    - date: 2026-05-09
       body: "Shipped session_end.py (15 tasks, 88 tests) — obsidian-memory vault write engine"
   new_people: []
 project_doc_updates:
@@ -503,7 +503,7 @@ Artifacts written:
 - `Work/Chalktalk/Decisions/2026-05-09-preflight-before-writes.md`
 - `Work/Chalktalk/Decisions/2026-05-09-skip-collision-with-warning.md`
 - `Work/Chalktalk/Shipping Log.md` — one bullet appended under `## 2026-05`
-- `Personal/Brag Doc.md` — one bullet appended under `## 2026 Q2`
+- `Personal/Brag Doc.md` — one bullet appended under `## Staging` (never into a quarter section)
 - `Work/Chalktalk/Projects/obsidian-memory.md` — structured updates: status replaced, recent_activity prepended, next_steps replaced, related_session bullet appended
 - `Context/current-focus.md` — `obsidian-memory` block upserted, `last-updated:` bumped
 
@@ -625,7 +625,7 @@ Artifacts written:
 - **Append idempotency on retry:** If a partial earlier run already inserted a Shipping Log or Brag Doc bullet (and the retry uses the same manifest), the helper detects the exact bullet line on the second pass and skips it with a stderr warning. Safe to re-run with `--only extractions` after a partial mid-run failure.
 - **Tag dedup:** Frontmatter tags on the session log and Decision files are deduplicated with stable first-seen order before serialization.
 - **`marbaji-claude` field:** In YAML, use the key `marbaji-claude` (hyphenated). Both `marbaji-claude` and `marbaji_claude` (underscored) are accepted due to Pydantic's `populate_by_name: True` setting.
-- **Shipping Log and Brag Doc insertion order:** New bullets are inserted immediately after the target heading (newest at top of their month/quarter block), not appended at the end.
+- **Shipping Log and Brag Doc insertion order:** Shipping bullets are inserted immediately after their `## YYYY-MM` heading (newest at top of the month). Brag bullets are inserted immediately after `## Staging` (newest at top of staging); when the staging heading is missing it is created at the END of the file, below the quarter sections.
 - **Per-file change report:** After a successful (non-dry-run) invocation the helper prints one block per file it touched, with vault-relative paths and indented per-section summary lines. For newly-created files (session logs and Decision files), the helper also echoes a `+ `-prefixed preview of the file's substantive content under the same block, capped at 60 lines with a `... (N more lines in file)` trailer if longer — so the operator can visually verify what landed without opening the file. Suppressed by `--quiet`. Preview rules:
   - `Sessions/.../<topic>.md` → lines under `## Summary` + the first stream block (heading + body) under `## What We Did`.
   - `*/Decisions/<slug>.md` → `## Chosen` body + `## Reasoning` body, with headings preserved for context.

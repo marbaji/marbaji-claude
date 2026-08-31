@@ -340,44 +340,108 @@ class TestBragDocAppend:
         shutil.copytree(fixtures, vault)
         return vault
 
-    def test_create_new_quarter(self, tmp_path):
+    def test_creates_staging_section_at_end_of_file(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="codified the cross-model review pattern.",
+        )
+        # Trailing content AFTER the quarter section, so "below Q1" and "at end of
+        # file" are distinguishable — otherwise the EOF claim has no test.
+        brag_path = vault / "Personal/Brag Doc.md"
+        brag_path.write_text(
+            brag_path.read_text()
+            + "\n## 2025 Q4\n- **2025-11-02** — older quarter entry. [[Sessions/2025-11/x]]\n"
         )
         session_end.append_to_brag_doc(
             vault=vault, entry=entry, session_log_filename="2026-05-09-may",
         )
-        log = (vault / "Personal/Brag Doc.md").read_text()
-        assert "## 2026 Q2" in log
-        assert log.index("## 2026 Q2") < log.index("## 2026 Q1")
+        log = brag_path.read_text()
+        assert "## Staging" in log
+        # Staging lives BELOW every accepted quarter section, at the very end.
+        assert log.index("## Staging") > log.index("## 2026 Q1")
+        assert log.index("## Staging") > log.index("## 2025 Q4")
+        bullet = session_end.format_brag_bullet(entry, "2026-05-09-may")
+        assert log.rstrip().splitlines()[-2:] == ["## Staging", bullet]
         assert "codified the cross-model review pattern." in log
 
-    def test_append_under_existing_quarter(self, tmp_path):
+    def test_prepends_under_existing_staging_and_leaves_quarters_alone(self, tmp_path):
         vault = self._setup_vault(tmp_path)
-        entry = session_end.BragEntry(
-            quarter="2026 Q1",
-            date="2026-03-20",
-            body="another Q1 brag.",
+        first = session_end.BragEntry(date="2026-05-08", body="older staged item.")
+        second = session_end.BragEntry(date="2026-05-09", body="newer staged item.")
+        session_end.append_to_brag_doc(
+            vault=vault, entry=first, session_log_filename="2026-05-08-a",
         )
         session_end.append_to_brag_doc(
-            vault=vault, entry=entry, session_log_filename="2026-03-20-thing",
+            vault=vault, entry=second, session_log_filename="2026-05-09-b",
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
-        assert log.index("another Q1 brag.") < log.index("old brag entry")
+        assert log.count("## Staging") == 1
+        assert log.index("newer staged item.") < log.index("older staged item.")
+        # Quarter content untouched, still above staging.
+        assert log.index("old brag entry") < log.index("## Staging")
 
     def test_bullet_format(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2", date="2026-05-09", body="did the thing.",
+            date="2026-05-09", body="did the thing.",
         )
         session_end.append_to_brag_doc(
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
         log = (vault / "Personal/Brag Doc.md").read_text()
         assert "- **2026-05-09** — did the thing. [[Sessions/2026-05/2026-05-09-test]]" in log
+
+    def test_quarter_field_rejected(self):
+        """Schema change is loud: a stale manifest still carrying `quarter` must fail
+        validation, not be silently ignored (pydantic default is extra='ignore')."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            session_end.BragEntry(
+                quarter="2026 Q2",
+                date="2026-05-09",
+                body="did the thing.",
+            )
+        # Pin the MECHANISM, not the message: a future re-added `quarter` field with a
+        # tightened pattern would also raise with "quarter" in the text and pass a
+        # substring check, hiding exactly the regression this test exists to catch.
+        assert [e["type"] for e in exc.value.errors()] == ["extra_forbidden"]
+        assert exc.value.errors()[0]["loc"] == ("quarter",)
+
+    def test_prepend_branch_change_report_names_op_and_bullet(self, tmp_path):
+        """The prepend branch's summary needs its own coverage: the shared fixture has no
+        ## Staging, so every other report test exercises only the heading-creation branch."""
+        vault = self._setup_vault(tmp_path)
+        first = session_end.BragEntry(date="2026-05-08", body="first staged item.")
+        second = session_end.BragEntry(date="2026-05-09", body="second staged item.")
+        session_end.append_to_brag_doc(
+            vault=vault, entry=first, session_log_filename="2026-05-08-a",
+        )
+        rpt = session_end.append_to_brag_doc(
+            vault=vault, entry=second, session_log_filename="2026-05-09-b",
+        )
+        expected_bullet = session_end.format_brag_bullet(second, "2026-05-09-b")
+        assert rpt.summary == ["## Staging: prepended 1 entry", f"+ {expected_bullet}"]
+
+    def test_skips_entry_already_culled_to_the_archive(self, tmp_path):
+        """The promotion pass MOVES culled lines to Brag Archive.md, so an in-file-only
+        dedupe check fails open: a documented `--only extractions` retry would resurrect
+        an entry the promotion judge deliberately rejected."""
+        vault = self._setup_vault(tmp_path)
+        entry = session_end.BragEntry(date="2026-05-09", body="culled by the pass.")
+        bullet = session_end.format_brag_bullet(entry, "2026-05-09-test")
+
+        archive = vault / "Personal/Brag Archive.md"
+        archive.write_text(f"# Brag Archive\n\n## 2026-05\n{bullet}\n")
+        brag_path = vault / "Personal/Brag Doc.md"
+        before = brag_path.read_text()
+
+        rpt = session_end.append_to_brag_doc(
+            vault=vault, entry=entry, session_log_filename="2026-05-09-test",
+        )
+        assert brag_path.read_text() == before, "archived entry must not be re-staged"
+        assert any("archive" in s for s in rpt.summary), f"got: {rpt.summary}"
 
 
 class TestProjectDocOps:
@@ -1128,6 +1192,7 @@ class TestEndToEnd:
 
         brag = (vault / "Personal/Brag Doc.md").read_text()
         assert "did the thing" in brag
+        assert "## Staging" in brag
 
         proj = (vault / "Work/Chalktalk/Projects/existing-project.md").read_text()
         assert "## 2026-05-09 — Today's work" in proj
@@ -2085,7 +2150,6 @@ class TestAppendIdempotency:
     def test_brag_append_idempotent_when_bullet_already_present(self, tmp_path, capsys):
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="already bragged about this.",
         )
@@ -2613,7 +2677,6 @@ extractions:
         """Brag append's report shows the full bullet line (no truncation) on a + line."""
         vault = self._setup_vault(tmp_path)
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="did the thing",
         )
@@ -2621,7 +2684,7 @@ extractions:
             vault=vault, entry=entry, session_log_filename="2026-05-09-test",
         )
         # Header line names the op, "+ " line carries full bullet content
-        assert any("## 2026 Q2:" in s and "prepended 1 entry" in s for s in rpt.summary), (
+        assert any(s.startswith("## Staging:") and "1 entry" in s for s in rpt.summary), (
             f"expected header line, got: {rpt.summary}"
         )
         assert any(
@@ -2633,7 +2696,6 @@ extractions:
         vault = self._setup_vault(tmp_path)
         long_body = "x" * 100
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body=long_body,
         )
@@ -2919,7 +2981,6 @@ class TestSeeAlsoCrossLinks:
 
     def test_brag_entry_with_two_see_also_preserves_order(self):
         entry = session_end.BragEntry(
-            quarter="2026 Q2",
             date="2026-05-09",
             body="did the exceptional thing",
             see_also=[
@@ -2947,7 +3008,7 @@ class TestSeeAlsoCrossLinks:
         )
 
         brag = session_end.BragEntry(
-            quarter="2026 Q2", date="2026-05-09", body="did the thing",
+            date="2026-05-09", body="did the thing",
         )
         brag_bullet = session_end.format_brag_bullet(brag, "2026-05-09-test")
         assert brag_bullet == (
@@ -2968,7 +3029,6 @@ class TestSeeAlsoCrossLinks:
 
         with pytest.raises(ValidationError):
             session_end.BragEntry(
-                quarter="2026 Q2",
                 date="2026-05-09",
                 body="did",
                 see_also=["[[bad nested [[brackets]]]]"],

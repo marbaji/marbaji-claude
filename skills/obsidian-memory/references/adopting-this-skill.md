@@ -198,7 +198,7 @@ Keep the vault in sync as your org changes:
 - **New hires mentioned in sessions** — the session-end ritual's new-person flag (see `extraction-rules.md`) surfaces a confirmation prompt when a session log mentions a name with no existing People note. Confirm `Yes` to create.
 - **1:1 capture** — currently manual. Write a 1:1 note after each meeting using `one-on-one-template.md`. The future automated import flow is specced in `future-1on1-import.md` but not implemented.
 - **Decisions** — flagged for extraction by the session-end ritual when their phrasing matches the decision triggers in `extraction-rules.md`. Confirm to promote inline session-log decisions to standalone Decision notes.
-- **Shipping Log / Brag Doc** — append automatically by the session-end ritual when triggers match (see `extraction-rules.md`).
+- **Shipping Log / Brag Doc** — the session-end ritual appends shipping entries directly and stages brag candidates (blind-judged, then promoted monthly from `## Staging` to quarter sections; culls go to `Personal/Brag Archive.md`). See `extraction-rules.md`.
 
 ---
 
