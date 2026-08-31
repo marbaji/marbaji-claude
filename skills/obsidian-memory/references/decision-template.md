@@ -1,10 +1,12 @@
 # Decision Note Template
 
-Schema and section layout for `Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md`. One file per consequential decision. Decisions live in their own folder so they survive session-log rotation and form a queryable chronology.
+Schema and section layout for a decision note. One file per consequential decision. Decisions live in their own folder so they survive session-log rotation and form a queryable chronology.
+
+**Two destinations, chosen by the entry's `category`:** `Work/<Org>/Decisions/` for work decisions (the default), and `Personal/Decisions/` for personal ones — a purchase, a household choice, anything outside the work org. Every path in this template shows the work form; substitute `Personal/Decisions/` throughout for a personal decision. This matters beyond tidiness: `board-update`, `investor-update`, `quarterly-review` and `employee-review` all glob `Work/<Org>/Decisions/*.md`, so a personal decision filed there is swept into those documents.
 
 ## Filename Convention
 
-`Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md` — ISO date, hyphen, kebab-case slug derived from the decision. Example: `Work/Chalktalk/Decisions/2026-05-08-no-yaml-status-fields-in-model-registry.md`.
+`Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md` — ISO date, hyphen, kebab-case slug derived from the decision. Example: `Work/Chalktalk/Decisions/2026-05-08-no-yaml-status-fields-in-model-registry.md`. A personal decision uses the same filename under `Personal/Decisions/` — the slug stays kebab-case in both categories, because it is a filename rather than a directory display name.
 
 The slug should be a noun phrase summarizing the decision, not a verb. `2026-05-08-no-yaml-status-fields...` not `2026-05-08-decided-against-yaml-status...`.
 
@@ -126,7 +128,9 @@ If none apply, the decision stays inline. Don't create Decision notes for epheme
 
 When a new decision replaces an older one:
 
-1. Create the new decision note with `supersedes: "[[Work/Chalktalk/Decisions/<old-decision-file>]]"`.
+1. Create the new decision note with `supersedes: "[[Work/Chalktalk/Decisions/<old-decision-file>]]"` — or
+   `"[[Personal/Decisions/<old-decision-file>]]"` when both are personal. `supersedes` is a plain optional
+   string that nothing resolves, so a wrong prefix ships as a dead link.
 2. Edit the old decision note's frontmatter: flip `status: accepted` to `status: superseded`.
 3. In the old note, append a `## Superseded By` section linking forward to the new decision.
 

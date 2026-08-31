@@ -37,6 +37,8 @@ A decision in the session log's `## Key Decisions` section qualifies if **any on
 
 `Work/Chalktalk/Decisions/YYYY-MM-DD-<slug>.md` — date from the session log, slug derived from the decision title (kebab-case, ~5 words, noun phrase).
 
+For a **personal** decision (a purchase, a household or family choice, anything outside the work org), set `category: personal` on the manifest entry and it writes to `Personal/Decisions/YYYY-MM-DD-<slug>.md`. Filing a personal choice under the work org corrupts the same boundary the Step 2 category approval exists to protect. The slug rule is unchanged in both categories — a decision slug is a filename, so it stays kebab-case even though personal PROJECT slugs allow spaces and Title Case. (Mo, 2026-08-31: the Plaud device purchase had nowhere correct to land.)
+
 ### Schema
 
 Use `decision-template.md`. Populate from the session log:
@@ -48,10 +50,11 @@ Use `decision-template.md`. Populate from the session log:
 
 ### Stub left in session log
 
-Replace the original `## Key Decisions` bullet with a wikilink:
+Replace the original `## Key Decisions` bullet with a wikilink **whose path matches the entry's `category`** — a work decision links into `Work/<Org>/Decisions/`, a personal one into `Personal/Decisions/`. Writing the work path for a personal decision produces an unresolved Obsidian link to a file that will never exist, which orphans the extracted note from its own session log and defeats the point of extracting it. Nothing catches this: the helper writes the FILE, the agent writes the LINK.
 
 ```markdown
 - [[Work/Chalktalk/Decisions/2026-05-08-no-yaml-status-fields-in-model-registry|No YAML status fields in model registry]]
+- [[Personal/Decisions/2026-08-31-plaud-notepin-s-wearable-recorder|Plaud NotePin S as the always-on wearable recorder]]
 ```
 
 ### Generalized lessons appendix (when applicable)

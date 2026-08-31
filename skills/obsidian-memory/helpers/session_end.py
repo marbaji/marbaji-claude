@@ -155,6 +155,7 @@ class Stream(BaseModel):
 class Decision(BaseModel):
     slug: str = Field(pattern=DATED_SLUG_RE + "|" + SLUG_RE)
     title: str
+    category: Literal["work", "personal"] = "work"
     status: str = Field(default="accepted", pattern=r"^(proposed|accepted|superseded|deprecated)$")
     owner: str
     stakeholders: list[str] = Field(default_factory=list)
@@ -594,11 +595,20 @@ def decision_file_path(decision: Decision, session_date: Date, org_name: str = "
     """Resolve vault-relative path for a Decision file.
 
     Slug may be dated (2026-05-09-foo) or undated (foo); undated inherits session_date.
+
+    work:     Work/{org_name}/Decisions/{filename}
+    personal: Personal/Decisions/{filename}
+
+    Unlike a personal PROJECT slug (a directory display name, so spaces and Title Case are
+    allowed), a decision slug of either category stays kebab-case — it is a filename, and the
+    date prefix plus the slug is what makes decisions sort and resolve predictably.
     """
     if re.match(r"^\d{4}-\d{2}-\d{2}-", decision.slug):
         filename = f"{decision.slug}.md"
     else:
         filename = f"{session_date.isoformat()}-{decision.slug}.md"
+    if decision.category == "personal":
+        return f"Personal/Decisions/{filename}"
     return f"Work/{org_name}/Decisions/{filename}"
 
 
@@ -622,6 +632,10 @@ def render_decision_file(
         "---",
         "type: decision",
         f"date: {decision_date}",
+        # Emitted so the work/personal split is carried BY THE NOTE, not only by which
+        # folder it happens to sit in. A note that is ever moved keeps its identity, and
+        # a consumer can filter on frontmatter instead of relying on a path glob.
+        f"category: {decision.category}",
         f"status: {decision.status}",
     ]
     lines.append(f'owner: "{decision.owner}"')

@@ -161,6 +161,7 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 |---|---|---|---|---|
 | `slug` | `str` | Required | Matches `^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$` (dated) OR `^[a-z0-9]+(?:-[a-z0-9]+)*$` (undated). Undated slugs inherit the session date as filename prefix. | `use-pydantic-for-schema-validation` |
 | `title` | `str` | Required | Full decision title. Rendered as `# <title>`. | `"Use Pydantic v2 for manifest validation"` |
+| `category` | `str` | Optional (default `work`) | `work` → `Work/<Org>/Decisions/`; `personal` → `Personal/Decisions/`. Unlike a personal PROJECT slug, a personal decision's `slug` stays kebab-case in both categories — it is a filename, not a directory display name. | `personal` |
 | `status` | `str` | Optional (default `accepted`) | Pattern `^(proposed\|accepted\|superseded\|deprecated)$` | `accepted` |
 | `owner` | `str` | Required | Wikilink or plain name. | `[[Mohannad Arbaji]]` |
 | `stakeholders` | `list[str]` | Optional (default `[]`) | List of wikilinks or plain names. | `[[[Ciaran OBrien]]]` |
@@ -291,7 +292,7 @@ Operations are applied in order: removes first, then move-to-complete, then move
 |---|---|---|
 | `sources_captured[]` (written first, before session log) | `session_log` | `Sources/YYYY-MM-DD-<slug>.md` — one file per entry. Written before the session log. Skip-with-warning on collision; no overwrite. Session log bullets reference these via `[[Sources/<date>-<slug>\|<title>]]`. |
 | `summary`, `projects_touched`, `streams`, `key_decisions`, `learnings`, `files_modified`, `sources_captured`, `next_steps` | `session_log` | `Sessions/YYYY-MM/YYYY-MM-DD-<topic>.md` — new file; parent directory created if absent. |
-| `extractions.decisions[]` | `extractions` | `Work/<Org>/Decisions/<slug>.md` — one file per entry (dated slug used verbatim; undated slug prefixed with session date). Skip-with-warning on collision; no overwrite. |
+| `extractions.decisions[]` | `extractions` | `Work/<Org>/Decisions/<slug>.md`, or `Personal/Decisions/<slug>.md` when `category: personal` — one file per entry (dated slug used verbatim; undated slug prefixed with session date). Parent directory created on demand. Skip-with-warning on collision; no overwrite. |
 | `extractions.shipping_log[]` | `extractions` | `Work/<Org>/Shipping Log.md` — one bullet inserted immediately after the `## YYYY-MM` heading. Heading is created at top of first `## ` block if absent. File must exist or preflight fails. **Idempotent:** if the exact formatted bullet line is already in the file (from a partial earlier run), the helper skips with a stderr warning instead of double-appending. |
 | `extractions.brag[]` | `extractions` | `Personal/Brag Doc.md` — one bullet inserted immediately after the `## Staging` heading (heading created at the END of the file if absent — quarter sections stay above it and are promotion-only). File must exist or preflight fails. **Idempotent:** same skip-on-exact-match behavior as shipping. |
 | `extractions.new_people[]` | `extractions` | Stdout only — flag printed, no file written. Operator creates People notes manually. |
