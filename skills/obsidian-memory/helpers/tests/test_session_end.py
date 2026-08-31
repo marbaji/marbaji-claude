@@ -218,16 +218,40 @@ class TestDecisionFile:
             decision, session_date, org_name="Chalktalk"
         ) == session_end.decision_file_path(decision, session_date, org_name="SomeOtherOrg")
 
-    def test_personal_decision_slug_stays_kebab_case(self):
-        """Personal PROJECT slugs allow spaces/Title Case; decision slugs do not.
+    def test_decision_slug_stays_kebab_case_in_both_categories(self):
+        """Personal PROJECT slugs allow spaces/Title Case; decision slugs never do.
 
-        A decision slug becomes a filename, so it keeps the same validation in both
-        categories. Guards against someone loosening it to match project slugs.
+        NOT a test of the category feature — it stays green with the feature fully
+        reverted, because slug validation is category-independent by design and that
+        IS the claim. It guards against someone later loosening `Decision.slug` to
+        match personal project slugs. Kept out of the mutation-proved set deliberately.
         """
         from pydantic import ValidationError
 
-        with pytest.raises(ValidationError):
-            self._decision(slug="Some Personal Decision", category="personal")
+        for category in ("work", "personal"):
+            with pytest.raises(ValidationError):
+                self._decision(slug="Some Decision With Spaces", category=category)
+
+    def test_dated_slug_honours_personal_category(self):
+        """Closes the dated-slug x personal gap: the date branch is computed BEFORE
+        the category branch, so both must compose."""
+        decision = self._decision(slug="2026-05-09-test-decision", category="personal")
+        path = session_end.decision_file_path(decision, session_date=Date(2026, 5, 9))
+        assert path == "Personal/Decisions/2026-05-09-test-decision.md"
+
+    def test_category_reaches_the_note_frontmatter(self):
+        """The work/personal split must be carried by the note, not only by its folder.
+
+        Asserted as a relationship over both categories rather than one retyped literal.
+        """
+        for category in ("work", "personal"):
+            text = session_end.render_decision_file(
+                self._decision(category=category),
+                source_session_wikilink="[[Sessions/2026-05/2026-05-09-test-session]]",
+                session_date=Date(2026, 5, 9),
+            )
+            frontmatter = text.split("---")[1]
+            assert f"category: {category}" in frontmatter
 
     def test_personal_decision_file_written_under_personal(self, tmp_path):
         """End-to-end: the file actually lands on disk where the path function says."""

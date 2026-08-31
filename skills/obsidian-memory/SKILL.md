@@ -78,7 +78,10 @@ discussed this," confirm the term actually appears:
 - **Then grep for the literal term, with word boundaries.** Short product names and proper nouns hide
   inside ordinary words: `grep -i plaud` matched **applaud** across dozens of vault files and session
   transcripts, which reads as overwhelming evidence of a past discussion that never happened. Use
-  `grep -riE "(^|[^a-z])<term>"` and check the surviving matches are real.
+  **`grep -riw "<term>"`** and check the surviving matches are real. Use `-w` (whole word), not a
+  hand-rolled left-boundary class: `grep -riE "(^|[^a-z])plaud"` correctly rejects *applaud* but
+  still returns ***plaudits***, because it guards only the leading edge. Measured on ugrep 7.8.4 —
+  `-w` returns the real hits alone.
 - **Search the raw transcripts too**, not just the vault — `~/.claude/projects/**/*.jsonl` holds
   conversations that were never written up.
 - **"No" is a complete answer.** Say the topic never came up and name where you looked, rather than

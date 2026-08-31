@@ -92,6 +92,8 @@ Walk the session for content that should live in its own structured file. Read [
 3. **Brag-worthy moments** → append to `Personal/Brag Doc.md` under current quarter. Apply the **Cold-Reader Test** (see [`extraction-rules.md`](extraction-rules.md) section (c)) to every candidate: would a stranger reading the single line in 2 years, with zero context, think "this person delivered something exceptional"? No default frequency in either direction — let the test decide.
 4. **New-person mentions** (someone referenced in the session) → resolve it yourself: check for `Work/$ORG_NAME/People/<slug>.md`. If it exists, the bucket is **none**. If it's missing, create it after approval (the helper does NOT auto-create — write it with the Write tool from `people-template.md`). **Never ask the user whether a People note exists** — check and act.
 
+   **Do not create a work People note for someone who only appears in personal-category work.** A landlord, a contractor, a family member named in a personal decision is not a work contact, and `Work/$ORG_NAME/People/` has no entry for them precisely because they do not belong there — the missing note is the correct state, not a gap to fill. Flag them to the user instead and let them decide. (There is no `Personal/People/` home today; `stakeholders` on a personal decision should carry a plain name rather than a wikilink into the work org.)
+
 Surface candidates as a SINGLE batched confirmation prompt:
 
 Every bucket carries a count with **0s shown** — with ONE exception, `STAGED MEMORY`, which is omitted entirely at 0 (see Step 3a.2 for why). Do NOT tag items "(candidate)" — the whole batch is pending the user's approval by definition, so tagging some items is redundant. A bucket with more than one item breaks its items onto indented sub-bullets; a single item or "none" stays inline.
@@ -100,15 +102,17 @@ Every bucket carries a count with **0s shown** — with ONE exception, `STAGED M
 At session-end I found these to file:
   • SHIPPING (N): "<event>" → Shipping Log | none
   • BRAG (N): "<moment>" → Brag Doc YYYY Q<N> | none
-  • DECISION (N): "<headline>" → Decisions/YYYY-MM-DD-<slug> | none
+  • DECISION (N): "<headline>" → <Work/<Org>|Personal>/Decisions/YYYY-MM-DD-<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
   • STAGED MEMORY (N): "<file>" → <home it is going to>      ← OMIT this line entirely when N is 0
 Approve all? Edit any? Skip any?
 ```
 
+**Always print each decision's FULL destination, including the `Work/<Org>` or `Personal` prefix.** That prefix is the only place the work/personal boundary becomes visible to the user, and `category` defaults to `work`, so an omitted category is silent by construction: a personal decision shown as a bare `Decisions/…` gets approved, lands in the work org, and is then swept up by every skill that globs `Work/<Org>/Decisions/*.md` — `board-update`, `investor-update`, `quarterly-review`, `employee-review`. Showing the prefix is what makes Step 2's category approval real for decisions rather than nominal.
+
 Wait for user approval. Approved EXTRACTION items go into the manifest's `extractions` section in Step 4; skipped items go nowhere. **`STAGED MEMORY` is the exception** — it shares this approval block but is not an extraction and has no manifest field. Approving it authorizes the Step 3a.2 sweep, which the agent performs directly with Read/Write/rm; putting it in the manifest would fail schema validation.
 
-**Cross-link shipping/brag entries to extracted Decisions.** When a shipping or brag bullet references substance captured in a Decision extraction from the same session, populate that entry's `see_also` field with the Decision's wikilink (`[[Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>]]`). The bullet renders with ` · See [[<wikilink>]]` segments after the session back-link, giving a Shipping Log / Brag Doc reader a direct path to the canonical record without round-tripping through the session log. Multiple `see_also` entries render in array order. See [`session-end-helper.md`](session-end-helper.md) schema for the field.
+**Cross-link shipping/brag entries to extracted Decisions.** When a shipping or brag bullet references substance captured in a Decision extraction from the same session, populate that entry's `see_also` field with the Decision's wikilink, **matching the decision's own category** — `[[Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>]]` or `[[Personal/Decisions/YYYY-MM-DD-<slug>]]`. `see_also` is validated for wikilink SHAPE only and is never resolved, so a wrong prefix ships as a dead link. The bullet renders with ` · See [[<wikilink>]]` segments after the session back-link, giving a Shipping Log / Brag Doc reader a direct path to the canonical record without round-tripping through the session log. Multiple `see_also` entries render in array order. See [`session-end-helper.md`](session-end-helper.md) schema for the field.
 
 **Generalized lessons appendix (when a Decision enumerates many findings).** When the approved batch includes a Decision whose `chosen:` (or equivalent) enumerates 3+ findings, defects, observations, or instances sharing a structural pattern, surface a candidate appendix in the same approval round:
 
@@ -291,7 +295,7 @@ Repo-rule and gotcha items do NOT go into the manifest at all; they carry forwar
 
 This step is an **opt-in** correction-taxonomy loop. Ledger: `$VAULT_PATH/Personal/Projects/agentic-loops/taxonomy-evidence-ledger.md`. It activates only if that file exists in your vault — create one to opt in (see `adopting-this-skill.md` § "Optional: correction-taxonomy evidence ledger"); otherwise skip this step entirely.
 
-**SKIP this step entirely when the session's work is personal-category** (every project touched carries `category: personal`). No sweep, no increments, no singletons, and no `LEDGER SWEEP` block in the confirmation. The ledger exists to harden agent behavior on the engineering loops; a personal-life session that happens to involve a landlord, a lease, or a contractor is not that corpus, and sweeping it inflates the tally with hits that no checker will ever bind. A mixed session sweeps only the work-category corrections. (Mo, 2026-08-18: "no ledger sweeps pls on personal work" — said after an InBloom preschool-permitting session produced an increment and a new singleton, both reverted.)
+**SKIP this step entirely when the session's work is personal-category** — meaning it touched **at least one** project and every one carries `category: personal`. The "at least one" is load-bearing: "every project touched is personal" is vacuously TRUE for a session that touched no projects at all, which would silently exempt most ad-hoc engineering sessions from the sweep. A session with an empty `projects_touched` does not qualify automatically; judge it on whether its corrections were about the engineering loops. No sweep, no increments, no singletons, and no `LEDGER SWEEP` block in the confirmation. The ledger exists to harden agent behavior on the engineering loops; a personal-life session that happens to involve a landlord, a lease, or a contractor is not that corpus, and sweeping it inflates the tally with hits that no checker will ever bind. A mixed session sweeps only the work-category corrections. (Mo, 2026-08-18: "no ledger sweeps pls on personal work" — said after an InBloom preschool-permitting session produced an increment and a new singleton, both reverted.)
 
 Scan the ending session for moments the user corrected or redirected the agent (the same moments the capture rule logged to `tasks/lessons.md` with a category tag). For EACH correction, run the ledger's four category-maintenance tests in order — (1) definition test: fits an existing category without adding an "and/except" clause? (2) checker test: would that category's existing check have caught it? (3) axis test: does it constrain a different axis? (4) two-instance rule: singletons stay drafts — then:
 
@@ -641,7 +645,7 @@ Walkthrough of the work in the order it happened.
 
 For each item from Step 3 the user approved:
 
-- **Decisions** → write `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` using `decision-template.md`. Leave a wikilink stub in the source session log's Key Decisions section.
+- **Decisions** → write `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md`, or `Personal/Decisions/YYYY-MM-DD-<slug>.md` for a personal decision, using `decision-template.md`. Leave a wikilink stub in the source session log's Key Decisions section, using the SAME path you just wrote to.
 - **Shipping** → append to `Work/$ORG_NAME/Shipping Log.md` under current `## YYYY-MM` (create heading if missing). Format: `- **YYYY-MM-DD** — <label> — <context>. [[Sessions/YYYY-MM/<session-log-name>]]`.
 - **Brag** → append to `Personal/Brag Doc.md` under current `## YYYY Q<N>` (create heading if missing). Format: `- **YYYY-MM-DD** — <body>. [[Sessions/YYYY-MM/<session-log-name>]]`.
 - **New people** → print to confirm with the user; do NOT auto-create.

@@ -631,6 +631,10 @@ def render_decision_file(
         "---",
         "type: decision",
         f"date: {decision_date}",
+        # Emitted so the work/personal split is carried BY THE NOTE, not only by which
+        # folder it happens to sit in. A note that is ever moved keeps its identity, and
+        # a consumer can filter on frontmatter instead of relying on a path glob.
+        f"category: {decision.category}",
         f"status: {decision.status}",
     ]
     lines.append(f'owner: "{decision.owner}"')

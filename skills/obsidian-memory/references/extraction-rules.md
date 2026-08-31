@@ -50,10 +50,11 @@ Use `decision-template.md`. Populate from the session log:
 
 ### Stub left in session log
 
-Replace the original `## Key Decisions` bullet with a wikilink:
+Replace the original `## Key Decisions` bullet with a wikilink **whose path matches the entry's `category`** — a work decision links into `Work/<Org>/Decisions/`, a personal one into `Personal/Decisions/`. Writing the work path for a personal decision produces an unresolved Obsidian link to a file that will never exist, which orphans the extracted note from its own session log and defeats the point of extracting it. Nothing catches this: the helper writes the FILE, the agent writes the LINK.
 
 ```markdown
 - [[Work/Chalktalk/Decisions/2026-05-08-no-yaml-status-fields-in-model-registry|No YAML status fields in model registry]]
+- [[Personal/Decisions/2026-08-31-plaud-notepin-s-wearable-recorder|Plaud NotePin S as the always-on wearable recorder]]
 ```
 
 ### Generalized lessons appendix (when applicable)
