@@ -222,6 +222,7 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 | `status` | `Optional[str]` | Optional (default `null`) | Replaces the entire body of the `## Status` section verbatim. Section is created at end of file if missing. | `"🟡 In review — PR #50 open"` |
 | `recent_activity` | `Optional[RecentActivityEntry]` | Optional (default `null`) | Prepends a dated `### YYYY-MM-DD — <title>` subsection under `## Recent activity` (case-insensitive match on `activity\|Work`). Trims the section to the last 3 entries after insertion. Section is created at end of file if missing. | See `RecentActivityEntry` below. |
 | `next_steps` | `Optional[str]` | Optional (default `null`) | Replaces the entire body of the `## Next Steps` section (case-insensitive on `Steps/steps`) verbatim. Section is created at end of file if missing. | `"- Wait for CodeRabbit review.\n- Merge once clean."` |
+| `next_steps_replace_ok` | `bool` | Optional (default `False`) | Silences the dropped-content warning described below. Set it only when discarding the existing Next Steps body is deliberate. | `true` |
 | `related_session` | `Optional[str]` | Optional (default `null`) | Appends one `- {value}` bullet to `## Related Sessions`. Section is created at end of file if missing. Expected value is a wikilink string. | `"[[Sessions/2026-05/2026-05-09-session-end-helper]]"` |
 | `section_title` | `Optional[str]` | Optional (legacy) | Legacy free-form mode: heading text for the appended section. Must be provided with `section_date` AND `body` (all-or-none). | `"session-end-helper shipped"` |
 | `section_date` | `Optional[date]` | Optional (legacy) | Legacy free-form mode: date for the section heading. Must be provided with `section_title` AND `body`. | `2026-05-09` |
@@ -231,6 +232,10 @@ No file is written for `new_people` entries — the helper prints a stdout flag 
 - At least one of `status`, `recent_activity`, `next_steps`, `related_session`, or the complete legacy triple (`section_title + section_date + body`) must be set.
 - Legacy fields are all-or-none: providing any one without the other two is a validation error (exit 1).
 - Structured and legacy updates can coexist in the same entry; operations run in order: status → recent_activity → next_steps → related_session → legacy append.
+
+**`next_steps` and `status` REPLACE their section, they do not append.** That is intended for `status`, which is a single current-state line. It is a hazard for `next_steps`, because a project doc often carries several threads of work and a manifest written for one thread will delete the others' items.
+
+The helper does not block this — rewriting a plan wholesale is legitimate — but it warns loudly on stderr, listing every line that was dropped, under its own banner rather than buried in the change report diff. **Before setting `next_steps` on a doc with other live threads, read the existing section and merge.** Sub-headings (`### Buildout`, `### Documents to sign`) keep threads separate inside one section and make the merge obvious. Set `next_steps_replace_ok: true` to silence the warning when the discard is intended.
 
 ### RecentActivityEntry
 

@@ -4,6 +4,18 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
 
 ---
 
+## `next_steps` and `status` REPLACE the section, they do not append
+
+`ProjectDocUpdate.next_steps` and `.status` overwrite the entire body of their section verbatim. The schema says so, but it reads like an update field and behaves like a truncate.
+
+**The failure:** a session-end for one workstream wrote next steps for that workstream only, silently deleting three live items belonging to a different thread of the same project (2026-08-30, InBloom: permit occupancy, ZR 24-11 lot area and a website sidecar re-pull all vanished). It was caught only because the helper's change report prints removed lines with `-` markers.
+
+**Before setting `next_steps` or `status` on a project doc that has other active threads:** read the existing section, merge your items into it, and emit the merged body. Sub-headings (`### Buildout`, `### Documents to sign`) keep threads separate inside one section and make the merge obvious next time.
+
+**The helper now warns.** Since 2026-08-30 a `next_steps` replace that drops existing lines prints them to stderr under its own banner. Set `next_steps_replace_ok: true` to silence it when the discard is deliberate. `status` is deliberately not guarded, since replacing a current-state line is what that field is for.
+
+---
+
 ## Common Mistakes — Read Before Using This Skill
 
 1. **`obsidian update` does not exist.** There is no update command. To overwrite an existing file, use the **Write tool** targeting the full filesystem path (e.g. `~/Documents/<VAULT_NAME>/Context/current-focus.md`). Using `obsidian update` will fail silently or error out.
@@ -21,4 +33,5 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
            "$M/skills/obsidian-memory/references/session-end.md" || echo "CACHE STALE — read from $M"
    ```
    The same applies to `helpers/session_end.py`: the stale cache lacked `--print-schema` / `--example` entirely, so a ritual run from it would fall back to reading the 43 KB prose schema.
-9. **Direct filesystem access to the vault can hit macOS `EPERM` mid-session — even after working earlier in the same session.** Symptom: Bash `cat`/`ls` and the Read/Write tools all return `operation not permitted` on vault paths under `~/Documents/`, while the same paths read fine minutes before (TCC/sandbox behavior is non-deterministic per process; a helper run in a Python subprocess may still succeed while the shell is blocked). Fix: fall back to the native `obsidian` CLI (`obsidian vault="<name>" read|create|append path="..."`), which talks to the running Obsidian app over its socket and bypasses the filesystem permission entirely. Retry direct access later — the block can clear within the same session. Observed 2026-07-29 (chalktalk lesson-plan-maker session: CR-learnings ledger append EPERM'd via shell + Write, succeeded via `obsidian append`; taxonomy-ledger edits worked directly ten minutes later).
+9. **`mcp__qmd__get` takes `file`, not `path`.** The sibling retrieval tools and the rest of this skill talk in terms of vault *paths*, so `path=` is the natural guess and it fails Pydantic validation with `Invalid arguments for tool get: expected string, received undefined` on `file`. Correct form: `mcp__qmd__get(file="obsidian-memory/personal/projects/<slug>/overview.md")`. Note also that qmd's returned paths are lowercased relative to the collection, so a result path is not always the on-disk path — resolve the real directory name with `ls` before passing it to Edit or Write (e.g. qmd reports `personal/projects/inbloom-early-learning/` where disk has `Personal/Projects/InBloom Early Learning/`). Observed 2026-08-18.
+10. **Direct filesystem access to the vault can hit macOS `EPERM` mid-session — even after working earlier in the same session.** Symptom: Bash `cat`/`ls` and the Read/Write tools all return `operation not permitted` on vault paths under `~/Documents/`, while the same paths read fine minutes before (TCC/sandbox behavior is non-deterministic per process; a helper run in a Python subprocess may still succeed while the shell is blocked). Fix: fall back to the native `obsidian` CLI (`obsidian vault="<name>" read|create|append path="..."`), which talks to the running Obsidian app over its socket and bypasses the filesystem permission entirely. Retry direct access later — the block can clear within the same session. Observed 2026-07-29 (chalktalk lesson-plan-maker session: CR-learnings ledger append EPERM'd via shell + Write, succeeded via `obsidian append`; taxonomy-ledger edits worked directly ten minutes later).

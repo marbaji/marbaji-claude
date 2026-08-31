@@ -278,6 +278,14 @@ class ProjectDocUpdate(BaseModel):
     next_steps: Optional[str] = None
     related_session: Optional[str] = None
 
+    # `next_steps` overwrites its whole section body. When a project doc carries
+    # several threads of work, a manifest written for one thread silently drops
+    # the others' items. The helper warns loudly when that would happen; set this
+    # to True when the replacement is deliberate, to silence the warning.
+    # `status` is deliberately NOT guarded: replacing a current-state line is
+    # exactly what that field is for.
+    next_steps_replace_ok: bool = False
+
     # Legacy free-form append (back-compat with existing manifests).
     section_title: Optional[str] = None
     section_date: Optional[Date] = None
@@ -946,6 +954,10 @@ def append_to_project_doc(
         if result is not None:
             heading_idx, body_end = result
             old_body = lines[heading_idx + 1 : body_end]
+            if not update.next_steps_replace_ok:
+                _warn_dropped_lines(
+                    update.slug, "next_steps", old_body, update.next_steps
+                )
             lines[heading_idx + 1 : body_end] = new_body_lines
             report_summary.append(
                 f"## Next Steps: replaced ({len(old_body)} to {len(new_body_lines)} lines)"
@@ -1456,6 +1468,42 @@ def write_decision_files(
         path.write_text(render_decision_file(decision, source_session_link, session_date))
         reports.append(ChangeReport(path=resolved, summary=["created"]))
     return reports
+
+
+def _warn_dropped_lines(
+    slug: str, field: str, old_body: list[str], new_body: str
+) -> list[str]:
+    """Emit a loud stderr warning when a whole-section replace discards content.
+
+    ``next_steps`` overwrites its section body verbatim. When a project doc
+    carries several threads of work, a manifest written for one thread silently
+    deletes the others' items. This is not blocked, because rewriting a plan
+    wholesale is legitimate, but it is made impossible to miss: the dropped
+    lines are printed under their own banner rather than buried among the diff
+    lines of the change report.
+
+    Returns the dropped lines (for tests); prints nothing when none are lost.
+
+    Origin: 2026-08-30, an InBloom session-end silently dropped three live
+    permitting items, noticed only by reading the change report closely.
+    """
+    replacement = {ln.strip() for ln in new_body.splitlines() if ln.strip()}
+    lost = [ln.strip() for ln in old_body if ln.strip() and ln.strip() not in replacement]
+    if not lost:
+        return []
+    print(
+        f"\nWARNING: {field!r} on {slug!r} replaced the whole section and dropped "
+        f"{len(lost)} existing line(s):",
+        file=sys.stderr,
+    )
+    for ln in lost:
+        print(f"  - {ln}", file=sys.stderr)
+    print(
+        f"  If those belonged to another thread of work, merge them back in. "
+        f"Set {field}_replace_ok: true to silence this.\n",
+        file=sys.stderr,
+    )
+    return lost
 
 
 def preflight_validate(
