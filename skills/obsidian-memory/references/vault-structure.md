@@ -32,9 +32,13 @@ Work/Chalktalk/Projects/
   <First Name> YYYY-MM-DD.md  — See references/one-on-one-template.md
   _index.md
 
-<YourOrg>/Decisions/       — Decisions of lasting consequence; auto-extracted by session-end ritual
+<YourOrg>/Decisions/       — Work decisions of lasting consequence; auto-extracted by session-end ritual
   YYYY-MM-DD-<slug>.md     — See references/decision-template.md
   _index.md
+
+Personal/Decisions/        — Personal decisions (category: personal); same schema, outside the work org
+  YYYY-MM-DD-<slug>.md     — Deliberately NOT globbed by board-update / investor-update /
+                             quarterly-review / employee-review, which read <YourOrg>/Decisions/ only
 
 <YourOrg>/Reviews/         — Employee review drafts produced by the employee-review skill
   <period>/<First Last>.md
