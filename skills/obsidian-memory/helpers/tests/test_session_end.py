@@ -922,6 +922,49 @@ class TestPreflightValidation:
         )
         assert any("does-not-exist" in p for p in problems)
 
+    def _doc(self, vault, slug, body):
+        p = vault / "Work/Chalktalk/Projects" / f"{slug}.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"# {slug}\n\n{body}", encoding="utf-8")
+        return p
+
+    def test_warns_when_next_steps_replace_drops_other_threads(self, tmp_path, capsys):
+        """A manifest written for one thread must not silently delete another's."""
+        doc = self._doc(tmp_path, "multi-thread",
+                        "## Next Steps\n- Permit occupancy question\n- Figma re-pull\n")
+        upd = session_end.ProjectDocUpdate(
+            slug="multi-thread", next_steps="- Sign the amendment"
+        )
+        session_end.append_to_project_doc(tmp_path, upd)
+        err = capsys.readouterr().err
+        assert "dropped 2 existing line(s)" in err
+        assert "Permit occupancy question" in err
+        assert "next_steps_replace_ok" in err
+
+    def test_no_warning_when_replace_ok_is_set(self, tmp_path, capsys):
+        self._doc(tmp_path, "p", "## Next Steps\n- Old item\n")
+        upd = session_end.ProjectDocUpdate(
+            slug="p", next_steps="- New item", next_steps_replace_ok=True
+        )
+        session_end.append_to_project_doc(tmp_path, upd)
+        assert "dropped" not in capsys.readouterr().err
+
+    def test_no_warning_when_existing_lines_are_preserved(self, tmp_path, capsys):
+        """Merging the old bullets into the new body is the intended fix."""
+        self._doc(tmp_path, "p", "## Next Steps\n- Keep me\n")
+        upd = session_end.ProjectDocUpdate(
+            slug="p", next_steps="- Keep me\n- And add this"
+        )
+        session_end.append_to_project_doc(tmp_path, upd)
+        assert "dropped" not in capsys.readouterr().err
+
+    def test_status_replace_never_warns(self, tmp_path, capsys):
+        """Replacing a current-state line is exactly what `status` is for."""
+        self._doc(tmp_path, "p", "## Status\n\U0001F7E2 Old status.\n")
+        upd = session_end.ProjectDocUpdate(slug="p", status="\U0001F7E1 New status.")
+        session_end.append_to_project_doc(tmp_path, upd)
+        assert "dropped" not in capsys.readouterr().err
+
     def test_preflight_flags_collision_for_new_project_doc(self, tmp_path):
         vault = self._setup_vault(tmp_path)
         manifest = session_end.SessionEndManifest(
