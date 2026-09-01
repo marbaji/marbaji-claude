@@ -1152,15 +1152,33 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
     Both sections are swept, on different cadences — active projects for
     staleness (STALE_DAYS), backlog projects for monthly grooming
     (BACKLOG_GROOM_DAYS); a backlogged project quietly rotting is exactly the
-    "so I don't forget" case the sweep exists for. Slug is the path segment
-    after 'Projects/' for both Work and Personal entries (the same key the
-    sidecar uses); section is "active" or "backlog"."""
+    "so I don't forget" case the sweep exists for. Section is "active" or
+    "backlog".
+
+    Slug is whatever ``_find_entry_block`` can resolve back to this same
+    heading — the two must agree, or a focus_updates operation silently
+    no-ops (see tests/test_focus_slug_resolution.py). The two link forms need
+    different handling, and conflating them is the bug this shape exists to
+    prevent:
+
+    - **Work** entries may NEST (``Projects/Content/lesson-production/index``),
+      so the slug is the whole path up to the alias pipe or the closing
+      brackets. Truncating at the first "/" collapses every sibling under a
+      parent directory onto one slug that matches no heading at all.
+    - **Personal** entries always end ``<slug>/overview``, where "/overview" is
+      part of the LINK FORM rather than a nesting level, so it is stripped. A
+      personal slug may itself contain spaces ("InBloom Early Learning").
+    """
     path = vault / "Context/current-focus.md"
     if not path.exists():
         return []
     _, body = _split_frontmatter(path.read_text())
     lines = body.splitlines()
-    pat = re.compile(r"^###\s+\[\[(?:Work/[^/]+|Personal)/Projects/([^\]|/]+)")
+    # Personal first: its trailing "/overview" is structural, not nesting.
+    pats = (
+        re.compile(r"^###\s+\[\[Personal/Projects/(.+?)/overview\s*(?:\||\]\])"),
+        re.compile(r"^###\s+\[\[Work/[^/]+/Projects/(.+?)\s*(?:\||\]\])"),
+    )
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     for heading, section in (("## Active Projects", "active"), ("## Backlog", "backlog")):
@@ -1170,11 +1188,32 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
         for line in lines[start + 1 :]:
             if line.startswith("## "):
                 break
-            m = pat.match(line.strip())
+            stripped = line.strip()
+            m = next(filter(None, (p.match(stripped) for p in pats)), None)
             if m and m.group(1) not in seen:
                 seen.add(m.group(1))
                 out.append((m.group(1), section))
     return out
+
+
+def _inherited_entry(projects: dict, slug: str) -> Optional[dict]:
+    """A sidecar entry written for `slug` under an older slugging scheme.
+
+    Before nested Work paths were kept whole, this file truncated the slug at
+    the first "/", so a sidecar could hold the collapsed parent ("Content") or,
+    earlier still, the bare last segment ("curriculum-creation-sop"). Adopting
+    that entry matters more than it looks: without it the slug reads as brand
+    new and gets seeded at TODAY, which silently resets a project's staleness
+    to zero and drops it off the sweep — the exact failure the sweep exists to
+    catch. Most specific candidate wins; the entry is copied, never moved, so
+    a legacy key shared by siblings still serves each of them."""
+    if "/" not in slug:
+        return None
+    for legacy in (slug.rsplit("/", 1)[-1], slug.split("/", 1)[0]):
+        entry = projects.get(legacy)
+        if entry and entry.get("last_worked_on"):
+            return dict(entry)
+    return None
 
 
 def compute_stale_candidates(
@@ -1205,10 +1244,18 @@ def compute_stale_candidates(
     for slug, section in _swept_slugs(vault, org_name):
         entry = projects.get(slug)
         if not entry or not entry.get("last_worked_on"):
-            if seed_missing:
+            # Adopt a pre-nesting key before treating the slug as new, or the
+            # project's real staleness is erased by a fresh seed at today.
+            entry = _inherited_entry(projects, slug)
+            if entry:
+                projects[slug] = entry
+                seeded = True
+            elif seed_missing:
                 projects.setdefault(slug, {})["last_worked_on"] = today.isoformat()
                 seeded = True
-            continue
+                continue
+            else:
+                continue
         snooze_until = entry.get("snooze_until")
         if snooze_until:
             try:
