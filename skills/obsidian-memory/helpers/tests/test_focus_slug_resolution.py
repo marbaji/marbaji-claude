@@ -356,6 +356,85 @@ class TestMigrationRunsOnce:
         )
 
 
+    def test_apply_path_migrates_and_stamps_without_stale_check(self, tmp_path):
+        """A vault where --stale-check never runs must still migrate exactly once.
+
+        The apply path adopts too, so if only the sweep stamped the marker,
+        adoption would run forever here and a later unrelated project sharing a
+        path segment would inherit a dead project's date.
+        """
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(vault, {"projects": {
+            "curriculum-creation-sop": {"last_worked_on": "2026-06-17"},
+        }})
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(snooze=["Content/curriculum-creation-sop"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 9, 1),
+        )
+        meta = session_end.load_focus_meta(vault)
+        # The migration ran: real staleness kept rather than stamped to today.
+        assert meta["projects"]["Content/curriculum-creation-sop"]["last_worked_on"] == "2026-06-17"
+        # ...and it is recorded, so it will not run again on this vault.
+        assert meta[session_end.NESTED_SLUG_MIGRATION] == "2026-09-01"
+
+    def test_apply_path_migration_covers_slugs_it_was_not_asked_about(self, tmp_path):
+        """Stamping after migrating only the touched slugs would strand the rest."""
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(vault, {"projects": {
+            "curriculum-creation-sop": {"last_worked_on": "2026-06-17"},
+            "Content": {"last_worked_on": "2026-08-25"},
+        }})
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(snooze=["Content/curriculum-creation-sop"]),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 9, 1),
+        )
+        projects = session_end.load_focus_meta(vault)["projects"]
+        # An entry nobody mentioned in this run was migrated all the same.
+        assert projects["Content/lesson-production/index"]["last_worked_on"] == "2026-08-25"
+
+    def test_an_empty_sweep_does_not_burn_the_migration(self, tmp_path):
+        """Stamping over a missing current-focus.md would erase real staleness.
+
+        The marker means "the sidecar has been walked under the corrected
+        slugs". With nothing to walk that claim is false, and spending the one
+        migration there loses it for the entries that appear afterwards.
+        """
+        vault = tmp_path / "vault"
+        (vault / "Context").mkdir(parents=True)
+        session_end.save_focus_meta(vault, {"projects": {
+            "curriculum-creation-sop": {"last_worked_on": "2026-06-17"},
+        }})
+        # No current-focus.md yet: the sweep is empty.
+        assert session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        ) == []
+        assert not session_end.load_focus_meta(vault).get(session_end.NESTED_SLUG_MIGRATION)
+        # The file appears later; the migration must still be available.
+        (vault / "Context/current-focus.md").write_text(FOCUS)
+        cands = {c["slug"]: c for c in session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        )}
+        assert cands["Content/curriculum-creation-sop"]["days_stale"] == 76
+
+    def test_index_exclusion_is_consistent_at_every_depth(self, tmp_path):
+        """A trailing "index" is a filename at depth two as much as depth three."""
+        focus = FOCUS.replace(
+            "### [[Work/Chalktalk/Projects/flat-project]]",
+            "### [[Work/Chalktalk/Projects/Handbook/index]]",
+        )
+        vault = _vault(tmp_path, focus)
+        session_end.save_focus_meta(vault, {"projects": {
+            "index": {"last_worked_on": "2026-08-30"},       # generic, wrong
+            "Handbook": {"last_worked_on": "2026-06-17"},    # the real one
+        }})
+        cands = {c["slug"]: c for c in session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        )}
+        assert cands["Handbook/index"]["last_worked_on"] == "2026-06-17"
+
+
 class TestNestedEntryMovesTheRightBlock:
     def test_retiring_a_nested_entry_moves_only_that_entry(self, tmp_path):
         vault = _vault(tmp_path)
