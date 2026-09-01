@@ -66,9 +66,19 @@ This prints (JSON) every due project with its `section`, e.g. `[{"slug": "foo", 
 
 Only ask about the candidates the command prints — never re-ask about projects it didn't flag. There is no separate "keep" answer: keeping a project as-is IS a snooze (the user can name any duration; "snooze" with no duration = 2 weeks for active, and "keep in backlog" = snooze defaulting to the next monthly grooming).
 
+**Every staleness question carries a synopsis of the project — MANDATORY.** A slug is a filename, not a memory aid: by definition these projects have been untouched for weeks, so the user is being asked to retire or complete something they no longer hold in their head. Write two or three sentences saying **what the project is**, then what state it's in. The one-line status blurb in `current-focus.md` is NOT sufficient on its own: it is written as a progress marker for someone already holding the context ("Architecture decided + reorg SHIPPED 2026-08-18. Monthly: sweep.py + claude-mem consolidation."), so it says what happened without ever saying what the thing is. Include it after the synopsis, not instead of it. Where the synopsis makes an option clearly right, recommend that option and say why, in the template's recommendation slot below the question. (Mo, 2026-09-01: *"whenever it tells me about things to snooze or not, it needs to give me a brief overview/synopsis of the project, because otherwise, I forget. I don't know what this project is about"* — said of a bare-slug prompt for a project he had built himself two weeks earlier.)
+
+**Resolve the doc from the wikilink in `current-focus.md`.** `--stale-check` returns no `category` field, so the slug alone does not say whether the doc is `Work/$ORG_NAME/Projects/<slug>.md` or `Personal/Projects/<slug>/overview.md`. The heading above each entry does (`### [[Work/$ORG_NAME/Projects/Content/lesson-production/index]]`, `### [[Personal/Projects/figma-to-site/overview|figma-to-site]]`), and you are already opening the file for the status blurb, so take the path from the same heading. Add `.md` — wikilinks omit the extension.
+
+**If there is genuinely no project doc, say that in the prompt.** Never write a synopsis you could not source — a MANDATORY field is not a license to invent one, and a fabricated project description is worse than a bare slug because the user cannot tell it is fabricated and will retire or complete a project on the strength of it. Say what the entry is, where you looked, and that no doc exists, then ask the question anyway.
+
 ```
-Active:  "<slug>" hasn't been worked on in <N> days. Retire, mark complete, or snooze (default 2 weeks — say a different duration if you want)?
-Backlog: "<slug>" has sat in the backlog for <N> days. Promote to current projects, keep in backlog, or retire?
+Active:  "<slug>" — <2-3 sentence synopsis: what it is, what state it's in>.
+         Hasn't been worked on in <N> days. Retire, mark complete, or snooze (default 2 weeks — say a different duration if you want)?
+         <Recommendation + one line of why, when the synopsis makes one option clearly right.>
+Backlog: "<slug>" — <2-3 sentence synopsis: what it is, why it was parked>.
+         Has sat in the backlog for <N> days. Promote to current projects, keep in backlog, or retire?
+         <Recommendation + one line of why, when the synopsis makes one option clearly right.>
 ```
 
 Map the answer into the manifest's `focus_updates`:

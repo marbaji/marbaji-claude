@@ -331,6 +331,8 @@ class NewProjectDoc(BaseModel):
 
 # --- Staleness tracking for current-focus Active/Backlog projects -----------
 # Two cadences (per Mo, 2026-07-04):
+NESTED_SLUG_MIGRATION = "nested_slug_migration"
+"""Sidecar marker: legacy slug keys have been adopted once already."""
 #   Active:  due when >= STALE_DAYS since last_worked_on AND any snooze has
 #            expired. Question: retire / complete / snooze. There is no
 #            separate "keep" — keeping IS a snooze (default SNOOZE_DAYS,
@@ -1152,15 +1154,37 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
     Both sections are swept, on different cadences — active projects for
     staleness (STALE_DAYS), backlog projects for monthly grooming
     (BACKLOG_GROOM_DAYS); a backlogged project quietly rotting is exactly the
-    "so I don't forget" case the sweep exists for. Slug is the path segment
-    after 'Projects/' for both Work and Personal entries (the same key the
-    sidecar uses); section is "active" or "backlog"."""
+    "so I don't forget" case the sweep exists for. Section is "active" or
+    "backlog".
+
+    Slug is whatever ``_find_entry_block`` can resolve back to this same
+    heading — the two must agree, or a focus_updates operation silently
+    no-ops (see tests/test_focus_slug_resolution.py). The two link forms need
+    different handling, and conflating them is the bug this shape exists to
+    prevent:
+
+    - **Work** entries may NEST (``Projects/Content/lesson-production/index``),
+      so the slug is the whole path up to the alias pipe or the closing
+      brackets. Truncating at the first "/" collapses every sibling under a
+      parent directory onto one slug that matches no heading at all.
+    - **Personal** entries always end ``<slug>/overview``, where "/overview" is
+      part of the LINK FORM rather than a nesting level, so it is stripped. A
+      personal slug may itself contain spaces ("InBloom Early Learning").
+    """
     path = vault / "Context/current-focus.md"
     if not path.exists():
         return []
     _, body = _split_frontmatter(path.read_text())
     lines = body.splitlines()
-    pat = re.compile(r"^###\s+\[\[(?:Work/[^/]+|Personal)/Projects/([^\]|/]+)")
+    # Personal first: its trailing "/overview" is structural, not nesting.
+    # No \s* before the delimiter: _find_entry_block requires the character
+    # immediately after the slug to be "]" or "|", so trimming whitespace here
+    # that the resolver does not trim would emit a slug matching no heading —
+    # reintroducing the silent no-op this shape exists to prevent.
+    pats = (
+        re.compile(r"^###\s+\[\[Personal/Projects/(.+?)/overview(?:\||\]\])"),
+        re.compile(r"^###\s+\[\[Work/[^/]+/Projects/(.+?)(?:\||\]\])"),
+    )
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     for heading, section in (("## Active Projects", "active"), ("## Backlog", "backlog")):
@@ -1170,11 +1194,104 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
         for line in lines[start + 1 :]:
             if line.startswith("## "):
                 break
-            m = pat.match(line.strip())
+            stripped = line.strip()
+            m = next(filter(None, (p.match(stripped) for p in pats)), None)
             if m and m.group(1) not in seen:
                 seen.add(m.group(1))
                 out.append((m.group(1), section))
     return out
+
+
+def _migrate_legacy_slug_keys(
+    meta: dict, swept: list[tuple[str, str]], today: Date
+) -> bool:
+    """Adopt pre-nesting sidecar keys ONCE for every swept slug. True if changed.
+
+    Legacy-key adoption is a migration, not a standing lookup. Left running
+    forever, every orphaned key stays a claim on any future slug that shares a
+    path segment with it, so a brand-new project inherits a dead one's date and
+    is born stale. The marker retires the lookup for good.
+
+    Two properties this shape buys that a per-operation adoption cannot:
+
+    - **It runs on EVERY swept slug, not just the ones a caller happens to
+      touch.** Stamping after migrating only, say, the snoozed slugs would
+      strand every other nested entry permanently.
+    - **It is the single home for the stamp**, so the two entry points that
+      adopt (the staleness sweep and the apply path) cannot drift apart.
+
+    A migration is only recorded when there was something to walk: `swept` is
+    empty when `current-focus.md` is missing or its sections are, and stamping
+    then would burn the one migration on a vault whose entries had not appeared
+    yet, silently erasing their real staleness the moment they did."""
+    if meta.get(NESTED_SLUG_MIGRATION) or not swept:
+        return False
+    projects = meta.setdefault("projects", {})
+    live_slugs = {slug for slug, _section in swept}
+    for slug, _section in swept:
+        entry = projects.get(slug)
+        if entry and entry.get("last_worked_on"):
+            continue
+        inherited = _inherited_entry(projects, slug, live_slugs)
+        if inherited:
+            projects.setdefault(slug, {})["last_worked_on"] = inherited["last_worked_on"]
+    meta[NESTED_SLUG_MIGRATION] = today.isoformat()
+    return True
+
+
+def _inherited_entry(projects: dict, slug: str, live_slugs: set[str]) -> Optional[dict]:
+    """The `last_worked_on` a sidecar recorded for `slug` under an older scheme.
+
+    Before nested Work paths were kept whole, this file truncated the slug at
+    the first "/", so a sidecar could hold the collapsed parent ("Content") or,
+    earlier still, a bare path segment ("curriculum-creation-sop"). Adopting
+    that date matters more than it looks: without it the corrected slug reads
+    as brand new and gets seeded at TODAY, which silently resets a project's
+    staleness to zero and drops it off the sweep — the exact failure the sweep
+    exists to catch.
+
+    Two constraints keep the adoption honest:
+
+    - **A key that is itself a live slug is NOT a legacy key**, so it is never
+      adopted. Without this, a new `Content/adaptive-exams` would inherit the
+      unrelated flat `adaptive-exams` project's history simply by sharing a
+      path segment.
+    - **Only `last_worked_on` is copied**, never the whole entry. Inheriting
+      staleness is the point; inheriting another entry's `snooze_until` would
+      let a project be born already deferred and therefore invisible.
+
+    Candidate keys are tried most-specific first, and the ROOT SEGMENT IS TRIED
+    LAST because it is the least specific of all: every sibling under the same
+    directory collapsed onto it, so its date describes whichever sibling was
+    touched most recently rather than this one. Trying it earlier silently
+    hands a long-stale entry its busiest sibling's date and drops it off the
+    sweep — measured against the live vault, where inheriting `Content` (7 days)
+    over `curriculum-creation-sop` (76 days) made a stale project vanish.
+
+    Middle segments are candidates too, not just the leaf: sidecars exist
+    holding `lesson-production` for `Content/lesson-production/index`. The
+    source entry is read, never moved, so one legacy key shared by siblings
+    still serves each of them."""
+    if "/" not in slug:
+        return None
+    parts = slug.split("/")
+    # A trailing "index" names the folder's index file, not the project — the
+    # same structural-filename role "/overview" plays in the personal form, and
+    # the same conflation this whole change exists to undo. The directory above
+    # it carries the identity, so it is not a candidate in its own right.
+    segments = parts[1:-1] if parts[-1] == "index" else parts[1:]
+    # Longest leading paths first, then bare segments from the leaf inward,
+    # then — last — the collapsed root.
+    candidates = ["/".join(parts[:i]) for i in range(len(parts) - 1, 1, -1)]
+    candidates += list(reversed(segments))
+    candidates.append(parts[0])
+    for legacy in candidates:
+        if legacy == slug or legacy in live_slugs:
+            continue
+        entry = projects.get(legacy)
+        if entry and entry.get("last_worked_on"):
+            return {"last_worked_on": entry["last_worked_on"]}
+    return None
 
 
 def compute_stale_candidates(
@@ -1202,7 +1319,14 @@ def compute_stale_candidates(
     }
     out: list[dict] = []
     seeded = False
-    for slug, section in _swept_slugs(vault, org_name):
+    swept = _swept_slugs(vault, org_name)
+    # Adopt pre-nesting keys before anything reads them, or a corrected slug
+    # looks brand new and gets seeded at TODAY, erasing its real staleness.
+    # Applied to the in-memory meta either way but PERSISTED only when seeding
+    # is allowed, so preflight during --dry-run stays write-free.
+    if _migrate_legacy_slug_keys(meta, swept, today) and seed_missing:
+        seeded = True
+    for slug, section in swept:
         entry = projects.get(slug)
         if not entry or not entry.get("last_worked_on"):
             if seed_missing:
@@ -1383,6 +1507,18 @@ def process_focus_updates(
     meta = load_focus_meta(vault)
     projects = meta["projects"]
     meta_changed = False
+    # Migrate BEFORE anything reads or writes the sidecar, and on every apply
+    # whatever operations it carries. Deferring is not the same as not needing
+    # it: a moves-only apply leaves the marker unset, and every project created
+    # before the migration finally runs is swept INTO it and adopts a dead
+    # orphan's date. The routine is marker-gated and idempotent, so calling it
+    # unconditionally is safe; the cost is one read of current-focus.md. Read
+    # from disk, which still holds the pre-edit file — the legacy keys belong
+    # to the pre-edit headings, and a slug being moved out this run is still
+    # swept, so it is adopted and then popped, netting correctly.
+    swept = _swept_slugs(vault, org_name)
+    if _migrate_legacy_slug_keys(meta, swept, day):
+        meta_changed = True
     for upsert in updates.upsert:
         entry = projects.setdefault(upsert.slug, {})
         entry["last_worked_on"] = stamp
@@ -1402,7 +1538,7 @@ def process_focus_updates(
         # for "keep in backlog". Sections are read from disk, which still
         # holds the pre-edit file at this point; a snoozed slug is never
         # also moved in the same run.
-        sections = dict(_swept_slugs(vault, org_name))
+        sections = dict(swept)
         default_days = {
             "active": meta.get("snooze_days", SNOOZE_DAYS),
             "backlog": meta.get("backlog_groom_days", BACKLOG_GROOM_DAYS),
