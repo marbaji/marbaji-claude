@@ -66,9 +66,13 @@ This prints (JSON) every due project with its `section`, e.g. `[{"slug": "foo", 
 
 Only ask about the candidates the command prints — never re-ask about projects it didn't flag. There is no separate "keep" answer: keeping a project as-is IS a snooze (the user can name any duration; "snooze" with no duration = 2 weeks for active, and "keep in backlog" = snooze defaulting to the next monthly grooming).
 
+**Every staleness question carries a synopsis of the project — MANDATORY.** A slug is a filename, not a memory aid: by definition these projects have been untouched for weeks, so the user is being asked to retire or complete something they no longer hold in their head. Read the project's own doc (`Personal/Projects/<slug>/overview.md` or `Work/$ORG_NAME/Projects/<slug>.md`) and write two or three sentences saying **what the project is**, then what state it's in and when it was last moved. The one-line status blurb in `current-focus.md` is NOT sufficient on its own: it is written as a progress marker for someone already holding the context ("Architecture decided + reorg SHIPPED 2026-08-18. Monthly: sweep.py + claude-mem consolidation."), so it says what happened without ever saying what the thing is. Include it after the synopsis, not instead of it. Where the synopsis makes an option clearly right, recommend that option and say why. (Mo, 2026-09-01: *"whenever it tells me about things to snooze or not, it needs to give me a brief overview/synopsis of the project, because otherwise, I forget. I don't know what this project is about"* — said of a bare-slug prompt for a project he had built himself two weeks earlier.)
+
 ```
-Active:  "<slug>" hasn't been worked on in <N> days. Retire, mark complete, or snooze (default 2 weeks — say a different duration if you want)?
-Backlog: "<slug>" has sat in the backlog for <N> days. Promote to current projects, keep in backlog, or retire?
+Active:  "<slug>" — <2-3 sentence synopsis: what it is, what state it's in, when it last moved>.
+         Hasn't been worked on in <N> days. Retire, mark complete, or snooze (default 2 weeks — say a different duration if you want)?
+Backlog: "<slug>" — <2-3 sentence synopsis: what it is, why it was parked>.
+         Has sat in the backlog for <N> days. Promote to current projects, keep in backlog, or retire?
 ```
 
 Map the answer into the manifest's `focus_updates`:
