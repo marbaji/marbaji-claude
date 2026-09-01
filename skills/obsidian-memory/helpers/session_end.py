@@ -1175,9 +1175,13 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
     _, body = _split_frontmatter(path.read_text())
     lines = body.splitlines()
     # Personal first: its trailing "/overview" is structural, not nesting.
+    # No \s* before the delimiter: _find_entry_block requires the character
+    # immediately after the slug to be "]" or "|", so trimming whitespace here
+    # that the resolver does not trim would emit a slug matching no heading —
+    # reintroducing the silent no-op this shape exists to prevent.
     pats = (
-        re.compile(r"^###\s+\[\[Personal/Projects/(.+?)/overview\s*(?:\||\]\])"),
-        re.compile(r"^###\s+\[\[Work/[^/]+/Projects/(.+?)\s*(?:\||\]\])"),
+        re.compile(r"^###\s+\[\[Personal/Projects/(.+?)/overview(?:\||\]\])"),
+        re.compile(r"^###\s+\[\[Work/[^/]+/Projects/(.+?)(?:\||\]\])"),
     )
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -1196,23 +1200,53 @@ def _swept_slugs(vault: Path, org_name: str) -> list[tuple[str, str]]:
     return out
 
 
-def _inherited_entry(projects: dict, slug: str) -> Optional[dict]:
-    """A sidecar entry written for `slug` under an older slugging scheme.
+def _inherited_entry(projects: dict, slug: str, live_slugs: set[str]) -> Optional[dict]:
+    """The `last_worked_on` a sidecar recorded for `slug` under an older scheme.
 
     Before nested Work paths were kept whole, this file truncated the slug at
     the first "/", so a sidecar could hold the collapsed parent ("Content") or,
-    earlier still, the bare last segment ("curriculum-creation-sop"). Adopting
-    that entry matters more than it looks: without it the slug reads as brand
-    new and gets seeded at TODAY, which silently resets a project's staleness
-    to zero and drops it off the sweep — the exact failure the sweep exists to
-    catch. Most specific candidate wins; the entry is copied, never moved, so
-    a legacy key shared by siblings still serves each of them."""
+    earlier still, a bare path segment ("curriculum-creation-sop"). Adopting
+    that date matters more than it looks: without it the corrected slug reads
+    as brand new and gets seeded at TODAY, which silently resets a project's
+    staleness to zero and drops it off the sweep — the exact failure the sweep
+    exists to catch.
+
+    Two constraints keep the adoption honest:
+
+    - **A key that is itself a live slug is NOT a legacy key**, so it is never
+      adopted. Without this, a new `Content/adaptive-exams` would inherit the
+      unrelated flat `adaptive-exams` project's history simply by sharing a
+      path segment.
+    - **Only `last_worked_on` is copied**, never the whole entry. Inheriting
+      staleness is the point; inheriting another entry's `snooze_until` would
+      let a project be born already deferred and therefore invisible.
+
+    Candidate keys are tried most-specific first, and the ROOT SEGMENT IS TRIED
+    LAST because it is the least specific of all: every sibling under the same
+    directory collapsed onto it, so its date describes whichever sibling was
+    touched most recently rather than this one. Trying it earlier silently
+    hands a long-stale entry its busiest sibling's date and drops it off the
+    sweep — measured against the live vault, where inheriting `Content` (7 days)
+    over `curriculum-creation-sop` (76 days) made a stale project vanish.
+
+    Middle segments are candidates too, not just the leaf: sidecars exist
+    holding `lesson-production` for `Content/lesson-production/index`. The
+    source entry is read, never moved, so one legacy key shared by siblings
+    still serves each of them."""
     if "/" not in slug:
         return None
-    for legacy in (slug.rsplit("/", 1)[-1], slug.split("/", 1)[0]):
+    parts = slug.split("/")
+    # Longest leading paths first, then bare segments from the leaf inward,
+    # then — last — the collapsed root.
+    candidates = ["/".join(parts[:i]) for i in range(len(parts) - 1, 1, -1)]
+    candidates += list(reversed(parts[1:]))
+    candidates.append(parts[0])
+    for legacy in candidates:
+        if legacy == slug or legacy in live_slugs:
+            continue
         entry = projects.get(legacy)
         if entry and entry.get("last_worked_on"):
-            return dict(entry)
+            return {"last_worked_on": entry["last_worked_on"]}
     return None
 
 
@@ -1241,15 +1275,20 @@ def compute_stale_candidates(
     }
     out: list[dict] = []
     seeded = False
-    for slug, section in _swept_slugs(vault, org_name):
+    swept = _swept_slugs(vault, org_name)
+    live_slugs = {slug for slug, _section in swept}
+    for slug, section in swept:
         entry = projects.get(slug)
         if not entry or not entry.get("last_worked_on"):
             # Adopt a pre-nesting key before treating the slug as new, or the
-            # project's real staleness is erased by a fresh seed at today.
-            entry = _inherited_entry(projects, slug)
+            # project's real staleness is erased by a fresh seed at today. The
+            # adoption is computed either way but only PERSISTED when seeding
+            # is allowed, so preflight during --dry-run stays write-free.
+            entry = _inherited_entry(projects, slug, live_slugs)
             if entry:
-                projects[slug] = entry
-                seeded = True
+                if seed_missing:
+                    projects[slug] = dict(entry)
+                    seeded = True
             elif seed_missing:
                 projects.setdefault(slug, {})["last_worked_on"] = today.isoformat()
                 seeded = True
@@ -1456,7 +1495,15 @@ def process_focus_updates(
         }
         for op in updates.snooze:
             entry = projects.setdefault(op.slug, {})
-            entry.setdefault("last_worked_on", stamp)
+            if not entry.get("last_worked_on"):
+                # A slug corrected by the nesting fix may have no key of its
+                # own yet, because preflight computes the inheritance without
+                # persisting it. Falling straight through to today's stamp
+                # would reset the very staleness the snooze is deferring.
+                inherited = _inherited_entry(projects, op.slug, set(sections))
+                entry["last_worked_on"] = (
+                    inherited["last_worked_on"] if inherited else stamp
+                )
             entry["last_asked_about"] = stamp
             days = op.days or default_days[sections.get(op.slug, "active")]
             entry["snooze_until"] = (day + timedelta(days=days)).isoformat()
