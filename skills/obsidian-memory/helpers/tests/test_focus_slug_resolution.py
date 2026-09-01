@@ -394,6 +394,43 @@ class TestMigrationRunsOnce:
         # An entry nobody mentioned in this run was migrated all the same.
         assert projects["Content/lesson-production/index"]["last_worked_on"] == "2026-08-25"
 
+    def test_a_moves_only_apply_still_migrates(self, tmp_path):
+        """Deferring the migration is not the same as not needing it.
+
+        A moves-only apply carries no snooze. If the migration hung off the
+        snooze block the marker would stay unset, and any project created
+        before it finally ran would be swept INTO the migration and adopt a
+        dead orphan's date on the day it was created.
+        """
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(vault, {"projects": {
+            "lesson-production": {"last_worked_on": "2026-08-06"},  # orphan
+        }})
+        session_end.process_focus_updates(
+            vault=vault,
+            updates=session_end.FocusUpdates(
+                move_to_retired=["Content/curriculum-creation-sop"]
+            ),
+            last_updated_slug="x", org_name="Chalktalk", today=Date(2026, 9, 1),
+        )
+        assert session_end.load_focus_meta(vault)[session_end.NESTED_SLUG_MIGRATION] == "2026-09-01"
+
+        # A brand-new unrelated project appears afterwards, sharing a segment
+        # with the surviving orphan. The spent migration must not capture it.
+        focus = FOCUS.replace(
+            "## Backlog",
+            "### [[Work/Chalktalk/Projects/Marketing/lesson-production/notes]]\n"
+            "🟢 Brand new, unrelated.\n\n## Backlog",
+        )
+        (vault / "Context/current-focus.md").write_text(focus)
+        session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 20), org_name="Chalktalk", seed_missing=True
+        )
+        stored = session_end.load_focus_meta(vault)["projects"]
+        assert stored["Marketing/lesson-production/notes"]["last_worked_on"] == "2026-09-20", (
+            "a project created after the migration adopted a dead orphan's date"
+        )
+
     def test_an_empty_sweep_does_not_burn_the_migration(self, tmp_path):
         """Stamping over a missing current-focus.md would erase real staleness.
 

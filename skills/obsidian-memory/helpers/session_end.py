@@ -1332,9 +1332,7 @@ def compute_stale_candidates(
             if seed_missing:
                 projects.setdefault(slug, {})["last_worked_on"] = today.isoformat()
                 seeded = True
-                continue
-            else:
-                continue
+            continue
         snooze_until = entry.get("snooze_until")
         if snooze_until:
             try:
@@ -1509,6 +1507,18 @@ def process_focus_updates(
     meta = load_focus_meta(vault)
     projects = meta["projects"]
     meta_changed = False
+    # Migrate BEFORE anything reads or writes the sidecar, and on every apply
+    # whatever operations it carries. Deferring is not the same as not needing
+    # it: a moves-only apply leaves the marker unset, and every project created
+    # before the migration finally runs is swept INTO it and adopts a dead
+    # orphan's date. The routine is marker-gated and idempotent, so calling it
+    # unconditionally is safe; the cost is one read of current-focus.md. Read
+    # from disk, which still holds the pre-edit file — the legacy keys belong
+    # to the pre-edit headings, and a slug being moved out this run is still
+    # swept, so it is adopted and then popped, netting correctly.
+    swept = _swept_slugs(vault, org_name)
+    if _migrate_legacy_slug_keys(meta, swept, day):
+        meta_changed = True
     for upsert in updates.upsert:
         entry = projects.setdefault(upsert.slug, {})
         entry["last_worked_on"] = stamp
@@ -1528,16 +1538,7 @@ def process_focus_updates(
         # for "keep in backlog". Sections are read from disk, which still
         # holds the pre-edit file at this point; a snoozed slug is never
         # also moved in the same run.
-        swept = _swept_slugs(vault, org_name)
         sections = dict(swept)
-        # Migrate before snoozing, or a slug corrected by the nesting fix has
-        # no key yet, falls through to today's stamp, and the snooze resets the
-        # very staleness it is meant to defer. Preflight computes the adoption
-        # without persisting it, and a vault where --stale-check is never run
-        # reaches this path first, so the apply side has to migrate too. Same
-        # routine, so "adoption happens exactly once per vault" holds on both.
-        if _migrate_legacy_slug_keys(meta, swept, day):
-            meta_changed = True
         default_days = {
             "active": meta.get("snooze_days", SNOOZE_DAYS),
             "backlog": meta.get("backlog_groom_days", BACKLOG_GROOM_DAYS),
