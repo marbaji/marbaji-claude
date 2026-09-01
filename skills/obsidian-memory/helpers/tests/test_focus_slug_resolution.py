@@ -196,8 +196,12 @@ class TestLegacyKeyMigration:
         )}
         assert cands["Content/curriculum-creation-sop"]["last_worked_on"] == "2026-06-17"
         assert cands["Content/curriculum-creation-sop"]["days_stale"] == 76
-        # The sibling with no key of its own does fall back to the parent.
-        assert "Content/curriculum-synthesis-skill" not in cands  # parent's date is only 7 days old
+        # The sibling with no key of its own DOES fall back to the parent.
+        # Asserted positively against the stored value: "not in cands" would be
+        # satisfied equally by a seed at today, so it would stay green with the
+        # root fallback deleted.
+        stored = session_end.load_focus_meta(vault)["projects"]
+        assert stored["Content/lesson-production/index"]["last_worked_on"] == "2026-08-25"
 
     def test_middle_path_segment_is_a_candidate_too(self, tmp_path):
         """Sidecars hold middle segments, not only the leaf and the root."""
@@ -209,6 +213,24 @@ class TestLegacyKeyMigration:
             vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
         )}
         assert cands["Content/lesson-production/index"]["days_stale"] == 76
+
+    def test_a_trailing_index_segment_is_not_treated_as_the_project_name(self, tmp_path):
+        """`.../index` names the folder's index file, not the project.
+
+        Structurally the same role `/overview` plays in the personal form, and
+        the same conflation this change exists to undo. The directory above it
+        carries the identity, so a key literally named `index` must not
+        outrank the directory's own key.
+        """
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(vault, {"projects": {
+            "index": {"last_worked_on": "2026-08-30"},            # generic, wrong
+            "lesson-production": {"last_worked_on": "2026-06-17"},  # the real one
+        }})
+        cands = {c["slug"]: c for c in session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        )}
+        assert cands["Content/lesson-production/index"]["last_worked_on"] == "2026-06-17"
 
     def test_inheritance_never_adopts_a_live_projects_history(self, tmp_path):
         """A key that is itself a live slug is not a legacy key.
@@ -279,6 +301,59 @@ class TestLegacyKeyMigration:
         entry = session_end.load_focus_meta(vault)["projects"]["Content/curriculum-creation-sop"]
         assert entry["snooze_until"] == "2026-09-15"
         assert entry["last_worked_on"] == "2026-08-01", "inherited staleness was overwritten"
+
+
+class TestMigrationRunsOnce:
+    """Adoption is a migration, not a permanent lookup.
+
+    Left running forever, every orphaned legacy key stays a standing claim on
+    any future slug that shares a path segment with it, so a brand-new project
+    silently inherits a dead one's date and is born stale.
+    """
+
+    def test_marker_is_stamped_on_the_seeding_path(self, tmp_path):
+        vault = _vault(tmp_path)
+        assert not session_end.load_focus_meta(vault).get(session_end.NESTED_SLUG_MIGRATION)
+        session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        )
+        meta = session_end.load_focus_meta(vault)
+        assert meta[session_end.NESTED_SLUG_MIGRATION] == "2026-09-01"
+
+    def test_dry_run_does_not_stamp_the_marker(self, tmp_path):
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(
+            vault, {"projects": {"Content": {"last_worked_on": "2026-08-01"}}}
+        )
+        session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk"
+        )
+        assert not session_end.load_focus_meta(vault).get(session_end.NESTED_SLUG_MIGRATION)
+
+    def test_a_new_project_after_migration_seeds_at_today(self, tmp_path):
+        """The orphan left behind by a retired project must not be adoptable."""
+        vault = _vault(tmp_path)
+        session_end.save_focus_meta(vault, {"projects": {
+            "lesson-production": {"last_worked_on": "2026-06-17"},  # orphan from a dead project
+        }})
+        # First sweep migrates and stamps.
+        session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 1), org_name="Chalktalk", seed_missing=True
+        )
+        # A brand-new project appears later, sharing a path segment with the orphan.
+        focus = FOCUS.replace(
+            "## Backlog",
+            "### [[Work/Chalktalk/Projects/Marketing/lesson-production/notes]]\n"
+            "🟢 Brand new, unrelated.\n\n## Backlog",
+        )
+        (vault / "Context/current-focus.md").write_text(focus)
+        session_end.compute_stale_candidates(
+            vault, today=Date(2026, 9, 20), org_name="Chalktalk", seed_missing=True
+        )
+        stored = session_end.load_focus_meta(vault)["projects"]
+        assert stored["Marketing/lesson-production/notes"]["last_worked_on"] == "2026-09-20", (
+            "a new project inherited a dead project's date through a shared segment"
+        )
 
 
 class TestNestedEntryMovesTheRightBlock:

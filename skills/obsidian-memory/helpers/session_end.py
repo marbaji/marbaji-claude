@@ -331,6 +331,8 @@ class NewProjectDoc(BaseModel):
 
 # --- Staleness tracking for current-focus Active/Backlog projects -----------
 # Two cadences (per Mo, 2026-07-04):
+NESTED_SLUG_MIGRATION = "nested_slug_migration"
+"""Sidecar marker: legacy slug keys have been adopted once already."""
 #   Active:  due when >= STALE_DAYS since last_worked_on AND any snooze has
 #            expired. Question: retire / complete / snooze. There is no
 #            separate "keep" — keeping IS a snooze (default SNOOZE_DAYS,
@@ -1236,10 +1238,15 @@ def _inherited_entry(projects: dict, slug: str, live_slugs: set[str]) -> Optiona
     if "/" not in slug:
         return None
     parts = slug.split("/")
+    # A trailing "index" names the folder's index file, not the project — the
+    # same structural-filename role "/overview" plays in the personal form, and
+    # the same conflation this whole change exists to undo. The directory above
+    # it carries the identity, so it is not a candidate in its own right.
+    segments = parts[1:-1] if parts[-1] == "index" and len(parts) > 2 else parts[1:]
     # Longest leading paths first, then bare segments from the leaf inward,
     # then — last — the collapsed root.
     candidates = ["/".join(parts[:i]) for i in range(len(parts) - 1, 1, -1)]
-    candidates += list(reversed(parts[1:]))
+    candidates += list(reversed(segments))
     candidates.append(parts[0])
     for legacy in candidates:
         if legacy == slug or legacy in live_slugs:
@@ -1277,6 +1284,11 @@ def compute_stale_candidates(
     seeded = False
     swept = _swept_slugs(vault, org_name)
     live_slugs = {slug for slug, _section in swept}
+    # Legacy-key adoption is a MIGRATION, not a standing lookup. Left running
+    # forever, every orphan key remains a claim on any future slug sharing a
+    # path segment with it, so a brand-new project inherits a dead one's date.
+    # One pass converts the sidecar; the marker retires the lookup for good.
+    migrated = bool(meta.get(NESTED_SLUG_MIGRATION))
     for slug, section in swept:
         entry = projects.get(slug)
         if not entry or not entry.get("last_worked_on"):
@@ -1284,7 +1296,7 @@ def compute_stale_candidates(
             # project's real staleness is erased by a fresh seed at today. The
             # adoption is computed either way but only PERSISTED when seeding
             # is allowed, so preflight during --dry-run stays write-free.
-            entry = _inherited_entry(projects, slug, live_slugs)
+            entry = None if migrated else _inherited_entry(projects, slug, live_slugs)
             if entry:
                 if seed_missing:
                     projects[slug] = dict(entry)
@@ -1317,6 +1329,11 @@ def compute_stale_candidates(
                     "days_stale": days,
                 }
             )
+    if seed_missing and not migrated:
+        # Stamp even when nothing was adopted: the sidecar has now been walked
+        # under the corrected slugs, so there is nothing further to migrate.
+        meta[NESTED_SLUG_MIGRATION] = today.isoformat()
+        seeded = True
     if seeded:
         save_focus_meta(vault, meta)
     return out
@@ -1500,7 +1517,13 @@ def process_focus_updates(
                 # own yet, because preflight computes the inheritance without
                 # persisting it. Falling straight through to today's stamp
                 # would reset the very staleness the snooze is deferring.
-                inherited = _inherited_entry(projects, op.slug, set(sections))
+                # Gated on the same marker: once the sidecar is migrated, an
+                # absent key means a genuinely new project, not a renamed one.
+                inherited = (
+                    None
+                    if meta.get(NESTED_SLUG_MIGRATION)
+                    else _inherited_entry(projects, op.slug, set(sections))
+                )
                 entry["last_worked_on"] = (
                     inherited["last_worked_on"] if inherited else stamp
                 )
