@@ -93,6 +93,16 @@ Staleness state lives in the vault-hidden sidecar `Context/.focus-meta.json`, ma
 
 The sweep catches *abandoned* work AND *shipped-but-forgotten* work (a merged project nobody revisited goes stale and surfaces with a "complete" option). It does NOT watch GitHub, so a silently-merged project can lag up to a full stale window before it's flagged — real-time merge detection is a separate follow-up.
 
+## Step 2c: Close what this session finished in `tasks/active` — MANDATORY
+
+`~/Desktop/Claude Code/tasks/active/` holds only files someone will act on: `spec`, `plan`, `handoff` (the rule is the `tasks/` bullet in `~/Desktop/Claude Code/CLAUDE.md`). Each closes by moving to `tasks/archive/<yyyy>/`; the move IS the completion mark. A write-time hook keeps evidence out of the folder, but nothing closes a spec or a handoff except the session that finished it, and Bash writes bypass the hook, so this step is both the closing moment and the backstop.
+
+- List every file under `tasks/active/` this session wrote, edited, or executed (the transcript knows; the fallback is `find "$HOME/Desktop/Claude Code/tasks/active" -maxdepth 1 -newer <a file from session start>`). Zero files means no question and no block.
+- For each one ask ONE multiple-choice question, **finished** or **still open**, with finished recommended whenever this session's own record says the work shipped (a merged PR, a Done section appended, the plan's tasks all checked). Move the finished ones to `tasks/archive/<yyyy>/`.
+- A file whose first body line starts with `**Waiting on Mo:**` is quoted back with that line and never moved; the answer is his, not the session's.
+- A file another live session owns (a handoff or spec this session did not write and did not execute) is skipped and named, never moved.
+- A plan whose PR merged this session is the merging session's job (the code-review skill's merge-and-cleanup step archives it); if it is still in the folder, ask about it here anyway.
+
 ## Step 3: Surface extractions for batched approval
 
 Walk the session for content that should live in its own structured file. Read [`references/extraction-rules.md`](extraction-rules.md) for full triggers + templates. Four extraction types:
