@@ -1,6 +1,7 @@
 ---
 name: crucible
-description: Three-phase plan hardening — supersedes /grill-me-codex and /grill-with-docs-codex. PHASE 0 RECON — Claude scouts the terrain first; on an existing codebase it explores code + docs (CONTEXT.md/ADRs) and drafts an assumptions ledger, on a greenfield project it researches prior art, stack choices, and known pitfalls instead. PHASE 1 INTERROGATE — the interview, rebuilt: confirm the ledger in one batch, then interrogate only the load-bearing decisions one at a time (each question carries why-it-matters, a recommendation, and what-breaks-if-we-guess-wrong), batching cosmetic ones, with a visible decision map and an accept-all-recommendations escape hatch. PHASE 2 REVIEW — the locked plan goes to the plan file (default ~/Desktop/Claude Code/tasks/active/plan_<date>-<slug>.md) and OpenAI Codex adversarially reviews it in a read-only sandbox (VERDICT:APPROVED/REVISE), Claude revises and re-submits to the SAME Codex session until APPROVED or MAX_ROUNDS, then you sign off before any code. Use when the user says "/crucible", "put this through the crucible", "crucible this plan", "grill me then have codex review", "stress-test this plan before we build", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments, greenfield architecture) and wants alignment AND a cross-model sanity check first. If you already have a locked plan and want only the Codex loop use /codex-review. NOT for reviewing already-written code (use /codex:review) and NOT for trivial changes.
+description: >-
+  Three-phase plan hardening — supersedes /grill-me-codex and /grill-with-docs-codex. PHASE 0 RECON — Claude scouts the terrain first; on an existing codebase it explores code + docs (CONTEXT.md/ADRs) and drafts an assumptions ledger, on a greenfield project it researches prior art, stack choices, and known pitfalls instead. PHASE 1 INTERROGATE — the interview, rebuilt: confirm the ledger in one batch, then interrogate only the load-bearing decisions one at a time (each question carries why-it-matters, a recommendation, and what-breaks-if-we-guess-wrong), batching cosmetic ones, with a visible decision map and an accept-all-recommendations escape hatch. PHASE 2 REVIEW — the locked plan goes to the plan file (default ~/Desktop/Claude Code/tasks/active/plan_<date>-<slug>.md) and OpenAI Codex adversarially reviews it in a read-only sandbox (VERDICT:APPROVED/REVISE), Claude revises and re-submits to the SAME Codex session until APPROVED or MAX_ROUNDS, then you sign off before any code. Use when the user says "/crucible", "put this through the crucible", "crucible this plan", "grill me then have codex review", "stress-test this plan before we build", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments, greenfield architecture) and wants alignment AND a cross-model sanity check first. If you already have a locked plan and want only the Codex loop use /codex-review. NOT for reviewing already-written code (use /codex:review) and NOT for trivial changes.
 ---
 
 # Crucible — Recon, Interrogate, Review
@@ -170,6 +171,10 @@ If invoked with e.g. `rounds=3`, use that for `MAX_ROUNDS`. Echo resolved values
 
 ### Round 1 — fresh session (capture `thread_id`)
 ```bash
+PROMPT_FILE="${TMPDIR:-/tmp}/codex-review-prompt.txt"
+cat > "$PROMPT_FILE" <<'EOF'
+<the review prompt above, with the plan's absolute path filled in>
+EOF
 codex exec -s read-only --json -o /tmp/codex-verdict.txt "$(cat "$PROMPT_FILE")" \
   < /dev/null 2>/dev/null | grep '"type":"thread.started"'
 ```

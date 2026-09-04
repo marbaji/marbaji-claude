@@ -1,6 +1,7 @@
 ---
 name: codex-review
-description: A standalone adversarial PLAN-review loop where Claude Code (builder) and OpenAI Codex (read-only critic) tag-team an implementation plan before any code is written. Use this when you ALREADY have a plan or a clear idea and just want the cross-model stress-test — no requirements interview first. Claude drafts/loads the plan into the plan file (default ~/Desktop/Claude Code/tasks/active/plan_<date>-<slug>.md), Codex reviews it in a read-only sandbox and returns VERDICT:APPROVED or VERDICT:REVISE, Claude revises and re-submits to the SAME Codex session (context preserved) until APPROVED or a configurable MAX_ROUNDS cap is hit. Human approves the converged plan before code. Use when the user says "/codex-review", "codex review my plan", "have Codex review my plan", "argue this plan with Codex", "adversarial plan review", "make Claude and Codex argue/fight over the plan", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments) and wants a second-model sanity check on the PLAN before implementation. For a guided requirements interview BEFORE the review, use /grill-me-codex instead. NOT for reviewing already-written CODE (that is the Codex plugin's /codex:review) and NOT for trivial changes.
+description: >-
+  A standalone adversarial PLAN-review loop where Claude Code (builder) and OpenAI Codex (read-only critic) tag-team an implementation plan before any code is written. Use this when you ALREADY have a plan or a clear idea and just want the cross-model stress-test — no requirements interview first. Claude drafts/loads the plan into the plan file (default ~/Desktop/Claude Code/tasks/active/plan_<date>-<slug>.md), Codex reviews it in a read-only sandbox and returns VERDICT:APPROVED or VERDICT:REVISE, Claude revises and re-submits to the SAME Codex session (context preserved) until APPROVED or a configurable MAX_ROUNDS cap is hit. Human approves the converged plan before code. Use when the user says "/codex-review", "codex review my plan", "have Codex review my plan", "argue this plan with Codex", "adversarial plan review", "make Claude and Codex argue/fight over the plan", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments) and wants a second-model sanity check on the PLAN before implementation. For a guided requirements interview BEFORE the review, use /grill-me-codex instead. NOT for reviewing already-written CODE (that is the Codex plugin's /codex:review) and NOT for trivial changes.
 ---
 
 # Codex-Review — Adversarial Plan-Review Loop
@@ -84,6 +85,10 @@ Maintain `ROUND` (start 1) and `THREAD_ID` (empty until round 1 returns).
 **Round 1** (creates the session — capture `thread_id`):
 
 ```bash
+PROMPT_FILE="${TMPDIR:-/tmp}/codex-review-prompt.txt"
+cat > "$PROMPT_FILE" <<'EOF'
+<the review prompt above, with the plan's absolute path filled in>
+EOF
 codex exec -s read-only --json \
   -o /tmp/codex-verdict.txt \
   "$(cat "$PROMPT_FILE")" \
