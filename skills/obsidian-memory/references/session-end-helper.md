@@ -246,7 +246,7 @@ A published Artifact's HTML source now lives with its owner rather than a sessio
 | `project` | `str` | Required | A project slug, or the literal string `none` when the artifact isn't tied to one project. | `memory-and-workspace-system` |
 | `source` | `str` | Required | Path to the local HTML source file (its owning project or scratchpad). | `10-projects/2026-09-memory-and-workspace-system/scratch/nine-layers-map.html` |
 
-**Output:** appends one row to the table in `Context/artifacts.md`, creating the note (with the header row) if it does not exist yet. **Idempotent on the exact row:** a second run with an identical row appends nothing — the row text itself is the dedup key, not any composite of the fields. The agent fills this bucket by reading `~/.claude/state/artifacts.jsonl` for rows newer than the stamp in `~/.claude/state/artifacts.last`; on approval the stamp advances (see [`session-end.md`](session-end.md) Step 3).
+**Output:** appends one row to the table in `Context/artifacts.md`, creating the note (with the header row) if it does not exist yet. **Idempotent on the exact row:** a second run with an identical row appends nothing — the row text itself is the dedup key, not any composite of the fields. The agent fills this bucket by reading `~/.claude/state/artifacts.jsonl` for rows newer than the stamp in `~/.claude/state/artifacts.last`; on approval the stamp advances (see [`session-end.md`](session-end.md) Step 3). The ledger is produced outside this helper: the `artifact-source.sh` hook (`PostToolUse` on the `Artifact` tool) appends one JSON line per publish. A missing ledger file means nothing has published this session — the bucket is simply empty, not an error.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Defines what the session-end ritual extracts from a fresh session log and where each extracted artifact lands. Runs as **Step 4.5** of the session-end ritual — after the session log is written, before the user-facing summary.
 
-Five extraction types: **decisions**, **shipping-log appends**, **brag-worthy moments**, **new-person flags**, **knowledge notes**. Each has explicit triggers, an inclusion regex/substring set, an exclusion list, a destination path with date templating, and a target schema/template. (A sixth bucket, **artifacts**, is session-end-only — it is not scanned from the session log at all, but filled by reading `~/.claude/state/artifacts.jsonl`; see `session-end.md` Step 3.)
+Five extraction types: **decisions**, **shipping-log appends**, **brag-worthy moments**, **new-person flags**, **knowledge notes**. Each has explicit triggers, an inclusion regex/substring set, an exclusion list, a destination path with date templating, and a target schema/template. (A sixth bucket, **artifacts**, is session-end-only — it is not scanned from the session log at all, but filled by reading `~/.claude/state/artifacts.jsonl`, a ledger the `artifact-source.sh` hook appends to on every artifact publish (absent file = nothing published this session, not an error); see `session-end.md` Step 3.)
 
 The extractor must:
 1. Scan the just-written session log for trigger matches.

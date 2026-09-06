@@ -3206,6 +3206,22 @@ class TestKnowledgeNotes:
         assert r2[0].summary == ["skipped (already exists)"]
         assert "changed" not in (tmp_path / "Work/Chalktalk/Knowledge/nine-layers-map.md").read_text()
 
+    def test_write_batch_partial_collision_still_writes_the_rest(self, tmp_path):
+        """A mutant that abandons the WHOLE batch when any single note collides (returns early
+        or raises instead of skip-and-continue) would pass every other Knowledge test here,
+        because both other write_knowledge_notes calls use one-item lists. A two-item batch with
+        one colliding slug and one fresh slug is the one that catches it."""
+        r1 = session_end.write_knowledge_notes(tmp_path, [self._note()], Date(2026, 9, 5), "2026-09-05-x", "Chalktalk")
+        assert r1[0].summary == ["created"]
+        r2 = session_end.write_knowledge_notes(
+            tmp_path,
+            [self._note(), self._note(slug="second-note", title="Second note")],
+            Date(2026, 9, 5), "2026-09-05-y", "Chalktalk",
+        )
+        assert r2[0].summary == ["skipped (already exists)"]
+        assert r2[1].summary == ["created"]
+        assert (tmp_path / "Work/Chalktalk/Knowledge/second-note.md").exists()
+
     def test_slug_must_be_kebab(self):
         with pytest.raises(ValidationError):
             self._note(slug="Nine Layers")
@@ -3259,6 +3275,21 @@ class TestArtifactsBucket:
         session_end.append_to_artifacts_note(tmp_path, [self._entry(project="none")], "2026-09-05-x")
         text = (tmp_path / "Context/artifacts.md").read_text()
         assert "| none |" in text
+
+    def test_second_run_different_row_still_appends(self, tmp_path):
+        """The dedup key is the exact row TEXT, not merely whether the note file already
+        exists. A mutant that skips appending whenever Context/artifacts.md is already present
+        (regardless of the row) would pass every other Artifacts test here — none of them call
+        the writer twice with different entries — so this is the one that catches it."""
+        session_end.append_to_artifacts_note(tmp_path, [self._entry(title="First artifact")], "2026-09-05-x")
+        r2 = session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="Second artifact", url="https://claude.ai/public/artifacts/def456")],
+            "2026-09-05-y",
+        )
+        text = (tmp_path / "Context/artifacts.md").read_text()
+        assert "First artifact" in text
+        assert "Second artifact" in text
+        assert r2[0].summary == ["appended"]
 
 
 # ---------------------------------------------------------------------------
@@ -3328,3 +3359,33 @@ class TestContainerMove:
         import os, time; old = time.time() - 3600; os.utime(ws / "10-projects/2026-08-foo", (old, old))
         problems = session_end.preflight_validate(self._manifest_moving("foo"), vault, "Chalktalk", {"focus_updates"}, workspace=ws)
         assert any("90-archive/projects/2026-08-foo already exists" in p for p in problems)
+
+    def test_folder_move_happens_before_the_vault_write_even_if_the_write_then_fails(self, tmp_path, monkeypatch):
+        """The ordering guarantee -- folder move before any vault write -- is the binding
+        constraint the whole feature rests on. A fully successful run looks IDENTICAL whether the
+        folder moves first or the vault writes first, so swapping the two operations would leave
+        every other test in this file green. This test forces the vault write to fail (patches
+        Path.write_text, which both the current-focus.md edit and the .focus-meta.json sidecar
+        save go through) and asserts the container folder has ALREADY moved to 90-archive/projects
+        by the time the failure surfaces, while current-focus.md on disk is untouched."""
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws"; (ws / "10-projects/2026-08-foo/done").mkdir(parents=True)
+        (ws / "10-projects/2026-08-foo/notes.md").write_text("# n")
+        import os, time; old = time.time() - 3600
+        for p in (ws / "10-projects/2026-08-foo").rglob("*"): os.utime(p, (old, old))
+
+        before_focus = (vault / "Context/current-focus.md").read_text()
+
+        def _boom(self, *a, **kw):
+            raise RuntimeError("simulated vault-write failure")
+        monkeypatch.setattr(Path, "write_text", _boom)
+
+        with pytest.raises(RuntimeError, match="simulated vault-write failure"):
+            session_end.process_focus_updates(
+                vault=vault, updates=session_end.FocusUpdates(move_to_complete=["foo"]),
+                last_updated_slug="2026-09-05-x", org_name="Chalktalk", workspace=ws,
+            )
+
+        assert (ws / "90-archive/projects/2026-08-foo/notes.md").exists()
+        assert not (ws / "10-projects/2026-08-foo").exists()
+        assert (vault / "Context/current-focus.md").read_text() == before_focus

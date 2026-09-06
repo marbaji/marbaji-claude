@@ -1464,7 +1464,21 @@ def process_focus_updates(
                     f"no container folder for {slug} under {workspace}: nothing to archive"
                 )
                 continue
-            dest = archive_container(workspace, hits[0])
+            try:
+                dest = archive_container(workspace, hits[0])
+            except OSError as e:
+                # A multi-slug batch can partially succeed: earlier slugs in this same call may
+                # already have been moved to disk before this one raised. The ordering guarantee
+                # (folder move before any vault write) is unchanged — current-focus.md and the
+                # sidecar are correctly abandoned for the whole batch — but the moves that DID
+                # succeed already happened on disk and must not vanish along with this exception.
+                # Attach what we have so far so run() can report it before printing the error
+                # (Fix round 1, Important finding #2 — "a partial batch must always be legible").
+                e.container_move_report = ChangeReport(
+                    path="(container moves — partial batch, before failure)",
+                    summary=list(report_summary),
+                )
+                raise
             report_summary.append(
                 f"container moved: {hits[0].relative_to(workspace)} -> {dest.relative_to(workspace)}"
             )
@@ -2435,10 +2449,15 @@ def run(
                 )
                 change_reports.append(rpt)
 
-    except FileNotFoundError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
-    except FileExistsError as e:
+    except OSError as e:
+        # Covers FileNotFoundError and FileExistsError too (both are OSError subclasses), plus
+        # the bare OSError archive_container raises on a live-session race (recently_written).
+        # A container-move failure mid-batch carries the ChangeReport for whatever moved
+        # successfully before it, attached by process_focus_updates — surface that BEFORE the
+        # error line so a partial batch is never silently lost (Fix round 1, finding #2).
+        partial = getattr(e, "container_move_report", None)
+        if partial is not None and partial.summary:
+            print_change_report([partial], vault, show_created_preview=False)
         print(f"error: {e}", file=sys.stderr)
         return 2
 
