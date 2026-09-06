@@ -107,7 +107,7 @@ A plan whose PR merged this session is normally already in `done/`: the code-rev
 
 ## Step 3: Surface extractions for batched approval
 
-Walk the session for content that should live in its own structured file. Read [`references/extraction-rules.md`](extraction-rules.md) for full triggers + templates. Four extraction types:
+Walk the session for content that should live in its own structured file. Read [`references/extraction-rules.md`](extraction-rules.md) for full triggers + templates. Six extraction types:
 
 1. **Decisions of lasting consequence** → `Work/$ORG_NAME/Decisions/YYYY-MM-DD-<slug>.md` (use `decision-template.md` schema). Set `category: personal` on the entry for a personal decision and it writes to `Personal/Decisions/` instead — a personal choice does not belong in the work org's decision log, and the slug stays kebab-case either way because it is a filename.
 2. **Shipping events** (🟢, "shipped", "merged", "landed", "deployed") → append to `Work/$ORG_NAME/Shipping Log.md` under current month
@@ -115,6 +115,9 @@ Walk the session for content that should live in its own structured file. Read [
 4. **New-person mentions** (someone referenced in the session) → resolve it yourself: check for `Work/$ORG_NAME/People/<slug>.md`. If it exists, the bucket is **none**. If it's missing, create it after approval (the helper does NOT auto-create — write it with the Write tool from `people-template.md`). **Never ask the user whether a People note exists** — check and act.
 
    **Do not create a work People note for someone who only appears in personal-category work.** A landlord, a contractor, a family member named in a personal decision is not a work contact, and `Work/$ORG_NAME/People/` has no entry for them precisely because they do not belong there — the missing note is the correct state, not a gap to fill. Flag them to the user instead and let them decide. (There is no `Personal/People/` home today; `stakeholders` on a personal decision should carry a plain name rather than a wikilink into the work org.)
+
+5. **Knowledge** — a durable reference that outlives its project: a taxonomy, a map, a how-to, a walkthrough, anything a future session would look up rather than act on. The test: would a different project want this next quarter? If yes, promote it; the project folder may keep its working copy, the vault copy is canonical. → `<Work/$ORG_NAME|Personal>/Knowledge/<slug>.md`.
+6. **Artifacts** — a published Artifact whose HTML source lives with its owner rather than a session scratchpad, so its publish must be logged rather than walked from conversation. Fill this bucket by reading `~/.claude/state/artifacts.jsonl` for rows newer than the last session end, tracked by the stamp file `~/.claude/state/artifacts.last`; surface every unlogged row as a candidate. Approved rows are written to `Context/artifacts.md` and the stamp advances to the newest row's timestamp so the next session-end does not re-surface it.
 
 Surface candidates as a SINGLE batched confirmation prompt:
 
@@ -126,7 +129,9 @@ At session-end I found these to file:
   • BRAG (N): "<moment>" → Brag Doc ## Staging | none
   • (cold-read judge rejected R: "<line>" — <reason>)          ← OMIT when R is 0
   • DECISION (N): "<headline>" → <Work/<Org>|Personal>/Decisions/YYYY-MM-DD-<slug> | none
+  • KNOWLEDGE (N): "<title>" → <Work/<Org>|Personal>/Knowledge/<slug> | none
   • NEW PERSON (N): "<First Last>" — creating a People note | none
+  • ARTIFACTS (N): "<title>" → Context/artifacts.md | none
   • STAGED MEMORY (N): "<file>" → <home it is going to>      ← OMIT this line entirely when N is 0
 Approve all? Edit any? Skip any?
 ```

@@ -152,6 +152,8 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 | `shipping_log` | `list[ShippingEntry]` | Optional (default `[]`) | Each entry appends one bullet to `Shipping Log.md`. | See `ShippingEntry` below. |
 | `brag` | `list[BragEntry]` | Optional (default `[]`) | Each entry appends one bullet to `Brag Doc.md`. | See `BragEntry` below. |
 | `new_people` | `list[NewPersonFlag]` | Optional (default `[]`) | Each entry is printed to stdout as a flag; no file is written. | See `NewPersonFlag` below. |
+| `knowledge` | `list[KnowledgeNote]` | Optional (default `[]`) | Each entry produces one `Knowledge/<slug>.md` file. | See `KnowledgeNote` below. |
+| `artifacts` | `list[ArtifactEntry]` | Optional (default `[]`) | Each entry appends one row to `Context/artifacts.md`. | See `ArtifactEntry` below. |
 
 ---
 
@@ -211,6 +213,39 @@ Discussed in [[Sessions/YYYY-MM/YYYY-MM-DD-session-topic]]
 | `why_flagged` | `str` | Required | Reason to create a People note. | `"New stakeholder introduced during session"` |
 
 No file is written for `new_people` entries — the helper prints a stdout flag and expects the operator to create the note manually.
+
+---
+
+### KnowledgeNote
+
+| Field | Type | Req/Opt | Validation | Example |
+|---|---|---|---|---|
+| `slug` | `str` | Required | Pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` (kebab-case). Filename: `Knowledge/<slug>.md`. | `nine-layers-map` |
+| `title` | `str` | Required | Rendered as `# <title>`. | `"The nine-layers map"` |
+| `category` | `Literal["work", "personal"]` | Optional (default `"work"`) | `work` → `Work/<Org>/Knowledge/`; `personal` → `Personal/Knowledge/`. | `personal` |
+| `tags` | `list[str]` | Optional (default `["knowledge"]`) | Tag list for frontmatter; `knowledge` is always present (deduped, order preserved). | `[knowledge, review-pipeline]` |
+| `summary` | `str` | Required | One or two sentences: what the note answers. Rendered directly under the title. | `"Where each kind of content-system improvement lives."` |
+| `body` | `str` | Required | The reference content itself — a table, a map, a walkthrough. Preserved verbatim. | `"| layer | what exists |\n\|---\|---\|\n\| 1 \| gates \|"` |
+| `source_files` | `list[str]` | Optional (default `[]`) | Paths this note was promoted from. Rendered as a bulleted list under `## Provenance`. | `["10-projects/2026-08-review-pipeline-one-reviewer-per-layer/layers-map-2026-08-20.md"]` |
+
+**Collision behavior:** If the resolved output path already exists, the write is skipped with a stderr warning — no overwrite (same behavior as `Decision`). **Same-run collision** (two entries resolving to the same path) is a preflight failure, not a skip-with-warning — the manifest itself is ambiguous about which note should exist, so the operator fixes the manifest rather than silently picking one.
+
+---
+
+### ArtifactEntry
+
+A published Artifact's HTML source now lives with its owner rather than a session scratchpad (Amendment 2026-09-06), so every publish is logged instead of being reconstructible from the session transcript.
+
+| Field | Type | Req/Opt | Validation | Example |
+|---|---|---|---|---|
+| `title` | `str` | Required | The artifact's title. | `"The nine-layers map"` |
+| `url` | `str` | Required | The published Artifact's URL. | `https://claude.ai/public/artifacts/abc123` |
+| `date` | `date` | Required | ISO 8601 publish date. | `2026-09-05` |
+| `account` | `str` | Required | Which of Mo's Claude accounts published it. | `mohannad@chalktalk.academy` |
+| `project` | `str` | Required | A project slug, or the literal string `none` when the artifact isn't tied to one project. | `memory-and-workspace-system` |
+| `source` | `str` | Required | Path to the local HTML source file (its owning project or scratchpad). | `10-projects/2026-09-memory-and-workspace-system/scratch/nine-layers-map.html` |
+
+**Output:** appends one row to the table in `Context/artifacts.md`, creating the note (with the header row) if it does not exist yet. **Idempotent on the exact row:** a second run with an identical row appends nothing — the row text itself is the dedup key, not any composite of the fields. The agent fills this bucket by reading `~/.claude/state/artifacts.jsonl` for rows newer than the stamp in `~/.claude/state/artifacts.last`; on approval the stamp advances (see [`session-end.md`](session-end.md) Step 3).
 
 ---
 
@@ -296,6 +331,8 @@ Operations are applied in order: removes first, then move-to-complete, then move
 | `extractions.shipping_log[]` | `extractions` | `Work/<Org>/Shipping Log.md` — one bullet inserted immediately after the `## YYYY-MM` heading. Heading is created at top of first `## ` block if absent. File must exist or preflight fails. **Idempotent:** if the exact formatted bullet line is already in the file (from a partial earlier run), the helper skips with a stderr warning instead of double-appending. |
 | `extractions.brag[]` | `extractions` | `Personal/Brag Doc.md` — one bullet inserted immediately after the `## Staging` heading (heading created at the END of the file if absent — quarter sections stay above it and are promotion-only). File must exist or preflight fails. **Idempotent:** same skip-on-exact-match behavior as shipping. |
 | `extractions.new_people[]` | `extractions` | Stdout only — flag printed, no file written. Operator creates People notes manually. |
+| `extractions.knowledge[]` | `extractions` | `Work/<Org>/Knowledge/<slug>.md`, or `Personal/Knowledge/<slug>.md` when `category: personal` — one file per entry. Parent directory created on demand. Skip-with-warning on collision; no overwrite. Same-run path collisions are a preflight failure. |
+| `extractions.artifacts[]` | `extractions` | `Context/artifacts.md` — one table row appended per entry; note created with a header row if absent. **Idempotent:** if the exact formatted row is already in the file, the helper skips instead of double-appending. |
 | `project_doc_updates[]` (work) | `project_doc_updates` | Structured updates (status / recent_activity / next_steps / related_session) and/or legacy free-form append to `Work/<Org>/Projects/<slug>.md`. Preflight fails with exit 2 if file does not exist. |
 | `project_doc_updates[]` (personal) | `project_doc_updates` | Same structured operations applied to `Personal/Projects/<slug>/overview.md`. Requires `category: personal`. Preflight fails with exit 2 if file does not exist. |
 | `new_project_docs[]` (work) | `new_project_docs` | Write new `Work/<Org>/Projects/<slug>.md` with YAML frontmatter + body. Preflight fails with exit 2 if file already exists. |

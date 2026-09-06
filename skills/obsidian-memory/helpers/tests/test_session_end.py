@@ -3167,3 +3167,95 @@ def test_nested_slug_round_trips_through_a_new_project_doc(tmp_path):
     written = tmp_path / "Work/Chalktalk/Projects/Content/brand-new-thing.md"
     assert written.is_file(), f"expected {written}"
     assert report.path == "Work/Chalktalk/Projects/Content/brand-new-thing.md"
+
+
+# ---------------------------------------------------------------------------
+# Task 7: the KNOWLEDGE extraction bucket
+# ---------------------------------------------------------------------------
+
+from pydantic import ValidationError
+
+
+class TestKnowledgeNotes:
+    def _note(self, **kw):
+        base = dict(
+            slug="nine-layers-map",
+            title="The nine-layers map",
+            summary="Where each kind of content-system improvement lives.",
+            body="| layer | what exists |\n|---|---|\n| 1 | gates |",
+            source_files=["10-projects/2026-08-review-pipeline-one-reviewer-per-layer/layers-map-2026-08-20.md"],
+        )
+        base.update(kw)
+        return session_end.KnowledgeNote(**base)
+
+    def test_path_work_and_personal(self):
+        assert session_end.knowledge_note_path(self._note(), "Chalktalk") == "Work/Chalktalk/Knowledge/nine-layers-map.md"
+        assert session_end.knowledge_note_path(self._note(category="personal"), "Chalktalk") == "Personal/Knowledge/nine-layers-map.md"
+
+    def test_render_carries_type_category_provenance(self):
+        text = session_end.render_knowledge_note(self._note(), "[[Sessions/2026-09/2026-09-05-x]]", Date(2026, 9, 5))
+        assert text.startswith("---\ntype: knowledge\n")
+        assert "category: work" in text and "created: 2026-09-05" in text
+        assert "# The nine-layers map" in text and "## Provenance" in text
+        assert "[[Sessions/2026-09/2026-09-05-x]]" in text and "layers-map-2026-08-20.md" in text
+
+    def test_write_creates_and_skips_collision(self, tmp_path):
+        r1 = session_end.write_knowledge_notes(tmp_path, [self._note()], Date(2026, 9, 5), "2026-09-05-x", "Chalktalk")
+        assert r1[0].summary == ["created"] and (tmp_path / "Work/Chalktalk/Knowledge/nine-layers-map.md").exists()
+        r2 = session_end.write_knowledge_notes(tmp_path, [self._note(title="changed")], Date(2026, 9, 5), "2026-09-05-x", "Chalktalk")
+        assert r2[0].summary == ["skipped (already exists)"]
+        assert "changed" not in (tmp_path / "Work/Chalktalk/Knowledge/nine-layers-map.md").read_text()
+
+    def test_slug_must_be_kebab(self):
+        with pytest.raises(ValidationError):
+            self._note(slug="Nine Layers")
+
+    def test_preflight_flags_same_run_collision(self, tmp_path):
+        m = session_end.SessionEndManifest(date=Date(2026, 9, 5), topic="t", tags=["t"], last_updated_slug="2026-09-05-t",
+            summary="s", projects_touched=[session_end.ProjectTouched(slug="foo", note="n")],
+            streams=[session_end.Stream(title="a", body="b")], key_decisions="-", learnings="-",
+            files_modified=session_end.FilesModified(), next_steps="-",
+            extractions=session_end.Extractions(knowledge=[self._note(), self._note(title="dup")]))
+        problems = session_end.preflight_validate(m, tmp_path, "Chalktalk", {"extractions"})
+        assert any("extractions.knowledge" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# Amendment 2026-09-06: the ARTIFACTS extraction bucket (session-end half)
+# ---------------------------------------------------------------------------
+
+class TestArtifactsBucket:
+    def _entry(self, **kw):
+        base = dict(
+            title="The nine-layers map",
+            url="https://claude.ai/public/artifacts/abc123",
+            date=Date(2026, 9, 5),
+            account="mohannad@chalktalk.academy",
+            project="memory-and-workspace-system",
+            source="10-projects/2026-09-memory-and-workspace-system/scratch/nine-layers-map.html",
+        )
+        base.update(kw)
+        return session_end.ArtifactEntry(**base)
+
+    def test_append_creates_note(self, tmp_path):
+        reports = session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        note = tmp_path / "Context/artifacts.md"
+        assert note.exists()
+        text = note.read_text()
+        assert "| date | title | url | account | project | source | session |" in text
+        assert "The nine-layers map" in text
+        assert reports[0].summary == ["created"]
+
+    def test_second_run_same_row_appends_nothing(self, tmp_path):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        note = tmp_path / "Context/artifacts.md"
+        before = note.read_text()
+        r2 = session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        after = note.read_text()
+        assert before == after
+        assert r2[0].summary == ["skipped (already exists)"]
+
+    def test_project_none_renders(self, tmp_path):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry(project="none")], "2026-09-05-x")
+        text = (tmp_path / "Context/artifacts.md").read_text()
+        assert "| none |" in text

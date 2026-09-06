@@ -230,11 +230,37 @@ class NewPersonFlag(BaseModel):
     why_flagged: str
 
 
+class KnowledgeNote(BaseModel):
+    """A durable reference promoted out of a project folder into the vault's Knowledge folder:
+    a taxonomy, a map, a how-to, a walkthrough. Cross-project, outlives the project."""
+    slug: str = Field(pattern=SLUG_RE)
+    title: str
+    category: Literal["work", "personal"] = "work"
+    tags: list[str] = Field(default_factory=lambda: ["knowledge"])
+    summary: str
+    body: str
+    source_files: list[str] = Field(default_factory=list)
+
+
+class ArtifactEntry(BaseModel):
+    """A published Artifact whose HTML source now lives with its owner (not the session
+    scratchpad) and whose publish is logged, so a hosted page can be traced back to the
+    file and session that produced it (Amendment 2026-09-06)."""
+    title: str
+    url: str
+    date: Date
+    account: str
+    project: str  # a project slug, or the literal string "none"
+    source: str
+
+
 class Extractions(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     shipping_log: list[ShippingEntry] = Field(default_factory=list)
     brag: list[BragEntry] = Field(default_factory=list)
     new_people: list[NewPersonFlag] = Field(default_factory=list)
+    knowledge: list[KnowledgeNote] = Field(default_factory=list)
+    artifacts: list[ArtifactEntry] = Field(default_factory=list)
 
 
 class FilesModifiedRepo(BaseModel):
@@ -1620,6 +1646,98 @@ def write_decision_files(
     return reports
 
 
+def knowledge_note_path(note: KnowledgeNote, org_name: str = "Chalktalk") -> str:
+    if note.category == "personal":
+        return f"Personal/Knowledge/{note.slug}.md"
+    return f"Work/{org_name}/Knowledge/{note.slug}.md"
+
+
+def render_knowledge_note(note: KnowledgeNote, source_session_wikilink: str, session_date: Date) -> str:
+    tags = _dedup_preserve_order(["knowledge", *note.tags])
+    lines = ["---", "type: knowledge", f"created: {session_date.isoformat()}", f"category: {note.category}",
+             f"tags: [{', '.join(tags)}]", "---", "", f"# {note.title}", "", note.summary.strip(), "",
+             note.body.strip(), "", "## Provenance", f"Promoted from a project folder at session end: {source_session_wikilink}"]
+    lines += [f"- `{f}`" for f in note.source_files]
+    return escape_raw_html("\n".join(lines)) + "\n"
+
+
+def write_knowledge_notes(vault: Path, notes: list[KnowledgeNote], session_date: Date,
+                          session_log_filename: str, org_name: str = "Chalktalk") -> list[ChangeReport]:
+    link = f"[[Sessions/{session_date.strftime('%Y-%m')}/{session_log_filename}]]"
+    reports: list[ChangeReport] = []
+    for note in notes:
+        rel = knowledge_note_path(note, org_name); path = vault / rel
+        if path.exists():
+            print(f"warning: knowledge note {path} already exists; skipped (no overwrite)", file=sys.stderr)
+            reports.append(ChangeReport(path=rel, summary=["skipped (already exists)"])); continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_knowledge_note(note, link, session_date))
+        reports.append(ChangeReport(path=rel, summary=["created"]))
+    return reports
+
+
+ARTIFACTS_NOTE_HEADER = [
+    "---",
+    "type: index",
+    "tags: [artifacts]",
+    "---",
+    "",
+    "# Artifacts",
+    "",
+    "Every publish is logged here so a hosted Artifact can be traced back to the source file "
+    "and session that produced it (Amendment 2026-09-06): a source that lived only in a "
+    "session scratchpad dies with the session, while the hosted page stays bound to whichever "
+    "of Mo's accounts published it.",
+    "",
+    "| date | title | url | account | project | source | session |",
+    "|---|---|---|---|---|---|---|",
+]
+
+
+def _artifact_row(entry: ArtifactEntry, session_log_filename: str) -> str:
+    yyyy_mm = entry.date.strftime("%Y-%m")
+    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+    return (
+        f"| {entry.date.isoformat()} | {entry.title} | {entry.url} | {entry.account} | "
+        f"{entry.project} | {entry.source} | {sess_link} |"
+    )
+
+
+def append_to_artifacts_note(
+    vault: Path,
+    entries: list[ArtifactEntry],
+    session_log_filename: str,
+) -> list[ChangeReport]:
+    """Append one row per artifact to Context/artifacts.md, creating the note (with a header
+    row) if it does not exist yet. Idempotent on the exact row: a second run with an
+    identical row appends nothing (checked against the row text, not any composite key)."""
+    rel_path = "Context/artifacts.md"
+    path = vault / rel_path
+    created_now = not path.exists()
+    if created_now:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(ARTIFACTS_NOTE_HEADER) + "\n")
+
+    reports: list[ChangeReport] = []
+    for entry in entries:
+        row = _artifact_row(entry, session_log_filename)
+        lines = path.read_text().splitlines()
+        if row in lines:
+            print(
+                f"warning: artifact row already present at {path}; skipped (idempotent retry)",
+                file=sys.stderr,
+            )
+            reports.append(ChangeReport(path=rel_path, summary=["skipped (already exists)"]))
+            continue
+        text = path.read_text()
+        if not text.endswith("\n"):
+            text += "\n"
+        text += row + "\n"
+        path.write_text(text)
+        reports.append(ChangeReport(path=rel_path, summary=["created" if created_now else "appended"]))
+    return reports
+
+
 def _warn_dropped_lines(
     slug: str, field: str, old_body: list[str], new_body: str
 ) -> list[str]:
@@ -1707,6 +1825,13 @@ def preflight_validate(
                     f"{d.slug!r} both resolve to {resolved}; later wins"
                 )
             seen_paths[resolved] = d.slug
+
+        seen_k: dict[str, str] = {}
+        for k in manifest.extractions.knowledge:
+            rel = knowledge_note_path(k, org_name)
+            if rel in seen_k:
+                problems.append(f"extractions.knowledge: slugs {seen_k[rel]!r} and {k.slug!r} both resolve to {rel}")
+            seen_k[rel] = k.slug
 
     if "focus_updates" in sections:
         if not (vault / "Context/current-focus.md").exists():
@@ -1975,6 +2100,17 @@ def _created_file_preview(vault: Path, rel_path: str, max_lines: int = 60) -> li
                 preview.append("")
             preview.append("## Reasoning")
             preview.extend(reasoning)
+    elif "/Knowledge/" in rel_path:
+        # Summary paragraph + body: everything between the "# Title" heading and
+        # "## Provenance" (there is no "## Summary" heading in a knowledge note).
+        title_idx = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), None)
+        if title_idx is not None:
+            end = len(lines)
+            for j in range(title_idx + 1, len(lines)):
+                if lines[j].strip() == "## Provenance":
+                    end = j
+                    break
+            preview.extend(lines[title_idx + 1 : end])
     else:
         return []
 
@@ -2098,6 +2234,24 @@ def run(
                         org_name=org_name,
                     )
                     change_reports.extend(decision_reports)
+
+            if manifest.extractions.knowledge:
+                if dry_run:
+                    for k in manifest.extractions.knowledge:
+                        print(f"[dry-run] would write knowledge note: {vault / knowledge_note_path(k, org_name)}")
+                else:
+                    change_reports.extend(write_knowledge_notes(vault=vault, notes=manifest.extractions.knowledge,
+                        session_date=manifest.date, session_log_filename=session_log_filename, org_name=org_name))
+
+            if manifest.extractions.artifacts:
+                if dry_run:
+                    for a in manifest.extractions.artifacts:
+                        print(f"[dry-run] would append artifact row: {a.title!r} -> {vault / 'Context/artifacts.md'}")
+                else:
+                    change_reports.extend(append_to_artifacts_note(
+                        vault=vault, entries=manifest.extractions.artifacts,
+                        session_log_filename=session_log_filename,
+                    ))
 
             for entry in manifest.extractions.shipping_log:
                 if dry_run:
