@@ -2,7 +2,7 @@
 
 Defines what the session-end ritual extracts from a fresh session log and where each extracted artifact lands. Runs as **Step 4.5** of the session-end ritual — after the session log is written, before the user-facing summary.
 
-Four extraction types: **decisions**, **shipping-log appends**, **brag-worthy moments**, **new-person flags**. Each has explicit triggers, an inclusion regex/substring set, an exclusion list, a destination path with date templating, and a target schema/template.
+Five extraction types: **decisions**, **shipping-log appends**, **brag-worthy moments**, **new-person flags**, **knowledge notes**. Each has explicit triggers, an inclusion regex/substring set, an exclusion list, a destination path with date templating, and a target schema/template. (A sixth bucket, **artifacts**, is session-end-only — it is not scanned from the session log at all, but filled by reading `~/.claude/state/artifacts.jsonl`, a ledger the `artifact-source.sh` hook appends to on every artifact publish (absent file = nothing published this session, not an error); see `session-end.md` Step 3.)
 
 The extractor must:
 1. Scan the just-written session log for trigger matches.
@@ -305,6 +305,58 @@ Mo confirms. On `Yes`, create using `people-template.md` schema; populate from o
 ### Stub left in session log
 
 None. The mention in the session log is unchanged regardless of outcome. If a People note is created, the existing mention becomes a wikilink target retroactively (via Obsidian's link autocomplete on next edit).
+
+---
+
+## (e) Knowledge
+
+Promotes a durable reference out of a project folder into the vault's `Knowledge/` folder: a taxonomy, a map, a how-to, a walkthrough — anything a future session would look up rather than act on.
+
+### Triggers
+
+A candidate qualifies if **any one** of these matches:
+
+- The session produced (or substantially revised) a document whose value is cross-project: a taxonomy, a comparison matrix, an architecture map, a "how this pipeline actually runs" walkthrough.
+- A Decision's `chosen:` enumerates 3+ findings sharing a structural pattern (see the Generalized-lessons-appendix flow in section (a)) and no `[[Work/Chalktalk/Knowledge/...]]` note already covers the pattern.
+- The user says some variant of "this should be a reference", "write this up somewhere durable", "future sessions will need this".
+
+The test that decides borderline cases: **would a different project want this next quarter?** If yes, promote it; the project folder may keep its own working copy (source of truth for that project's history), the vault copy is canonical for everyone else.
+
+### Do NOT extract if
+
+- The content is a session-specific measurement or result (a benchmark number, a one-off count) with no generalized claim attached — that belongs in the session log or the project doc, not Knowledge.
+- The content already lives in the project's own doc (`Work/$ORG_NAME/Projects/<slug>.md` or `Personal/Projects/<slug>/overview.md`) and has no audience outside that project.
+- The content is a completed-project narrative ("what happened and why") rather than a reference — that belongs in the project doc or the vault's completed-project note, not Knowledge (see `work-principles.md`, "Completed-project narratives belong in the knowledge vault, not in memory" — the same distinction, the other direction: a narrative is not a reference either).
+
+### Destination
+
+`Work/$ORG_NAME/Knowledge/<slug>.md`, or `Personal/Knowledge/<slug>.md` when `category: personal`. The slug is a filename, so it stays kebab-case in both categories.
+
+### Template
+
+```markdown
+---
+type: knowledge
+created: <session date>
+category: <work|personal>
+tags: [knowledge, ...]
+---
+
+# <Title>
+
+<Summary — one or two sentences: what this note answers.>
+
+<Body — the reference content itself: a table, a map, a walkthrough.>
+
+## Provenance
+Promoted from a project folder at session end: [[Sessions/YYYY-MM/<session-log-filename>]]
+- `<source file path>`
+- `<source file path>`
+```
+
+### Stub left in session log
+
+None required — a Knowledge note is a promotion of durable content, not a replacement for something that lived only in the session log. If the promoted content also appeared inline in the session log's own prose, that prose is left as-is (the session log is a record of what happened; the Knowledge note is the reusable extract).
 
 ---
 

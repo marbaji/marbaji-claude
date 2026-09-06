@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date, timedelta
 from pathlib import Path
@@ -230,11 +232,37 @@ class NewPersonFlag(BaseModel):
     why_flagged: str
 
 
+class KnowledgeNote(BaseModel):
+    """A durable reference promoted out of a project folder into the vault's Knowledge folder:
+    a taxonomy, a map, a how-to, a walkthrough. Cross-project, outlives the project."""
+    slug: str = Field(pattern=SLUG_RE)
+    title: str
+    category: Literal["work", "personal"] = "work"
+    tags: list[str] = Field(default_factory=lambda: ["knowledge"])
+    summary: str
+    body: str
+    source_files: list[str] = Field(default_factory=list)
+
+
+class ArtifactEntry(BaseModel):
+    """A published Artifact whose HTML source now lives with its owner (not the session
+    scratchpad) and whose publish is logged, so a hosted page can be traced back to the
+    file and session that produced it (Amendment 2026-09-06)."""
+    title: str
+    url: str
+    date: Date
+    account: str
+    project: str  # a project slug, or the literal string "none"
+    source: str
+
+
 class Extractions(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     shipping_log: list[ShippingEntry] = Field(default_factory=list)
     brag: list[BragEntry] = Field(default_factory=list)
     new_people: list[NewPersonFlag] = Field(default_factory=list)
+    knowledge: list[KnowledgeNote] = Field(default_factory=list)
+    artifacts: list[ArtifactEntry] = Field(default_factory=list)
 
 
 class FilesModifiedRepo(BaseModel):
@@ -1360,16 +1388,101 @@ def compute_stale_candidates(
     return out
 
 
+def folder_slug(vault_slug: str) -> str:
+    """The folder form of a vault project slug: last real path segment, lowercased, kebab."""
+    parts = [p for p in vault_slug.split("/") if p and p.lower() not in ("index", "overview")]
+    last = parts[-1] if parts else vault_slug
+    last = re.sub(r"[^a-z0-9]+", "-", last.lower()).strip("-")
+    return last
+
+
+def find_containers(workspace: Path, vault_slug: str) -> list[Path]:
+    """Every folder under 10-projects or 20-areas whose name resolves to this slug. The caller
+    requires exactly one: zero means nothing to archive, two or more is a preflight failure."""
+    slug = folder_slug(vault_slug)
+    hits: list[Path] = []
+    # A project folder ALWAYS carries the date prefix (the gate refuses any other shape); the undated
+    # form is an area and nothing else.
+    for root, pattern in (
+        ("10-projects", re.compile(r"^\d{4}-\d{2}-" + re.escape(slug) + r"$")),
+        ("20-areas", re.compile("^" + re.escape(slug) + "$")),
+    ):
+        base = workspace / root
+        if base.is_dir():
+            hits += [d for d in sorted(base.iterdir()) if d.is_dir() and pattern.match(d.name)]
+    return hits
+
+
+def recently_written(folder: Path, minutes: int = 30) -> Optional[Path]:
+    """The newest file under the folder if it was written in the last `minutes`, else None. A live
+    session writing into a container is the one race an archive move cannot survive."""
+    cutoff = time.time() - minutes * 60
+    newest = max((f for f in folder.rglob("*") if f.is_file()), key=lambda f: f.stat().st_mtime, default=None)
+    return newest if newest is not None and newest.stat().st_mtime > cutoff else None
+
+
+def archive_container(workspace: Path, folder: Path) -> Path:
+    dest = workspace / "90-archive/projects" / folder.name
+    if dest.exists():
+        raise FileExistsError(str(dest))
+    hot = recently_written(folder)          # re-checked at the last moment, not only in preflight
+    if hot is not None:
+        raise OSError(
+            f"{folder.name}: {hot.name} was written in the last 30 minutes; a live session may "
+            f"own this folder. Snooze the project instead."
+        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(folder), str(dest))
+    return dest
+
+
 def process_focus_updates(
     vault: Path,
     updates: FocusUpdates,
     last_updated_slug: str,
     org_name: str = "Chalktalk",
     today: Optional[Date] = None,
+    workspace: Optional[Path] = None,
 ) -> ChangeReport:
     """Apply remove / upsert / move_to_complete / move_to_retired /
     move_to_active / snooze to current-focus.md, update the staleness sidecar,
     and bump last-updated."""
+    report_summary: list[str] = []
+
+    # The container-folder move runs FIRST, before any vault write (the current-focus.md edit
+    # and the .focus-meta.json sidecar save both happen later in this function). archive_container
+    # re-checks quiescence at the last moment and raises FileExistsError/OSError on a real problem;
+    # letting that propagate here means the function returns before touching the vault at all, so a
+    # failed move can never leave the container folder and the vault out of sync with each other.
+    # Preflight already refuses the cases that CAN fail (destination exists, recently written, two
+    # folders for one slug), so a failure here is a race against another session, not a plan error.
+    if workspace is not None:
+        for slug in (*updates.move_to_complete, *updates.move_to_retired):
+            hits = find_containers(workspace, slug)
+            if not hits:
+                report_summary.append(
+                    f"no container folder for {slug} under {workspace}: nothing to archive"
+                )
+                continue
+            try:
+                dest = archive_container(workspace, hits[0])
+            except OSError as e:
+                # A multi-slug batch can partially succeed: earlier slugs in this same call may
+                # already have been moved to disk before this one raised. The ordering guarantee
+                # (folder move before any vault write) is unchanged — current-focus.md and the
+                # sidecar are correctly abandoned for the whole batch — but the moves that DID
+                # succeed already happened on disk and must not vanish along with this exception.
+                # Attach what we have so far so run() can report it before printing the error
+                # (Fix round 1, Important finding #2 — "a partial batch must always be legible").
+                e.container_move_report = ChangeReport(
+                    path="(container moves — partial batch, before failure)",
+                    summary=list(report_summary),
+                )
+                raise
+            report_summary.append(
+                f"container moved: {hits[0].relative_to(workspace)} -> {dest.relative_to(workspace)}"
+            )
+
     rel_path = "Context/current-focus.md"
     path = vault / rel_path
     if not path.exists():
@@ -1387,7 +1500,6 @@ def process_focus_updates(
     frontmatter = _update_last_updated_field(frontmatter, last_updated_slug)
 
     lines = body.splitlines()
-    report_summary: list[str] = []
 
     def _diff_lines(removed: list[str], added: list[str]) -> list[str]:
         out: list[str] = []
@@ -1620,6 +1732,98 @@ def write_decision_files(
     return reports
 
 
+def knowledge_note_path(note: KnowledgeNote, org_name: str = "Chalktalk") -> str:
+    if note.category == "personal":
+        return f"Personal/Knowledge/{note.slug}.md"
+    return f"Work/{org_name}/Knowledge/{note.slug}.md"
+
+
+def render_knowledge_note(note: KnowledgeNote, source_session_wikilink: str, session_date: Date) -> str:
+    tags = _dedup_preserve_order(["knowledge", *note.tags])
+    lines = ["---", "type: knowledge", f"created: {session_date.isoformat()}", f"category: {note.category}",
+             f"tags: [{', '.join(tags)}]", "---", "", f"# {note.title}", "", note.summary.strip(), "",
+             note.body.strip(), "", "## Provenance", f"Promoted from a project folder at session end: {source_session_wikilink}"]
+    lines += [f"- `{f}`" for f in note.source_files]
+    return escape_raw_html("\n".join(lines)) + "\n"
+
+
+def write_knowledge_notes(vault: Path, notes: list[KnowledgeNote], session_date: Date,
+                          session_log_filename: str, org_name: str = "Chalktalk") -> list[ChangeReport]:
+    link = f"[[Sessions/{session_date.strftime('%Y-%m')}/{session_log_filename}]]"
+    reports: list[ChangeReport] = []
+    for note in notes:
+        rel = knowledge_note_path(note, org_name); path = vault / rel
+        if path.exists():
+            print(f"warning: knowledge note {path} already exists; skipped (no overwrite)", file=sys.stderr)
+            reports.append(ChangeReport(path=rel, summary=["skipped (already exists)"])); continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_knowledge_note(note, link, session_date))
+        reports.append(ChangeReport(path=rel, summary=["created"]))
+    return reports
+
+
+ARTIFACTS_NOTE_HEADER = [
+    "---",
+    "type: index",
+    "tags: [artifacts]",
+    "---",
+    "",
+    "# Artifacts",
+    "",
+    "Every publish is logged here so a hosted Artifact can be traced back to the source file "
+    "and session that produced it (Amendment 2026-09-06): a source that lived only in a "
+    "session scratchpad dies with the session, while the hosted page stays bound to whichever "
+    "of Mo's accounts published it.",
+    "",
+    "| date | title | url | account | project | source | session |",
+    "|---|---|---|---|---|---|---|",
+]
+
+
+def _artifact_row(entry: ArtifactEntry, session_log_filename: str) -> str:
+    yyyy_mm = entry.date.strftime("%Y-%m")
+    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+    return (
+        f"| {entry.date.isoformat()} | {entry.title} | {entry.url} | {entry.account} | "
+        f"{entry.project} | {entry.source} | {sess_link} |"
+    )
+
+
+def append_to_artifacts_note(
+    vault: Path,
+    entries: list[ArtifactEntry],
+    session_log_filename: str,
+) -> list[ChangeReport]:
+    """Append one row per artifact to Context/artifacts.md, creating the note (with a header
+    row) if it does not exist yet. Idempotent on the exact row: a second run with an
+    identical row appends nothing (checked against the row text, not any composite key)."""
+    rel_path = "Context/artifacts.md"
+    path = vault / rel_path
+    created_now = not path.exists()
+    if created_now:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(ARTIFACTS_NOTE_HEADER) + "\n")
+
+    reports: list[ChangeReport] = []
+    for entry in entries:
+        row = _artifact_row(entry, session_log_filename)
+        lines = path.read_text().splitlines()
+        if row in lines:
+            print(
+                f"warning: artifact row already present at {path}; skipped (idempotent retry)",
+                file=sys.stderr,
+            )
+            reports.append(ChangeReport(path=rel_path, summary=["skipped (already exists)"]))
+            continue
+        text = path.read_text()
+        if not text.endswith("\n"):
+            text += "\n"
+        text += row + "\n"
+        path.write_text(text)
+        reports.append(ChangeReport(path=rel_path, summary=["created" if created_now else "appended"]))
+    return reports
+
+
 def _warn_dropped_lines(
     slug: str, field: str, old_body: list[str], new_body: str
 ) -> list[str]:
@@ -1661,6 +1865,7 @@ def preflight_validate(
     vault: Path,
     org_name: str,
     sections: set[str],
+    workspace: Optional[Path] = None,
 ) -> list[str]:
     """Walk every target the manifest will touch; return a list of problem strings.
 
@@ -1708,6 +1913,13 @@ def preflight_validate(
                 )
             seen_paths[resolved] = d.slug
 
+        seen_k: dict[str, str] = {}
+        for k in manifest.extractions.knowledge:
+            rel = knowledge_note_path(k, org_name)
+            if rel in seen_k:
+                problems.append(f"extractions.knowledge: slugs {seen_k[rel]!r} and {k.slug!r} both resolve to {rel}")
+            seen_k[rel] = k.slug
+
     if "focus_updates" in sections:
         if not (vault / "Context/current-focus.md").exists():
             problems.append(
@@ -1753,6 +1965,32 @@ def preflight_validate(
                         f"any duration), then record it via move_to_retired[], "
                         f"move_to_complete[], snooze[], or upsert[]."
                     )
+
+        if workspace is not None:
+            for slug in (*manifest.focus_updates.move_to_complete, *manifest.focus_updates.move_to_retired):
+                hits = find_containers(workspace, slug)
+                if len(hits) > 1:
+                    names = ", ".join(h.name for h in hits)
+                    problems.append(
+                        f"focus_updates: more than one folder resolves to {slug} ({names}); "
+                        f"two folders for one project, rename one before archiving"
+                    )
+                elif len(hits) == 1:
+                    hit = hits[0]
+                    dest = workspace / "90-archive/projects" / hit.name
+                    if dest.exists():
+                        problems.append(
+                            f"focus_updates: 90-archive/projects/{hit.name} already exists; "
+                            f"resolve by hand before archiving {slug}"
+                        )
+                    else:
+                        newest = recently_written(hit)
+                        if newest is not None:
+                            problems.append(
+                                f"focus_updates: {hit.name} has a file written in the last 30 "
+                                f"minutes ({newest.name}); a live session may own it. Snooze the "
+                                f"project and archive it next session."
+                            )
 
     if "extractions" in sections:
         if manifest.extractions.shipping_log:
@@ -1875,6 +2113,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
+    p.add_argument(
+        "--workspace-path",
+        type=Path,
+        default=Path(os.environ.get("CLAUDE_WORKSPACE", str(Path.home() / "Desktop/Claude Code"))),
+        help=(
+            "The Desktop workspace root that holds 10-projects/ and 20-areas/. Used to find and "
+            "archive a project's container folder on complete/retire. Defaults to $CLAUDE_WORKSPACE "
+            "if set, else ~/Desktop/Claude Code."
+        ),
+    )
     p.add_argument("--only", type=_comma_list, default=None)
     p.add_argument(
         "--quiet",
@@ -1975,6 +2223,17 @@ def _created_file_preview(vault: Path, rel_path: str, max_lines: int = 60) -> li
                 preview.append("")
             preview.append("## Reasoning")
             preview.extend(reasoning)
+    elif "/Knowledge/" in rel_path:
+        # Summary paragraph + body: everything between the "# Title" heading and
+        # "## Provenance" (there is no "## Summary" heading in a knowledge note).
+        title_idx = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), None)
+        if title_idx is not None:
+            end = len(lines)
+            for j in range(title_idx + 1, len(lines)):
+                if lines[j].strip() == "## Provenance":
+                    end = j
+                    break
+            preview.extend(lines[title_idx + 1 : end])
     else:
         return []
 
@@ -2026,6 +2285,7 @@ def run(
     dry_run: bool,
     sections: set[str],
     quiet: bool = False,
+    workspace: Optional[Path] = None,
 ) -> int:
     """Orchestrate all writes per the manifest. Returns process exit code.
 
@@ -2045,6 +2305,7 @@ def run(
     # Preflight: surface every problem before mutating the vault.
     problems = preflight_validate(
         manifest=manifest, vault=vault, org_name=org_name, sections=sections,
+        workspace=workspace,
     )
     if problems:
         print("error: preflight validation failed; no writes performed.", file=sys.stderr)
@@ -2099,6 +2360,24 @@ def run(
                     )
                     change_reports.extend(decision_reports)
 
+            if manifest.extractions.knowledge:
+                if dry_run:
+                    for k in manifest.extractions.knowledge:
+                        print(f"[dry-run] would write knowledge note: {vault / knowledge_note_path(k, org_name)}")
+                else:
+                    change_reports.extend(write_knowledge_notes(vault=vault, notes=manifest.extractions.knowledge,
+                        session_date=manifest.date, session_log_filename=session_log_filename, org_name=org_name))
+
+            if manifest.extractions.artifacts:
+                if dry_run:
+                    for a in manifest.extractions.artifacts:
+                        print(f"[dry-run] would append artifact row: {a.title!r} -> {vault / 'Context/artifacts.md'}")
+                else:
+                    change_reports.extend(append_to_artifacts_note(
+                        vault=vault, entries=manifest.extractions.artifacts,
+                        session_log_filename=session_log_filename,
+                    ))
+
             for entry in manifest.extractions.shipping_log:
                 if dry_run:
                     print(f"[dry-run] would append shipping bullet: {entry.label}")
@@ -2151,6 +2430,14 @@ def run(
                     f"move_to_retired={list(manifest.focus_updates.move_to_retired)}, "
                     f"snooze={list(manifest.focus_updates.snooze)})"
                 )
+                if workspace is not None:
+                    for slug in (*manifest.focus_updates.move_to_complete, *manifest.focus_updates.move_to_retired):
+                        hits = find_containers(workspace, slug)
+                        if len(hits) == 1:
+                            print(
+                                f"[dry-run] would move container: {hits[0]} -> "
+                                f"90-archive/projects/{hits[0].name}"
+                            )
             else:
                 rpt = process_focus_updates(
                     vault=vault,
@@ -2158,13 +2445,19 @@ def run(
                     last_updated_slug=manifest.last_updated_slug,
                     org_name=org_name,
                     today=manifest.date,
+                    workspace=workspace,
                 )
                 change_reports.append(rpt)
 
-    except FileNotFoundError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
-    except FileExistsError as e:
+    except OSError as e:
+        # Covers FileNotFoundError and FileExistsError too (both are OSError subclasses), plus
+        # the bare OSError archive_container raises on a live-session race (recently_written).
+        # A container-move failure mid-batch carries the ChangeReport for whatever moved
+        # successfully before it, attached by process_focus_updates — surface that BEFORE the
+        # error line so a partial batch is never silently lost (Fix round 1, finding #2).
+        partial = getattr(e, "container_move_report", None)
+        if partial is not None and partial.summary:
+            print_change_report([partial], vault, show_created_preview=False)
         print(f"error: {e}", file=sys.stderr)
         return 2
 
@@ -2291,6 +2584,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         dry_run=args.dry_run,
         sections=sections_to_run,
         quiet=args.quiet,
+        workspace=args.workspace_path,
     )
 
 

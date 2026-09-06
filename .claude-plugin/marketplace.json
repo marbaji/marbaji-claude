@@ -33,7 +33,7 @@
     {
       "name": "crucible",
       "source": "./plugins/crucible",
-      "description": "Fork of chaseai-yt/crucible: recon → interrogate → adversarial Codex review → optional Codex build, with plans, review logs and research briefs written to ~/Desktop/Claude Code/tasks/active instead of the repository root.",
+      "description": "Fork of chaseai-yt/crucible: recon → interrogate → adversarial Codex review → optional Codex build, with plans, review logs and research briefs written to the owning project folder, ~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/, instead of the repository root.",
       "skills": [
         "./skills/crucible",
         "./skills/codex-review",

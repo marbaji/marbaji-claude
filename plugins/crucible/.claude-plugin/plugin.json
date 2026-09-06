@@ -1,6 +1,6 @@
 {
   "name": "crucible",
-  "description": "Fork of chaseai-yt/crucible (MIT): recon → interrogate → adversarial Codex review → optional Codex build. One change from upstream: plans, review logs, research briefs and prompt files are written to ~/Desktop/Claude Code/tasks/active (or scratch), never to the repository root.",
+  "description": "Fork of chaseai-yt/crucible (MIT): recon → interrogate → adversarial Codex review → optional Codex build. One change from upstream: plans, review logs, research briefs and prompt files are written to the owning project folder, ~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/ (or scratch), never to the repository root.",
   "author": { "name": "Mohannad Arbaji" },
   "homepage": "https://github.com/chaseai-yt/crucible",
   "license": "MIT",

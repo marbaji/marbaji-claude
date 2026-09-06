@@ -1,7 +1,7 @@
 ---
 name: crucible
 description: >-
-  Three-phase plan hardening — supersedes /grill-me-codex and /grill-with-docs-codex. PHASE 0 RECON — Claude scouts the terrain first; on an existing codebase it explores code + docs (CONTEXT.md/ADRs) and drafts an assumptions ledger, on a greenfield project it researches prior art, stack choices, and known pitfalls instead. PHASE 1 INTERROGATE — the interview, rebuilt: confirm the ledger in one batch, then interrogate only the load-bearing decisions one at a time (each question carries why-it-matters, a recommendation, and what-breaks-if-we-guess-wrong), batching cosmetic ones, with a visible decision map and an accept-all-recommendations escape hatch. PHASE 2 REVIEW — the locked plan goes to the plan file (default ~/Desktop/Claude Code/tasks/active/plan_<date>-<slug>.md) and OpenAI Codex adversarially reviews it in a read-only sandbox (VERDICT:APPROVED/REVISE), Claude revises and re-submits to the SAME Codex session until APPROVED or MAX_ROUNDS, then you sign off before any code. Use when the user says "/crucible", "put this through the crucible", "crucible this plan", "grill me then have codex review", "stress-test this plan before we build", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments, greenfield architecture) and wants alignment AND a cross-model sanity check first. If you already have a locked plan and want only the Codex loop use /codex-review. NOT for reviewing already-written code (use /codex:review) and NOT for trivial changes.
+  Three-phase plan hardening — supersedes /grill-me-codex and /grill-with-docs-codex. PHASE 0 RECON — Claude scouts the terrain first; on an existing codebase it explores code + docs (CONTEXT.md/ADRs) and drafts an assumptions ledger, on a greenfield project it researches prior art, stack choices, and known pitfalls instead. PHASE 1 INTERROGATE — the interview, rebuilt: confirm the ledger in one batch, then interrogate only the load-bearing decisions one at a time (each question carries why-it-matters, a recommendation, and what-breaks-if-we-guess-wrong), batching cosmetic ones, with a visible decision map and an accept-all-recommendations escape hatch. PHASE 2 REVIEW — the locked plan goes to the plan file (default the owning project folder, ~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/plan_<date>-<slug>.md) and OpenAI Codex adversarially reviews it in a read-only sandbox (VERDICT:APPROVED/REVISE), Claude revises and re-submits to the SAME Codex session until APPROVED or MAX_ROUNDS, then you sign off before any code. Use when the user says "/crucible", "put this through the crucible", "crucible this plan", "grill me then have codex review", "stress-test this plan before we build", or is about to build something high-stakes (auth, schema, concurrency, migrations, payments, greenfield architecture) and wants alignment AND a cross-model sanity check first. If you already have a locked plan and want only the Codex loop use /codex-review. NOT for reviewing already-written code (use /codex:review) and NOT for trivial changes.
 ---
 
 # Crucible — Recon, Interrogate, Review
@@ -46,7 +46,7 @@ Don't silently pick a research depth — offer the tiers with a recommendation b
 
 If invoked with `research=none|web|deep`, skip the question and use that tier.
 
-**If `deep` is chosen: draft the research prompt and get sign-off before launching.** Show the user the topic framing + the 3-5 specific questions the assumptions ledger needs answered (not a generic "research X" — questions shaped like "what do teams building X get wrong about auth?" / "what's the current standard stack for Y and why?"). The user edits or approves, THEN author the workflow script with the approved questions as its `args` and run it. Save the synthesized brief to `~/Desktop/Claude Code/tasks/active/research_<yyyy-mm-dd>-<slug>.md` (with `## Key Takeaways`) — link it from the ledger entries it sourced and from `PLAN_FILE`.
+**If `deep` is chosen: draft the research prompt and get sign-off before launching.** Show the user the topic framing + the 3-5 specific questions the assumptions ledger needs answered (not a generic "research X" — questions shaped like "what do teams building X get wrong about auth?" / "what's the current standard stack for Y and why?"). The user edits or approves, THEN author the workflow script with the approved questions as its `args` and run it. Save the synthesized brief to the owning project folder, `~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/research_<yyyy-mm-dd>-<slug>.md` (with `## Key Takeaways`) — link it from the ledger entries it sourced and from `PLAN_FILE`.
 
 ### Output: the Assumptions Ledger
 End Phase 0 by presenting a single batch — NOT one-at-a-time — of everything Claude resolved on its own:
@@ -145,7 +145,7 @@ Phases 0-1 (recon + interrogation) complete — plan locked with the user. MAX_R
 
 ## PHASE 2 — REVIEW (Claude ↔ Codex)
 
-Hand the locked plan to Codex for adversarial review. Mechanics verified end-to-end (2026-06-04) — do not "improve" the invocations below.
+Hand the locked plan to Codex for adversarial review. Mechanics verified end-to-end (2026-06-04) — do not "improve" the invocations below. Ask which project folder if it is not obvious from the conversation; the plan's frontmatter `project:` must equal the folder slug or the workspace gate refuses the write.
 
 ### Prerequisites (verify once, fast)
 - `codex --version` ≥ 0.130 (older CLIs error on the default `gpt-5.5` model).
@@ -157,8 +157,8 @@ Hand the locked plan to Codex for adversarial review. Mechanics verified end-to-
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `MAX_ROUNDS` | `5` | Hard cap on review rounds. The loop ALWAYS terminates here. |
-| `PLAN_FILE` | `~/Desktop/Claude Code/tasks/active/plan_<yyyy-mm-dd>-<slug>.md` | Where the plan lives. Never the repo root: a plan is a task document and follows the Desktop tasks lifecycle (frontmatter `created` / `project` / `type: plan`; done = move to `tasks/archive/<yyyy>/`). |
-| `LOG_FILE` | `~/Desktop/Claude Code/tasks/active/plan-review-log_<yyyy-mm-dd>-<slug>.md` | Append-only argument transcript. The artifact. |
+| `PLAN_FILE` | the owning project folder, `~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/plan_<yyyy-mm-dd>-<slug>.md` | Where the plan lives. Never the repo root: a plan is an actionable and follows the Desktop container lifecycle (frontmatter `created` / `project` / `type: plan`; done = the PR merge, moved into the container's `done/` by the code-review skill's merge step). |
+| `LOG_FILE` | the owning project folder, `~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/review-log_<yyyy-mm-dd>-<slug>.md` | Append-only argument transcript. The artifact. |
 | `PROMPT_FILE` | `${TMPDIR:-/tmp}/codex-review-prompt.txt` | Where the review prompt is written before each round. Scratch, never the repo. |
 | `research` | ask | `none` / `web` / `deep` — pre-answers the Phase 0 research gate. `deep` = the deep-research dynamic workflow (prompt still shown for sign-off first). |
 
