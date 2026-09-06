@@ -27,9 +27,9 @@ Adapted from Peter Steinberger's `codex-first` pattern (agent-scripts), rebuilt 
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `SPEC_FILE` | the `PLAN_FILE` a review produced, else ask | The frozen spec Codex implements. Absolute path; it lives under `~/Desktop/Claude Code/tasks/active/`, not in the repo. |
+| `SPEC_FILE` | the `PLAN_FILE` a review produced, else ask | The frozen spec Codex implements. Absolute path; it lives under the owning project folder, `~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/`, not in the repo. |
 | `MAX_FIX_ROUNDS` | `2` | Fix iterations via resume before Claude takes over and finishes directly. |
-| `LOG_FILE` | `~/Desktop/Claude Code/tasks/active/plan-review-log_<yyyy-mm-dd>-<slug>.md` | Append-only build transcript. If it exists (Act 1/2 ran), append `## Act 3 — Build`; else create it. |
+| `LOG_FILE` | the owning project folder, `~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/review-log_<yyyy-mm-dd>-<slug>.md` | Append-only build transcript. If it exists (Act 1/2 ran), append `## Act 3 — Build`; else create it. |
 | `PROOF_CMD` | from spec | Exact test/verify command Codex must run as proof. If the spec lacks one, ask the user ONE question to get it before launching. |
 
 Echo resolved values before starting.
