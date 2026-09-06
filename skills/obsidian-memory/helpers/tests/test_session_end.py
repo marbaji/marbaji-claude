@@ -3259,3 +3259,72 @@ class TestArtifactsBucket:
         session_end.append_to_artifacts_note(tmp_path, [self._entry(project="none")], "2026-09-05-x")
         text = (tmp_path / "Context/artifacts.md").read_text()
         assert "| none |" in text
+
+
+# ---------------------------------------------------------------------------
+# Task 8: the staleness sweep moves the container folder
+# ---------------------------------------------------------------------------
+
+class TestContainerMove:
+    def test_folder_slug_forms(self):
+        assert session_end.folder_slug("Content/lesson-production/index") == "lesson-production"
+        assert session_end.folder_slug("InBloom Early Learning") == "inbloom-early-learning"
+        assert session_end.folder_slug("Personal/Projects/figma-to-site/overview") == "figma-to-site"
+        assert session_end.folder_slug("rules-catalog-system") == "rules-catalog-system"
+
+    def test_find_containers_matches_dated_project_and_area(self, tmp_path):
+        (tmp_path / "10-projects/2026-08-rules-catalog-system").mkdir(parents=True)
+        (tmp_path / "10-projects/rules-catalog-system").mkdir(parents=True)   # undated: NOT a project folder
+        (tmp_path / "20-areas/outreach-playbook").mkdir(parents=True)
+        assert [d.name for d in session_end.find_containers(tmp_path, "rules-catalog-system")] == ["2026-08-rules-catalog-system"]
+        assert [d.name for d in session_end.find_containers(tmp_path, "outreach-playbook")] == ["outreach-playbook"]
+        assert session_end.find_containers(tmp_path, "nothing-here") == []
+
+    def test_two_folders_for_one_slug_is_a_preflight_failure(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws"; (ws / "10-projects/2026-07-foo").mkdir(parents=True); (ws / "10-projects/2026-08-foo").mkdir(parents=True)
+        problems = session_end.preflight_validate(self._manifest_moving("foo"), vault, "Chalktalk", {"focus_updates"}, workspace=ws)
+        assert any("more than one folder" in p for p in problems)
+
+    def test_recently_written_container_is_a_preflight_failure(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws"; d = ws / "10-projects/2026-08-foo"; d.mkdir(parents=True); (d / "live.md").write_text("# being edited now")
+        problems = session_end.preflight_validate(self._manifest_moving("foo"), vault, "Chalktalk", {"focus_updates"}, workspace=ws)
+        assert any("written in the last" in p for p in problems)
+
+    def _setup_vault(self, tmp_path):
+        # Same fixture copy the existing focus tests use: fixtures/vault has a project `foo` under Active.
+        vault = tmp_path / "vault"; shutil.copytree(Path(__file__).parent / "fixtures" / "vault", vault); return vault
+
+    def test_move_to_complete_archives_the_container(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws pace"; (ws / "10-projects/2026-08-foo/done").mkdir(parents=True)
+        (ws / "10-projects/2026-08-foo/notes.md").write_text("# n")
+        import os, time; old = time.time() - 3600
+        for p in (ws / "10-projects/2026-08-foo").rglob("*"): os.utime(p, (old, old))
+        rpt = session_end.process_focus_updates(vault=vault, updates=session_end.FocusUpdates(move_to_complete=["foo"]),
+            last_updated_slug="2026-09-05-x", org_name="Chalktalk", workspace=ws)
+        assert (ws / "90-archive/projects/2026-08-foo/notes.md").exists()
+        assert not (ws / "10-projects/2026-08-foo").exists()
+        assert any("90-archive/projects/2026-08-foo" in s for s in rpt.summary)
+
+    def test_retire_without_a_folder_reports_and_continues(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws"; (ws / "10-projects").mkdir(parents=True)
+        rpt = session_end.process_focus_updates(vault=vault, updates=session_end.FocusUpdates(move_to_retired=["foo"]),
+            last_updated_slug="2026-09-05-x", org_name="Chalktalk", workspace=ws)
+        assert any("no container folder" in s for s in rpt.summary)
+
+    def _manifest_moving(self, slug):
+        return session_end.SessionEndManifest(date=Date(2026, 9, 5), topic="t", tags=["t"], last_updated_slug="2026-09-05-t",
+            summary="s", projects_touched=[session_end.ProjectTouched(slug=slug, note="n")],
+            streams=[session_end.Stream(title="a", body="b")], key_decisions="-", learnings="-",
+            files_modified=session_end.FilesModified(), next_steps="-",
+            focus_updates=session_end.FocusUpdates(move_to_complete=[slug]))
+
+    def test_preflight_refuses_when_destination_exists(self, tmp_path):
+        vault = self._setup_vault(tmp_path)
+        ws = tmp_path / "ws"; (ws / "10-projects/2026-08-foo").mkdir(parents=True); (ws / "90-archive/projects/2026-08-foo").mkdir(parents=True)
+        import os, time; old = time.time() - 3600; os.utime(ws / "10-projects/2026-08-foo", (old, old))
+        problems = session_end.preflight_validate(self._manifest_moving("foo"), vault, "Chalktalk", {"focus_updates"}, workspace=ws)
+        assert any("90-archive/projects/2026-08-foo already exists" in p for p in problems)

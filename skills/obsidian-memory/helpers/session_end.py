@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date, timedelta
 from pathlib import Path
@@ -1386,16 +1388,87 @@ def compute_stale_candidates(
     return out
 
 
+def folder_slug(vault_slug: str) -> str:
+    """The folder form of a vault project slug: last real path segment, lowercased, kebab."""
+    parts = [p for p in vault_slug.split("/") if p and p.lower() not in ("index", "overview")]
+    last = parts[-1] if parts else vault_slug
+    last = re.sub(r"[^a-z0-9]+", "-", last.lower()).strip("-")
+    return last
+
+
+def find_containers(workspace: Path, vault_slug: str) -> list[Path]:
+    """Every folder under 10-projects or 20-areas whose name resolves to this slug. The caller
+    requires exactly one: zero means nothing to archive, two or more is a preflight failure."""
+    slug = folder_slug(vault_slug)
+    hits: list[Path] = []
+    # A project folder ALWAYS carries the date prefix (the gate refuses any other shape); the undated
+    # form is an area and nothing else.
+    for root, pattern in (
+        ("10-projects", re.compile(r"^\d{4}-\d{2}-" + re.escape(slug) + r"$")),
+        ("20-areas", re.compile("^" + re.escape(slug) + "$")),
+    ):
+        base = workspace / root
+        if base.is_dir():
+            hits += [d for d in sorted(base.iterdir()) if d.is_dir() and pattern.match(d.name)]
+    return hits
+
+
+def recently_written(folder: Path, minutes: int = 30) -> Optional[Path]:
+    """The newest file under the folder if it was written in the last `minutes`, else None. A live
+    session writing into a container is the one race an archive move cannot survive."""
+    cutoff = time.time() - minutes * 60
+    newest = max((f for f in folder.rglob("*") if f.is_file()), key=lambda f: f.stat().st_mtime, default=None)
+    return newest if newest is not None and newest.stat().st_mtime > cutoff else None
+
+
+def archive_container(workspace: Path, folder: Path) -> Path:
+    dest = workspace / "90-archive/projects" / folder.name
+    if dest.exists():
+        raise FileExistsError(str(dest))
+    hot = recently_written(folder)          # re-checked at the last moment, not only in preflight
+    if hot is not None:
+        raise OSError(
+            f"{folder.name}: {hot.name} was written in the last 30 minutes; a live session may "
+            f"own this folder. Snooze the project instead."
+        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(folder), str(dest))
+    return dest
+
+
 def process_focus_updates(
     vault: Path,
     updates: FocusUpdates,
     last_updated_slug: str,
     org_name: str = "Chalktalk",
     today: Optional[Date] = None,
+    workspace: Optional[Path] = None,
 ) -> ChangeReport:
     """Apply remove / upsert / move_to_complete / move_to_retired /
     move_to_active / snooze to current-focus.md, update the staleness sidecar,
     and bump last-updated."""
+    report_summary: list[str] = []
+
+    # The container-folder move runs FIRST, before any vault write (the current-focus.md edit
+    # and the .focus-meta.json sidecar save both happen later in this function). archive_container
+    # re-checks quiescence at the last moment and raises FileExistsError/OSError on a real problem;
+    # letting that propagate here means the function returns before touching the vault at all, so a
+    # failed move can never leave the container folder and the vault out of sync with each other.
+    # Preflight already refuses the cases that CAN fail (destination exists, recently written, two
+    # folders for one slug), so a failure here is a race against another session, not a plan error.
+    if workspace is not None:
+        for slug in (*updates.move_to_complete, *updates.move_to_retired):
+            hits = find_containers(workspace, slug)
+            if not hits:
+                report_summary.append(
+                    f"no container folder for {slug} under {workspace}: nothing to archive"
+                )
+                continue
+            dest = archive_container(workspace, hits[0])
+            report_summary.append(
+                f"container moved: {hits[0].relative_to(workspace)} -> {dest.relative_to(workspace)}"
+            )
+
     rel_path = "Context/current-focus.md"
     path = vault / rel_path
     if not path.exists():
@@ -1413,7 +1486,6 @@ def process_focus_updates(
     frontmatter = _update_last_updated_field(frontmatter, last_updated_slug)
 
     lines = body.splitlines()
-    report_summary: list[str] = []
 
     def _diff_lines(removed: list[str], added: list[str]) -> list[str]:
         out: list[str] = []
@@ -1779,6 +1851,7 @@ def preflight_validate(
     vault: Path,
     org_name: str,
     sections: set[str],
+    workspace: Optional[Path] = None,
 ) -> list[str]:
     """Walk every target the manifest will touch; return a list of problem strings.
 
@@ -1878,6 +1951,32 @@ def preflight_validate(
                         f"any duration), then record it via move_to_retired[], "
                         f"move_to_complete[], snooze[], or upsert[]."
                     )
+
+        if workspace is not None:
+            for slug in (*manifest.focus_updates.move_to_complete, *manifest.focus_updates.move_to_retired):
+                hits = find_containers(workspace, slug)
+                if len(hits) > 1:
+                    names = ", ".join(h.name for h in hits)
+                    problems.append(
+                        f"focus_updates: more than one folder resolves to {slug} ({names}); "
+                        f"two folders for one project, rename one before archiving"
+                    )
+                elif len(hits) == 1:
+                    hit = hits[0]
+                    dest = workspace / "90-archive/projects" / hit.name
+                    if dest.exists():
+                        problems.append(
+                            f"focus_updates: 90-archive/projects/{hit.name} already exists; "
+                            f"resolve by hand before archiving {slug}"
+                        )
+                    else:
+                        newest = recently_written(hit)
+                        if newest is not None:
+                            problems.append(
+                                f"focus_updates: {hit.name} has a file written in the last 30 "
+                                f"minutes ({newest.name}); a live session may own it. Snooze the "
+                                f"project and archive it next session."
+                            )
 
     if "extractions" in sections:
         if manifest.extractions.shipping_log:
@@ -2000,6 +2099,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--vault-path", type=Path, default=None)
+    p.add_argument(
+        "--workspace-path",
+        type=Path,
+        default=Path(os.environ.get("CLAUDE_WORKSPACE", str(Path.home() / "Desktop/Claude Code"))),
+        help=(
+            "The Desktop workspace root that holds 10-projects/ and 20-areas/. Used to find and "
+            "archive a project's container folder on complete/retire. Defaults to $CLAUDE_WORKSPACE "
+            "if set, else ~/Desktop/Claude Code."
+        ),
+    )
     p.add_argument("--only", type=_comma_list, default=None)
     p.add_argument(
         "--quiet",
@@ -2162,6 +2271,7 @@ def run(
     dry_run: bool,
     sections: set[str],
     quiet: bool = False,
+    workspace: Optional[Path] = None,
 ) -> int:
     """Orchestrate all writes per the manifest. Returns process exit code.
 
@@ -2181,6 +2291,7 @@ def run(
     # Preflight: surface every problem before mutating the vault.
     problems = preflight_validate(
         manifest=manifest, vault=vault, org_name=org_name, sections=sections,
+        workspace=workspace,
     )
     if problems:
         print("error: preflight validation failed; no writes performed.", file=sys.stderr)
@@ -2305,6 +2416,14 @@ def run(
                     f"move_to_retired={list(manifest.focus_updates.move_to_retired)}, "
                     f"snooze={list(manifest.focus_updates.snooze)})"
                 )
+                if workspace is not None:
+                    for slug in (*manifest.focus_updates.move_to_complete, *manifest.focus_updates.move_to_retired):
+                        hits = find_containers(workspace, slug)
+                        if len(hits) == 1:
+                            print(
+                                f"[dry-run] would move container: {hits[0]} -> "
+                                f"90-archive/projects/{hits[0].name}"
+                            )
             else:
                 rpt = process_focus_updates(
                     vault=vault,
@@ -2312,6 +2431,7 @@ def run(
                     last_updated_slug=manifest.last_updated_slug,
                     org_name=org_name,
                     today=manifest.date,
+                    workspace=workspace,
                 )
                 change_reports.append(rpt)
 
@@ -2445,6 +2565,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         dry_run=args.dry_run,
         sections=sections_to_run,
         quiet=args.quiet,
+        workspace=args.workspace_path,
     )
 
 

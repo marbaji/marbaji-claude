@@ -7,7 +7,7 @@
 ## CLI
 
 ```
-python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--only <sections>]
+python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--workspace-path <path>] [--only <sections>]
 ```
 
 | Flag | Type | Required | Description |
@@ -15,6 +15,7 @@ python3 session_end.py --manifest <path> [--dry-run] [--vault-path <path>] [--on
 | `--manifest` | `Path` | Yes | Path to the YAML manifest file. Typically `/tmp/session-end-<ts>.yaml`. |
 | `--dry-run` | flag | No | Print what would be written without touching any file. Preflight still runs. |
 | `--vault-path` | `Path` | No | Override the vault path. When omitted, resolved from `~/.claude/obsidian-vault-path` (or legacy `~/.claude/obsidian-vault-name`). |
+| `--workspace-path` | `Path` | No | The Desktop workspace root that holds `10-projects/` and `20-areas/`, used to find and archive a project's container folder on `move_to_complete` / `move_to_retired`. Defaults to `$CLAUDE_WORKSPACE` if that env var is set, else `~/Desktop/Claude Code`. |
 | `--only` | `str` (comma-separated) | No | Run only the named sections. Valid values: `session_log`, `extractions`, `project_doc_updates`, `new_project_docs`, `focus_updates`. Omit to run all five. |
 | `--quiet` | flag | No | Suppress the per-file change report; only the trailing `Wrote session-end artifacts under <vault>.` line is printed. |
 
@@ -307,7 +308,18 @@ The helper does not block this — rewriting a plan wholesale is legitimate — 
 
 Operations are applied in order: removes first, then move-to-complete, then move-to-retired, then move-to-active, then upserts. After the markdown edits, the staleness sidecar `Context/.focus-meta.json` is updated: `upsert` / `move_to_active` stamp `last_worked_on` (and clear any snooze); `snooze` stamps `last_asked_about` and sets `snooze_until`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Surface due candidates first with `session_end.py --stale-check` (see [`session-end.md`](session-end.md) Step 2b).
 
+**Container-folder move (`move_to_complete` / `move_to_retired`, `--workspace-path`):** before any markdown edit or sidecar save, the helper archives the project's container folder — `10-projects/<yyyy-mm>-<slug>/` or `20-areas/<slug>/` under `--workspace-path` — whole into `90-archive/projects/<folder-name>/`, using `folder_slug()` (last vault-slug path segment, lowercased, kebab-case) to resolve the vault slug to a folder name. This runs first specifically so a failed move can never leave the folder and the vault out of sync: a `FileExistsError` or `OSError` from the move propagates and the function returns before touching `current-focus.md` or the sidecar. Report lines:
+- `no container folder for <slug> under <workspace>: nothing to archive` — zero folders resolved; not an error, just nothing to move (e.g. the project only ever lived in the vault).
+- `container moved: <folder> -> 90-archive/projects/<folder-name>` — the move succeeded.
+
+If `--workspace-path` is not passed (or `workspace=None` when calling `process_focus_updates` directly), no folder move is attempted — only the markdown/sidecar edits run, same as before this behavior existed.
+
 **Staleness gate (preflight):** when the run includes `focus_updates`, preflight computes the due candidates for `manifest.date` and fails (exit 2, one problem line per slug) if any candidate is not covered by `remove[]`, `upsert[]`, `move_to_complete[]`, `move_to_retired[]`, `move_to_active[]`, or `snooze[]`. This makes the Step 2b sweep self-enforcing — a session end cannot silently skip the questions. Cadences: `## Active Projects` candidates surface when `stale_days` (14) have passed since `last_worked_on` and any snooze expired; `## Backlog` candidates surface every `backlog_groom_days` (30) for promote/keep/retire grooming.
+
+**Container-folder preflight (when `--workspace-path` is set):** for every slug in `move_to_complete` + `move_to_retired`, the helper resolves candidate folders and fails preflight (exit 2) on:
+- **more than one folder resolves to `<slug>`** — two folders (e.g. a stale dated prefix left over from a rename) claim the same project; rename one before archiving.
+- **`90-archive/projects/<folder-name>` already exists** — resolve the collision by hand before archiving.
+- **a file in the folder was written in the last 30 minutes** — another live session may own it; snooze the project and archive it next session instead of racing the move against that session's writes.
 
 ---
 

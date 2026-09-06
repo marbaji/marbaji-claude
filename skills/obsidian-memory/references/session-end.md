@@ -87,6 +87,8 @@ Map the answer into the manifest's `focus_updates`:
 - **snooze** / **keep in backlog** → `snooze: [slug]` for the default duration, or `snooze: [{slug: <slug>, days: N}]` for "snooze 3 weeks" etc. Stamps `last_asked_about` but NOT `last_worked_on` (days-stale keeps accruing honestly). Re-snoozing later just resets the window — no cap.
 - **promote to active** → `move_to_active: [slug]` — moves the block (description intact) to the top of `## Active Projects` and stamps `last_worked_on` (fresh grace window)
 
+**complete** and **retire** also move the project's container folder (`~/Desktop/Claude Code/10-projects/<yyyy-mm>-<slug>/` or `20-areas/<slug>/`) whole into `90-archive/projects/`, before any vault write; the helper finds the folder by the vault slug's folder form (last segment, kebab-case), requires exactly one match, and refuses in preflight if the destination exists or if any file in the folder was written in the last 30 minutes (another live session may own it; snooze instead). Say so in the retire/complete question: "its folder (N files) moves to 90-archive/projects".
+
 **This step is code-enforced, not honor-system:** the helper's preflight refuses any manifest that leaves a due candidate unaddressed (must appear in one of `move_to_retired[]` / `move_to_complete[]` / `move_to_active[]` / `snooze[]` / `upsert[]` / `remove[]`). If you skipped this step, the apply fails with one problem line per unaddressed slug — ask the user then, and rerun.
 
 Staleness state lives in the vault-hidden sidecar `Context/.focus-meta.json`, maintained automatically: every `upsert` / `move_to_active` stamps `last_worked_on`; every `snooze` stamps `last_asked_about`; `move_to_complete` / `move_to_retired` / `remove` drop the entry. Never hand-edit it.
