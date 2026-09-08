@@ -19,6 +19,7 @@ This is a **deliberate, high-stakes tool** — reach for it on auth, data models
 - Do NOT pin `-m` unless the user asks. The user's `~/.codex/config.toml` default model is used. Pinning `gpt-5.x-codex` variants fails on ChatGPT-account auth.
 - **Echo the active model before Round 1** so the user can confirm: read the `model` line from `~/.codex/config.toml` (absent = "CLI default"); state it with the resolved tunables. If the user objects, stop before burning a round.
 - **Sandbox flag differs between the two commands.** `codex exec` accepts `-s read-only`. `codex exec resume` does NOT — it rejects `-s` ("unexpected argument"). On resume you MUST force read-only via `-c sandbox_mode="read-only"`, because `config.toml` may default `sandbox_mode` to `danger-full-access` (+ `approval_policy="never"`) — which would let Codex WRITE files mid-loop. This is the single most important safety detail in this skill: verified end-to-end on 2026-06-04.
+- **Outside a git repository, pass `--skip-git-repo-check` on BOTH commands.** `codex exec` refuses to start in a folder that is not a trusted git checkout ("Not inside a trusted directory and --skip-git-repo-check was not specified") and exits 1 with nothing on stdout — so the run looks like an auth or model failure (no `thread.started` line, no verdict file). A plan in a Desktop project folder that has not been `git init`-ed yet is exactly this case. The flag is safe: the sandbox still comes from `-s read-only` / `-c sandbox_mode="read-only"`. (2026-09-08: round 1 of a plan review failed silently until the flag was added; Codex CLI 0.153.4.)
 
 ## Tunable variables (read from skill args, else default)
 
@@ -89,11 +90,12 @@ PROMPT_FILE="${TMPDIR:-/tmp}/codex-review-prompt.txt"
 cat > "$PROMPT_FILE" <<'EOF'
 <the review prompt above, with the plan's absolute path filled in>
 EOF
-codex exec -s read-only --json \
+codex exec -s read-only --skip-git-repo-check --json \
   -o /tmp/codex-verdict.txt \
   "$(cat "$PROMPT_FILE")" \
   < /dev/null 2>/dev/null | grep '"type":"thread.started"'
 ```
+(`--skip-git-repo-check` is a no-op inside a trusted git checkout and required outside one; see Prerequisites.)
 Parse `thread_id` from the `{"type":"thread.started","thread_id":"..."}` line → that is `THREAD_ID`. The critique text lands in `/tmp/codex-verdict.txt` (Codex's last message). Read that file.
 
 > Note: stderr carries cosmetic MCP/auth noise on some setups — `2>/dev/null` is intentional. Confirm success by the presence of the verdict file + a `thread.started` line. If neither appears, the run failed (auth/model) — stop and tell the user.
