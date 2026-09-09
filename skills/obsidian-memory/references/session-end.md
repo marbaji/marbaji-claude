@@ -112,7 +112,7 @@ A plan whose PR merged this session is normally already in `done/`: the code-rev
 Every external thing this session reasoned from gets a `Sources/YYYY-MM-DD-<slug>.md` note: files used (a PDF from Downloads, a spreadsheet in a project folder), artifacts published, and canonical sources tackled (a URL fetched, a Drive file read, a Gmail attachment downloaded). Screenshots Mo pastes to show something are not sources and are excluded. The rule in `~/.claude/work-principles.md` ("Every source ... gets a vault Sources note") is prose and was proven not to hold on its own (2026-09-09: a W-2 Mo handed over and twenty documents pulled from Gmail and Drive were reasoned from for an hour with no note), so this step is a check that can fail:
 
 ```bash
-"$SKILL_DIR/scripts/session-sources-check.sh"        # reads this session's transcript
+~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/scripts/session-sources-check.sh   # reads this session's transcript
 ```
 
 It lists every source touched and exits 1 with the uncovered ones, meaning no `Sources/` note written or edited since session start names that item (by file basename, URL, Drive file id, or Gmail message id). On exit 1: write the missing notes (one note may cover a set, as long as it names each item), or get Mo's explicit per-item skip, then re-run until it exits 0. Exit 0 prints the covered count; it never prints nothing. Exit 2 means it could not find the transcript or the vault, which is a setup problem to fix, not a pass.
