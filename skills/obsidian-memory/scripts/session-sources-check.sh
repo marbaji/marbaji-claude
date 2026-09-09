@@ -100,7 +100,7 @@ since = float(os.environ.get("SOURCES_CHECK_SINCE", started or 0))
 notes = [f for f in glob.glob(os.path.join(vault, "Sources", "*.md")) if os.path.getmtime(f) >= since - 60]
 text = "\n".join(open(f, errors="replace").read() for f in notes)
 def named(tok):
-    return re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(tok) + r"(?![A-Za-z0-9_.-])", text) is not None
+    return re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(tok) + r"(?![A-Za-z0-9_-]|[.-][A-Za-z0-9])", text) is not None
 if not items:
     print("sources-check: 0 sources touched this session; nothing to log."); sys.exit(0)
 missing = [(t, d) for t, d in items.items() if not named(t)]
