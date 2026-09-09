@@ -18,11 +18,11 @@ Transcribes audio from Instagram Reels (or any yt-dlp-supported URL) using yt-dl
 
 All transcriptions are saved to:
 ```
-/Users/mohannadarbaji/Desktop/Claude Code/20-areas/Instragram Transcriptions/<descriptive-folder-name>/
+/Users/mohannadarbaji/Desktop/Claude Code/20-areas/instagram-transcriptions/<descriptive-folder-name>/
   transcript.md   — URL, full transcript, and summary in one file
 ```
 
-**Never write to `~/Desktop/Claude Code/` root.** Transcriptions are an *area* (ongoing, no completion state), so they live under `20-areas/` per the PARA split of that folder. The `20-areas/Instragram Transcriptions/` directory already holds the whole back catalog, and the misspelling in its name is the real directory name — match it exactly rather than correcting it. Source: Mo, 2026-09-01, after two reels landed in a root-level duplicate folder that had to be merged back by hand.
+**Never write to `~/Desktop/Claude Code/` root.** Transcriptions are an *area* (ongoing, no completion state), so they live under `20-areas/` per the PARA split of that folder. The `20-areas/instagram-transcriptions/` directory holds the whole back catalog; area folders are plain lowercase slugs (the 2026-09-06 workspace reorg renamed the old misspelled `Instragram Transcriptions` folder, and the workspace-invariant hook flags any other name). Source: Mo, 2026-09-01, after two reels landed in a root-level duplicate folder that had to be merged back by hand; re-fixed 2026-09-09 after one reel landed in a re-created misspelled folder.
 
 The subfolder name should be a short, descriptive title derived from the summary (e.g. `Amdahls Law - AI Moats Shift`). Use title case, keep it under ~60 chars, no special characters besides hyphens and spaces.
 
@@ -49,7 +49,7 @@ Read the transcript from `/tmp/reel.txt`, then:
 
 ```bash
 FOLDER_NAME="<Descriptive Title From Summary>"
-OUTPUT_DIR="/Users/mohannadarbaji/Desktop/Claude Code/20-areas/Instragram Transcriptions/$FOLDER_NAME"
+OUTPUT_DIR="/Users/mohannadarbaji/Desktop/Claude Code/20-areas/instagram-transcriptions/$FOLDER_NAME"
 mkdir -p "$OUTPUT_DIR"
 ```
 
