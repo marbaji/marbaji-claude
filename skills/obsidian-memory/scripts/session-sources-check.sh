@@ -34,14 +34,14 @@ vault_re = re.compile("^" + re.escape(vault))
 repos_re = re.compile("^" + re.escape(home) + r"/Desktop/Claude Code/30-repos/")
 office_ext = r"pdf|xlsx?|csv|docx?|pptx?"            # documents count anywhere under a watch root
 loose_ext = r"md|json|txt|html"                        # notes/data count only outside the workspace
-path_re = re.compile(r"((?:/Users/|~/)[^\n\"'`]*?\.(?:" + office_ext + "|" + loose_ext + r"))(?=$|[\s\"'`;|&)>,])", re.I)
+path_re = re.compile(r"((?:/Users/|~/)[^\n\"'`*?&;|<>]*?\.(?:" + office_ext + "|" + loose_ext + r"))(?=$|[\s\"'`;|&)>,]|[.:!?](?:\s|$))", re.I)
 watch_roots = [home + "/Downloads/", home + "/Desktop/", home + "/Documents/"]
 workspace = home + "/Desktop/Claude Code/"
 items = {}  # token -> description
 def add(tok, desc):
     if tok and tok not in items: items[tok] = desc
 def path_item(p):
-    p = os.path.expanduser(p.strip())
+    p = os.path.expanduser(p.strip().replace("\\ ", " "))
     if scratch_re.search(p) or vault_re.search(p) or repos_re.search(p): return
     if "/Screenshot " in p or "/.claude/" in p: return
     if not any(p.startswith(r) for r in watch_roots): return
@@ -63,17 +63,17 @@ for line in open(jsonl, errors="replace"):
     content = m.get("content")
     if isinstance(content, str):
         if o.get("type") == "user":
-            for u in re.findall(r"https?://[^\s)\]>\"']+", content): add(u.rstrip(".,"), "user-shared URL")
+            for u in re.findall(r"https?://[^\s)\]>\"'`]+", content): add(u.rstrip(".,"), "user-shared URL")
             paths_in(content)
         continue
     for blk in content or []:
         if not isinstance(blk, dict): continue
         if blk.get("type") == "text" and o.get("type") == "user" and not blk.get("text", "").startswith("Base directory for this skill"):
-            for u in re.findall(r"https?://[^\s)\]>\"']+", blk.get("text", "")): add(u.rstrip(".,"), "user-shared URL")
+            for u in re.findall(r"https?://[^\s)\]>\"'`]+", blk.get("text", "")): add(u.rstrip(".,"), "user-shared URL")
             paths_in(blk.get("text", ""))
         if blk.get("type") != "tool_use": continue
         n, inp = blk.get("name", ""), blk.get("input") or {}
-        if n in ("Read", "Write", "Edit"): path_item(inp.get("file_path", ""))
+        if n in ("Read", "Edit"): path_item(inp.get("file_path", ""))  # Write is our own output, not a source
         elif n == "Bash":
             cmd = inp.get("command", "")
             paths_in(cmd)
@@ -100,7 +100,7 @@ since = float(os.environ.get("SOURCES_CHECK_SINCE", started or 0))
 notes = [f for f in glob.glob(os.path.join(vault, "Sources", "*.md")) if os.path.getmtime(f) >= since - 60]
 text = "\n".join(open(f, errors="replace").read() for f in notes)
 def named(tok):
-    return re.search(r"(?<![A-Za-z0-9])" + re.escape(tok) + r"(?![A-Za-z0-9])", text) is not None
+    return re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(tok) + r"(?![A-Za-z0-9_.-])", text) is not None
 if not items:
     print("sources-check: 0 sources touched this session; nothing to log."); sys.exit(0)
 missing = [(t, d) for t, d in items.items() if not named(t)]
