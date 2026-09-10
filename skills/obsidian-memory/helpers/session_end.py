@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date, timedelta
@@ -1938,12 +1939,62 @@ def _replace_artifacts_paragraph(prefix_lines: list[str]) -> list[str]:
     return out
 
 
+def _normalize_header_cells(line: str) -> list[str]:
+    """Split a markdown table header line into stripped cell names, dropping the leading
+    and trailing ``|`` and any column-alignment padding around each cell. Used to
+    recognise a table header by its cell NAMES rather than by exact byte match, so a
+    hand-aligned header (``| date       | title     | ...``) is still the canonical shape
+    instead of reading as unrecognized (Fix round 2, finding #1)."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in body.split("|")]
+
+
+_ARTIFACTS_NEW_HEADER_CELLS = _normalize_header_cells(_ARTIFACTS_NEW_HEADER_LINE)
+_ARTIFACTS_OLD_HEADER_CELLS = _normalize_header_cells(_ARTIFACTS_OLD_HEADER_LINE)
+
+
+def _find_artifacts_header(lines: list[str], expected_cells: list[str]) -> Optional[int]:
+    """Return the index of the line whose normalized cell names equal ``expected_cells``,
+    or None. A plain ``in``/``==`` check against the canonical header line only matches a
+    byte-identical header; this tolerates column-alignment whitespace around each cell."""
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped.startswith("|") and _normalize_header_cells(stripped) == expected_cells:
+            return i
+    return None
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: write to a temp file in the same directory,
+    then ``os.replace`` it into place. A plain ``Path.write_text`` truncates the file
+    before writing, so a crash or a concurrent reader mid-write can observe (or the process
+    can leave behind) a half-written note; ``os.replace`` is a single filesystem rename, so
+    readers only ever see the old file or the new one, never a partial one (Fix round 2,
+    finding #3)."""
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(directory))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.remove(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 def _load_artifacts_table(
     text: str, rel_path: str = "Context/artifacts.md",
-) -> tuple[list[str], list, dict[str, "_ArtifactRow"], list[str], bool, int]:
+) -> tuple[list[str], list, dict[str, "_ArtifactRow"], list[str], bool, int, bool]:
     """Parse a Context/artifacts.md body into (prefix_lines, items, by_url, suffix_lines,
-    migrated, old_row_count), migrating an old-shape (seven-column, one row per publish)
-    table in memory.
+    migrated, old_row_count, unrecognized), migrating an old-shape (seven-column, one row
+    per publish) table in memory.
 
     ``items`` is the table body in file order (a mix of ``_ArtifactRow`` and
     ``_OpaqueArtifactLine`` for any row whose cell count doesn't match its shape); ``by_url``
@@ -1951,11 +2002,19 @@ def _load_artifacts_table(
     reached through ``by_url`` is reflected in ``items``' render since it's the same object.
     ``prefix_lines``/``suffix_lines`` are everything outside the table, kept verbatim by the
     caller. ``migrated`` is True iff the header found was the old shape; the caller logs and
-    persists the rewrite -- this function only computes it. When neither header shape is
-    found (an empty or unrecognized note), returns ``([], [], {}, [], False, 0)``.
+    persists the rewrite -- this function only computes it. Header shapes are recognised by
+    normalized cell name (``_find_artifacts_header``), not exact byte match, so a
+    column-aligned header still parses.
+
+    ``unrecognized`` is True iff the note is non-empty but neither header shape was found --
+    a genuinely empty file (nothing to lose) still returns ``unrecognized=False`` with empty
+    lists so a brand-new note keeps working, but a non-empty note whose header this module
+    can't identify is flagged so the caller refuses to rewrite it rather than silently
+    replacing it with an empty table (Fix round 2, finding #1: this used to return the same
+    empty tuple for both cases, and the writer then overwrote the file, discarding every row).
     """
     lines = text.splitlines()
-    header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_NEW_HEADER_LINE), None)
+    header_idx = _find_artifacts_header(lines, _ARTIFACTS_NEW_HEADER_CELLS)
     if header_idx is not None:
         row_lines, end_idx = _read_table_rows(lines, header_idx)
         items: list = []
@@ -1972,17 +2031,28 @@ def _load_artifacts_table(
                 continue
             date, title, url, account, confidence, project, source, republished, sessions = cells
             session_links = [s.strip() for s in sessions.split(",") if s.strip()]
+            try:
+                republished_n = int(republished)
+            except ValueError:
+                line_no = header_idx + 3 + offset
+                print(
+                    f"warning: {rel_path} row {line_no} has a non-integer republished cell "
+                    f"({republished!r}); left as is",
+                    file=sys.stderr,
+                )
+                items.append(_OpaqueArtifactLine(text=line))
+                continue
             row = _ArtifactRow(
                 date=date, title=title, url=url, account=account, confidence=confidence,
-                project=project, source=source, republished=int(republished), sessions=session_links,
+                project=project, source=source, republished=republished_n, sessions=session_links,
             )
             items.append(row)
             by_url[url] = row
-        return lines[:header_idx], items, by_url, lines[end_idx:], False, 0
+        return lines[:header_idx], items, by_url, lines[end_idx:], False, 0, False
 
-    header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_OLD_HEADER_LINE), None)
+    header_idx = _find_artifacts_header(lines, _ARTIFACTS_OLD_HEADER_CELLS)
     if header_idx is None:
-        return [], [], {}, [], False, 0
+        return [], [], {}, [], False, 0, bool(text.strip())
 
     old_rows, end_idx = _read_table_rows(lines, header_idx)
     groups: dict[str, dict] = {}
@@ -2012,15 +2082,23 @@ def _load_artifacts_table(
     by_url = {}
     for url in order:  # preserve first-seen URL order, not dict/group iteration order
         g = groups[url]
+        project = g["project"]
+        if project == "none":
+            # The old shape predates ArtifactEntry's derive-on-"none" validator (Task 1), so
+            # a migrated row with a derivable source would otherwise stay stuck at "none"
+            # forever -- the migration is the one chance to backfill it (Fix round 2, finding #5).
+            derived = derive_project(g["source"])
+            if derived is not None:
+                project = derived
         row = _ArtifactRow(
             date=g["date"], title=g["title"], url=url, account=g["account"], confidence="active",
-            project=g["project"], source=g["source"], republished=g["count"], sessions=g["sessions"],
+            project=project, source=g["source"], republished=g["count"], sessions=g["sessions"],
         )
         items.append(row)
         by_url[url] = row
     items.extend(opaque)  # malformed old rows: preserved, not merged, appended after the real ones
 
-    return lines[:header_idx], items, by_url, lines[end_idx:], True, len(old_rows)
+    return lines[:header_idx], items, by_url, lines[end_idx:], True, len(old_rows), False
 
 
 def _merge_artifact_row(existing: _ArtifactRow, entry: ArtifactEntry, session_link: str) -> str:
@@ -2049,19 +2127,37 @@ def _merge_artifact_row(existing: _ArtifactRow, entry: ArtifactEntry, session_li
     return "updated"
 
 
-def append_to_artifacts_note(
+@dataclass
+class _ArtifactsPlan:
+    """Everything an artifacts-note upsert needs to do, computed without writing anything.
+    ``append_to_artifacts_note`` (the real path) and the ``run()`` dry-run preview both call
+    ``_plan_artifacts_upsert`` to build this and then only differ in what they do with it --
+    write, or print -- so the two can never independently drift on what "would happen" means
+    (Fix round 2, finding #4: they used to reimplement this decision separately)."""
+    rel_path: str
+    unrecognized: bool  # non-empty note, no recognisable header -- refuse to touch it
+    created_now: bool
+    migrated: bool
+    old_row_count: int
+    final_artifact_count: int  # len(by_url) right after migration, before new entries -- the migration log line's second number
+    decisions: list[str]  # one action per input entry, same order as `entries`
+    should_write: bool
+    rendered_text: str  # meaningful only when should_write is True
+
+
+def _plan_artifacts_upsert(
     vault: Path,
     entries: list[ArtifactEntry],
     session_log_filename: str,
-) -> list[ChangeReport]:
-    """Upsert Context/artifacts.md by URL: one row per published artifact, updated in place
-    on republish rather than appended, with `republished` and `sessions` tracking every
-    publish merged into that row. Creates the note (with the nine-column header) if it does
-    not exist yet. A note in the pre-Task-2 seven-column shape (one row per publish) is
-    migrated in memory on first read and the migration is logged to stdout exactly once.
-    Everything outside the table (frontmatter, title, a footer section a human added) and
-    any row this module can't parse are carried through verbatim -- this writer only ever
-    owns the table body's well-formed rows and the explanatory paragraph above it."""
+) -> _ArtifactsPlan:
+    """Compute the upsert plan for Context/artifacts.md: one row per published artifact,
+    updated in place on republish rather than appended, with `republished` and `sessions`
+    tracking every publish merged into that row. A note in the pre-Task-2 seven-column shape
+    (one row per publish) is migrated in memory on first read. Everything outside the table
+    (frontmatter, title, a footer section a human added) and any row this module can't parse
+    are carried through verbatim in the rendered text. A non-empty note whose header this
+    module can't recognise is flagged (``unrecognized=True``) rather than planned as an
+    empty table -- the caller must refuse to write it."""
     rel_path = "Context/artifacts.md"
     path = vault / rel_path
     created_now = not path.exists()
@@ -2071,17 +2167,25 @@ def append_to_artifacts_note(
         items: list = []
         by_url: dict[str, _ArtifactRow] = {}
         suffix_lines: list[str] = []
-        migrated, old_row_count = False, 0
+        migrated, old_row_count, unrecognized = False, 0, False
     else:
-        prefix_lines, items, by_url, suffix_lines, migrated, old_row_count = _load_artifacts_table(
+        prefix_lines, items, by_url, suffix_lines, migrated, old_row_count, unrecognized = _load_artifacts_table(
             path.read_text(), rel_path=rel_path,
         )
 
-    if migrated:
-        print(f"migrated {rel_path}: {old_row_count} rows -> {len(by_url)} artifacts")
-        prefix_lines = _replace_artifacts_paragraph(prefix_lines)
+    if unrecognized:
+        return _ArtifactsPlan(
+            rel_path=rel_path, unrecognized=True, created_now=False, migrated=False,
+            old_row_count=0, final_artifact_count=0,
+            decisions=["skipped (unrecognised note)" for _ in entries],
+            should_write=False, rendered_text="",
+        )
 
-    reports: list[ChangeReport] = []
+    if migrated:
+        prefix_lines = _replace_artifacts_paragraph(prefix_lines)
+    migrated_artifact_count = len(by_url)  # count right after migration, before new entries
+
+    decisions: list[str] = []
     for entry in entries:
         yyyy_mm = entry.date.strftime("%Y-%m")
         session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
@@ -2099,11 +2203,52 @@ def append_to_artifacts_note(
             action = _merge_artifact_row(existing, entry, session_link)
         if created_now and action == "appended":
             action = "created"
-        reports.append(ChangeReport(path=rel_path, summary=[action]))
+        decisions.append(action)
 
-    if created_now or migrated or entries:
+    should_write = created_now or migrated or bool(entries)
+    rendered_text = _render_artifacts_note(prefix_lines, items, suffix_lines) if should_write else ""
+    return _ArtifactsPlan(
+        rel_path=rel_path, unrecognized=False, created_now=created_now, migrated=migrated,
+        old_row_count=old_row_count, final_artifact_count=migrated_artifact_count, decisions=decisions,
+        should_write=should_write, rendered_text=rendered_text,
+    )
+
+
+def append_to_artifacts_note(
+    vault: Path,
+    entries: list[ArtifactEntry],
+    session_log_filename: str,
+) -> list[ChangeReport]:
+    """Upsert Context/artifacts.md by URL via ``_plan_artifacts_upsert``, then either write
+    the plan's rendered text (atomically) or, for a note this module can't recognise, refuse
+    to touch the file at all and report every entry as skipped."""
+    plan = _plan_artifacts_upsert(vault, entries, session_log_filename)
+
+    if plan.unrecognized:
+        print(
+            f"error: {plan.rel_path} has no recognisable artifacts table header; "
+            "refusing to rewrite it",
+            file=sys.stderr,
+        )
+        return [ChangeReport(path=plan.rel_path, summary=[d]) for d in plan.decisions]
+
+    if plan.migrated:
+        print(f"migrated {plan.rel_path}: {plan.old_row_count} rows -> {plan.final_artifact_count} artifacts")
+
+    for entry, action in zip(entries, plan.decisions):
+        if action == "skipped (already exists)":
+            print(
+                f"warning: artifact row already present at {plan.rel_path} for {entry.url}; "
+                "skipped (idempotent retry)",
+                file=sys.stderr,
+            )
+
+    reports = [ChangeReport(path=plan.rel_path, summary=[d]) for d in plan.decisions]
+
+    if plan.should_write:
+        path = vault / plan.rel_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render_artifacts_note(prefix_lines, items, suffix_lines))
+        _atomic_write_text(path, plan.rendered_text)
     return reports
 
 
@@ -2653,36 +2798,28 @@ def run(
 
             if manifest.extractions.artifacts:
                 if dry_run:
-                    artifacts_path = vault / "Context/artifacts.md"
-                    dr_created_now = not artifacts_path.exists()
-                    if dr_created_now:
-                        dr_by_url: dict[str, _ArtifactRow] = {}
-                        dr_migrated, dr_old_count = False, 0
-                    else:
-                        _, _, dr_by_url, _, dr_migrated, dr_old_count = _load_artifacts_table(
-                            artifacts_path.read_text(), rel_path="Context/artifacts.md",
+                    plan = _plan_artifacts_upsert(
+                        vault=vault, entries=manifest.extractions.artifacts,
+                        session_log_filename=session_log_filename,
+                    )
+                    artifacts_path = vault / plan.rel_path
+                    if plan.unrecognized:
+                        print(
+                            f"[dry-run] error: {plan.rel_path} has no recognisable artifacts "
+                            "table header; refusing to rewrite it",
+                            file=sys.stderr,
                         )
-                    if dr_migrated:
-                        print(f"[dry-run] migrated Context/artifacts.md: {dr_old_count} rows -> {len(dr_by_url)} artifacts")
+                    elif plan.migrated:
+                        print(
+                            f"[dry-run] migrated {plan.rel_path}: "
+                            f"{plan.old_row_count} rows -> {plan.final_artifact_count} artifacts"
+                        )
                     action_verb = {
                         "created": "create", "appended": "append", "updated": "update",
                         "skipped (already exists)": "skip (already exists)",
+                        "skipped (unrecognised note)": "skip (unrecognised note)",
                     }
-                    for a in manifest.extractions.artifacts:
-                        yyyy_mm = a.date.strftime("%Y-%m")
-                        session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
-                        existing = dr_by_url.get(a.url)
-                        if existing is None:
-                            dr_by_url[a.url] = _ArtifactRow(
-                                date=a.date.isoformat(), title=a.title, url=a.url, account=a.account,
-                                confidence=a.confidence, project=a.project, source=a.source,
-                                republished=1, sessions=[session_link],
-                            )
-                            action = "appended"
-                        else:
-                            action = _merge_artifact_row(existing, a, session_link)
-                        if dr_created_now and action == "appended":
-                            action = "created"
+                    for a, action in zip(manifest.extractions.artifacts, plan.decisions):
                         print(f"[dry-run] would {action_verb[action]} artifact row: {a.title!r} -> {artifacts_path}")
                 else:
                     change_reports.extend(append_to_artifacts_note(
