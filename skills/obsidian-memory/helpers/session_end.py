@@ -254,12 +254,17 @@ def derive_project(source: str) -> Optional[str]:
     Matches the dated project container (``10-projects/YYYY-MM-<slug>/``) or an area
     container (``20-areas/<slug>/``) anywhere in the path; returns None when neither
     shape is present. Used by ``ArtifactEntry`` to fill in ``project`` when the manifest
-    left it as the literal string "none" (artifact-index-tidy Task 1)."""
+    left it as the literal string "none" (artifact-index-tidy Task 1).
+
+    ``20-areas/artifacts/`` is the special case: it is the shared dumping ground for a
+    published Artifact's source HTML when nothing else owns it (workspace contract), not
+    a real project or area, so it must not derive a project slug of "artifacts" (folded
+    minor from Task 1, fixed in Task 2)."""
     m = ARTIFACT_PROJECT_RE.search(source)
     if m:
         return m.group(2)
     m = ARTIFACT_AREA_RE.search(source)
-    if m:
+    if m and m.group(2) != "artifacts":
         return m.group(2)
     return None
 
@@ -1799,23 +1804,186 @@ ARTIFACTS_NOTE_HEADER = [
     "",
     "# Artifacts",
     "",
-    "Every publish is logged here so a hosted Artifact can be traced back to the source file "
-    "and session that produced it (Amendment 2026-09-06): a source that lived only in a "
-    "session scratchpad dies with the session, while the hosted page stays bound to whichever "
-    "of Mo's accounts published it.",
+    "Every publish is logged here so a hosted Artifact can be traced back to its source and "
+    "session (Amendment 2026-09-06). One row per artifact URL: republishing updates that row "
+    "(see `republished` and `sessions`) instead of adding a duplicate.",
     "",
-    "| date | title | url | account | project | source | session |",
-    "|---|---|---|---|---|---|---|",
+    "| date | title | url | account | confidence | project | source | republished | sessions |",
+    "|---|---|---|---|---|---|---|---|---|",
 ]
 
+# The nine-column table header this module writes, and the seven-column shape every note
+# predating the artifact-index-tidy Task 2 upsert carries (one row per publish rather than
+# one row per URL). Detecting the header line -- not the presence of the note -- is what
+# triggers the one-time migration below.
+_ARTIFACTS_NEW_HEADER_LINE = ARTIFACTS_NOTE_HEADER[-2]
+_ARTIFACTS_OLD_HEADER_LINE = "| date | title | url | account | project | source | session |"
 
-def _artifact_row(entry: ArtifactEntry, session_log_filename: str) -> str:
-    yyyy_mm = entry.date.strftime("%Y-%m")
-    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
-    return (
-        f"| {entry.date.isoformat()} | {entry.title} | {entry.url} | {entry.account} | "
-        f"{entry.project} | {entry.source} | {sess_link} |"
+
+def _escape_artifact_cell(value: str) -> str:
+    """Escape a literal `|` so it survives a round trip through the markdown table."""
+    return str(value).replace("|", "\\|")
+
+
+def _split_artifact_row(line: str) -> list[str]:
+    """Split one markdown table row into cells, honoring `\\|` as an escaped literal pipe
+    (the inverse of ``_escape_artifact_cell``) rather than a column separator."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body) and body[i + 1] == "|":
+            current.append("|")
+            i += 2
+            continue
+        if ch == "|":
+            cells.append("".join(current).strip())
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    cells.append("".join(current).strip())
+    return cells
+
+
+@dataclass
+class _ArtifactRow:
+    """One in-memory row of Context/artifacts.md, keyed by URL by its caller. Fields other
+    than ``republished``/``sessions`` always hold the LATEST publish's values."""
+    date: str
+    title: str
+    url: str
+    account: str
+    confidence: str
+    project: str
+    source: str
+    republished: int
+    sessions: list[str]  # session wikilinks, oldest first, deduplicated
+
+    def to_line(self) -> str:
+        cells = [
+            self.date, self.title, self.url, self.account, self.confidence,
+            self.project, self.source, str(self.republished), ", ".join(self.sessions),
+        ]
+        return "| " + " | ".join(_escape_artifact_cell(c) for c in cells) + " |"
+
+
+def _render_artifacts_note(rows: dict[str, "_ArtifactRow"]) -> str:
+    lines = list(ARTIFACTS_NOTE_HEADER) + [row.to_line() for row in rows.values()]
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def _read_table_rows(lines: list[str], header_idx: int) -> list[str]:
+    """Return the raw table-row lines following the header + separator at ``header_idx``."""
+    i = header_idx + 2  # skip the header line itself and the |---|...| separator
+    rows: list[str] = []
+    while i < len(lines) and lines[i].strip().startswith("|"):
+        rows.append(lines[i])
+        i += 1
+    return rows
+
+
+def _load_artifacts_table(text: str) -> tuple[dict[str, "_ArtifactRow"], bool, int]:
+    """Parse a Context/artifacts.md body into ``{url: _ArtifactRow}``, migrating an
+    old-shape (seven-column, one row per publish) table in memory.
+
+    Returns ``(rows, migrated, old_row_count)``. ``migrated`` is True iff the table header
+    found was the old shape; the caller is responsible for logging and persisting the
+    rewrite -- this function only computes it. When neither header shape is found (an empty
+    or unrecognized note), returns ``({}, False, 0)``.
+    """
+    lines = text.splitlines()
+    header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_NEW_HEADER_LINE), None)
+    if header_idx is not None:
+        rows: dict[str, _ArtifactRow] = {}
+        for line in _read_table_rows(lines, header_idx):
+            cells = _split_artifact_row(line)
+            if len(cells) != 9:
+                continue  # malformed row: skip rather than crash on a hand-edited note
+            date, title, url, account, confidence, project, source, republished, sessions = cells
+            session_links = [s.strip() for s in sessions.split(",") if s.strip()]
+            rows[url] = _ArtifactRow(
+                date=date, title=title, url=url, account=account, confidence=confidence,
+                project=project, source=source, republished=int(republished), sessions=session_links,
+            )
+        return rows, False, 0
+
+    header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_OLD_HEADER_LINE), None)
+    if header_idx is None:
+        return {}, False, 0
+
+    old_rows = _read_table_rows(lines, header_idx)
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for line in old_rows:
+        cells = _split_artifact_row(line)
+        if len(cells) != 7:
+            continue
+        date, title, url, account, project, source, session = cells
+        if url not in groups:
+            groups[url] = {"sessions": [], "count": 0}
+            order.append(url)
+        g = groups[url]
+        g.update(date=date, title=title, account=account, project=project, source=source)
+        g["count"] += 1
+        if session and session not in g["sessions"]:
+            g["sessions"].append(session)
+
+    migrated_rows = {
+        url: _ArtifactRow(
+            date=groups[url]["date"], title=groups[url]["title"], url=url,
+            account=groups[url]["account"], confidence="active", project=groups[url]["project"],
+            source=groups[url]["source"], republished=groups[url]["count"],
+            sessions=groups[url]["sessions"],
+        )
+        for url in order  # preserve first-seen URL order, not dict/group iteration order
+    }
+    return migrated_rows, True, len(old_rows)
+
+
+def _upsert_artifact_row(rows: dict[str, "_ArtifactRow"], entry: ArtifactEntry, session_link: str) -> str:
+    """Mutate ``rows`` in place for one manifest entry; return the action taken."""
+    existing = rows.get(entry.url)
+    if existing is None:
+        rows[entry.url] = _ArtifactRow(
+            date=entry.date.isoformat(), title=entry.title, url=entry.url, account=entry.account,
+            confidence=entry.confidence, project=entry.project, source=entry.source,
+            republished=1, sessions=[session_link],
+        )
+        return "appended"
+
+    same_fields = (
+        existing.date == entry.date.isoformat()
+        and existing.title == entry.title
+        and existing.account == entry.account
+        and existing.confidence == entry.confidence
+        and existing.project == entry.project
+        and existing.source == entry.source
     )
+    session_known = session_link in existing.sessions
+    if same_fields and session_known:
+        return "skipped (already exists)"
+
+    existing.date = entry.date.isoformat()
+    existing.title = entry.title
+    existing.account = entry.account
+    existing.confidence = entry.confidence
+    existing.project = entry.project
+    existing.source = entry.source
+    if not session_known:
+        existing.sessions.append(session_link)
+        existing.republished += 1
+    return "updated"
 
 
 def append_to_artifacts_note(
@@ -1823,33 +1991,35 @@ def append_to_artifacts_note(
     entries: list[ArtifactEntry],
     session_log_filename: str,
 ) -> list[ChangeReport]:
-    """Append one row per artifact to Context/artifacts.md, creating the note (with a header
-    row) if it does not exist yet. Idempotent on the exact row: a second run with an
-    identical row appends nothing (checked against the row text, not any composite key)."""
+    """Upsert Context/artifacts.md by URL: one row per published artifact, updated in place
+    on republish rather than appended, with `republished` and `sessions` tracking every
+    publish merged into that row. Creates the note (with the nine-column header) if it does
+    not exist yet. A note in the pre-Task-2 seven-column shape (one row per publish) is
+    migrated in memory on first read and the migration is logged to stdout exactly once."""
     rel_path = "Context/artifacts.md"
     path = vault / rel_path
     created_now = not path.exists()
+
     if created_now:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(ARTIFACTS_NOTE_HEADER) + "\n")
+        rows, migrated, old_row_count = {}, False, 0
+    else:
+        rows, migrated, old_row_count = _load_artifacts_table(path.read_text())
+
+    if migrated:
+        print(f"migrated {rel_path}: {old_row_count} rows -> {len(rows)} artifacts")
 
     reports: list[ChangeReport] = []
     for entry in entries:
-        row = _artifact_row(entry, session_log_filename)
-        lines = path.read_text().splitlines()
-        if row in lines:
-            print(
-                f"warning: artifact row already present at {path}; skipped (idempotent retry)",
-                file=sys.stderr,
-            )
-            reports.append(ChangeReport(path=rel_path, summary=["skipped (already exists)"]))
-            continue
-        text = path.read_text()
-        if not text.endswith("\n"):
-            text += "\n"
-        text += row + "\n"
-        path.write_text(text)
-        reports.append(ChangeReport(path=rel_path, summary=["created" if created_now else "appended"]))
+        yyyy_mm = entry.date.strftime("%Y-%m")
+        session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+        action = _upsert_artifact_row(rows, entry, session_link)
+        if created_now and action == "appended":
+            action = "created"
+        reports.append(ChangeReport(path=rel_path, summary=[action]))
+
+    if created_now or migrated or entries:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_render_artifacts_note(rows))
     return reports
 
 
@@ -2399,8 +2569,25 @@ def run(
 
             if manifest.extractions.artifacts:
                 if dry_run:
+                    artifacts_path = vault / "Context/artifacts.md"
+                    dr_rows, dr_migrated, dr_old_count = (
+                        _load_artifacts_table(artifacts_path.read_text())
+                        if artifacts_path.exists() else ({}, False, 0)
+                    )
+                    if dr_migrated:
+                        print(f"[dry-run] migrated Context/artifacts.md: {dr_old_count} rows -> {len(dr_rows)} artifacts")
+                    dr_created_now = not artifacts_path.exists()
+                    action_verb = {
+                        "created": "create", "appended": "append", "updated": "update",
+                        "skipped (already exists)": "skip (already exists)",
+                    }
                     for a in manifest.extractions.artifacts:
-                        print(f"[dry-run] would append artifact row: {a.title!r} -> {vault / 'Context/artifacts.md'}")
+                        yyyy_mm = a.date.strftime("%Y-%m")
+                        session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+                        action = _upsert_artifact_row(dr_rows, a, session_link)
+                        if dr_created_now and action == "appended":
+                            action = "created"
+                        print(f"[dry-run] would {action_verb[action]} artifact row: {a.title!r} -> {artifacts_path}")
                 else:
                     change_reports.extend(append_to_artifacts_note(
                         vault=vault, entries=manifest.extractions.artifacts,
