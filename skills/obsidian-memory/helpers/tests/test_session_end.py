@@ -1,4 +1,5 @@
 """Tests for session_end.py helper."""
+import re
 from datetime import date as Date
 from pathlib import Path
 
@@ -1205,6 +1206,10 @@ class TestEndToEnd:
         focus = (vault / "Context/current-focus.md").read_text()
         assert "🟢 Existing project active." in focus
         assert "last-updated: 2026-05-09-full-example" in focus
+
+        artifacts = (vault / "Context/artifacts.md").read_text()
+        assert "Full manifest artifact" in artifacts
+        assert "https://claude.ai/public/artifacts/full-example-1" in artifacts
 
 
 class TestPartialRun:
@@ -3241,6 +3246,12 @@ class TestKnowledgeNotes:
 # ---------------------------------------------------------------------------
 
 class TestArtifactsBucket:
+    """artifact-index-tidy Task 2: the writer upserts by URL instead of appending a row
+    per publish, with a one-time migration of the old seven-column shape."""
+
+    NEW_HEADER = "| date | title | url | account | confidence | project | source | republished | sessions |"
+    OLD_HEADER = "| date | title | url | account | project | source | session |"
+
     def _entry(self, **kw):
         base = dict(
             title="The nine-layers map",
@@ -3253,16 +3264,23 @@ class TestArtifactsBucket:
         base.update(kw)
         return session_end.ArtifactEntry(**base)
 
+    # -- U1: append to an empty note creates the nine-column header + one row --
+
     def test_append_creates_note(self, tmp_path):
         reports = session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
         note = tmp_path / "Context/artifacts.md"
         assert note.exists()
         text = note.read_text()
-        assert "| date | title | url | account | project | source | session |" in text
+        assert self.NEW_HEADER in text
         assert "The nine-layers map" in text
+        assert "| active |" in text  # default confidence
+        assert "| 1 |" in text  # republished = 1 for a single publish
+        assert "[[Sessions/2026-09/2026-09-05-x]]" in text
         assert reports[0].summary == ["created"]
 
-    def test_second_run_same_row_appends_nothing(self, tmp_path):
+    # -- U2: same manifest twice -> second run skipped, note byte-identical --
+
+    def test_second_run_same_manifest_is_skipped_and_byte_identical(self, tmp_path):
         session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
         note = tmp_path / "Context/artifacts.md"
         before = note.read_text()
@@ -3272,15 +3290,19 @@ class TestArtifactsBucket:
         assert r2[0].summary == ["skipped (already exists)"]
 
     def test_project_none_renders(self, tmp_path):
-        session_end.append_to_artifacts_note(tmp_path, [self._entry(project="none")], "2026-09-05-x")
+        # source deliberately outside 10-projects/20-areas: artifact-index-tidy Task 1 made
+        # ArtifactEntry derive project from a "none" + derivable source, so this genuine-none
+        # case needs a source the derivation can't resolve.
+        entry = self._entry(project="none", source="Personal/Journal/2026-09-05.md")
+        session_end.append_to_artifacts_note(tmp_path, [entry], "2026-09-05-x")
         text = (tmp_path / "Context/artifacts.md").read_text()
         assert "| none |" in text
 
-    def test_second_run_different_row_still_appends(self, tmp_path):
-        """The dedup key is the exact row TEXT, not merely whether the note file already
-        exists. A mutant that skips appending whenever Context/artifacts.md is already present
-        (regardless of the row) would pass every other Artifacts test here — none of them call
-        the writer twice with different entries — so this is the one that catches it."""
+    def test_second_run_different_url_still_appends(self, tmp_path):
+        """The dedup key is the URL, not merely whether the note file already exists.
+        A mutant that skips appending whenever Context/artifacts.md is already present
+        (regardless of URL) would pass every other Artifacts test here -- none of them call
+        the writer twice with different URLs -- so this is the one that catches it."""
         session_end.append_to_artifacts_note(tmp_path, [self._entry(title="First artifact")], "2026-09-05-x")
         r2 = session_end.append_to_artifacts_note(
             tmp_path, [self._entry(title="Second artifact", url="https://claude.ai/public/artifacts/def456")],
@@ -3290,6 +3312,533 @@ class TestArtifactsBucket:
         assert "First artifact" in text
         assert "Second artifact" in text
         assert r2[0].summary == ["appended"]
+
+    # -- U3: republish from a second session merges into one row --
+
+    def test_republish_second_session_merges_one_row(self, tmp_path):
+        session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="v1", date=Date(2026, 9, 5))], "2026-09-05-x",
+        )
+        r2 = session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="v2", date=Date(2026, 9, 7))], "2026-09-07-y",
+        )
+        text = (tmp_path / "Context/artifacts.md").read_text()
+        data_rows = [ln for ln in text.splitlines() if "abc123" in ln]
+        assert len(data_rows) == 1  # one row, not two
+        row = data_rows[0]
+        assert "v2" in row and "v1" not in row  # latest title wins
+        assert row.startswith("| 2026-09-07 |")  # latest date wins (the date CELL, not the
+        # session links further along the row, which legitimately still carry both dates)
+        assert "| 2 |" in row  # republished count
+        assert "[[Sessions/2026-09/2026-09-05-x]]" in row
+        assert "[[Sessions/2026-09/2026-09-07-y]]" in row
+        assert r2[0].summary == ["updated"]
+
+    # -- U4: migration of an old-shape note with duplicate URLs --
+
+    def test_migration_of_old_shape_note(self, tmp_path, capsys):
+        old_fixture = Path(__file__).parent / "fixtures" / "artifacts_old_shape.md"
+        old_text = old_fixture.read_text()
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        note_path.write_text(old_text)
+
+        # premise: the fixture really is old-shape and really has duplicate URLs
+        assert self.OLD_HEADER in old_text
+        assert old_text.count("artifacts/budget1") == 5
+        assert old_text.count("artifacts/renewal1") == 2
+
+        reports = session_end.append_to_artifacts_note(tmp_path, [], "2026-09-05-x")
+        captured = capsys.readouterr()
+        assert "migrated Context/artifacts.md: 7 rows -> 2 artifacts" in captured.out
+        assert reports == []  # migration alone touches no manifest entries
+
+        text = note_path.read_text()
+        assert self.NEW_HEADER in text
+        assert self.OLD_HEADER not in text
+        budget_row = [ln for ln in text.splitlines() if "budget1" in ln][0]
+        assert "Budget dashboard v5" in budget_row  # last row's fields win
+        assert "| 5 |" in budget_row
+        for day in ["01", "05", "10", "15", "20"]:
+            assert f"2026-08-{day}-budget" in budget_row
+        renewal_row = [ln for ln in text.splitlines() if "renewal1" in ln][0]
+        assert "Renewal tracker v2" in renewal_row
+        assert "| 2 |" in renewal_row
+
+    # -- U5: migration is one-shot --
+
+    def test_migration_runs_once(self, tmp_path, capsys):
+        old_fixture = Path(__file__).parent / "fixtures" / "artifacts_old_shape.md"
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        note_path.write_text(old_fixture.read_text())
+
+        session_end.append_to_artifacts_note(tmp_path, [], "2026-09-05-x")
+        capsys.readouterr()  # discard first-run output
+        migrated_text = note_path.read_text()
+        # premise: the note really was migrated (new header, old header gone) before the
+        # second run
+        assert self.NEW_HEADER in migrated_text
+        assert self.OLD_HEADER not in migrated_text
+
+        session_end.append_to_artifacts_note(tmp_path, [], "2026-09-05-x")
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert note_path.read_text() == migrated_text
+
+    # -- U6: a title with | round-trips --
+
+    def test_title_with_pipe_round_trips(self, tmp_path):
+        entry = self._entry(title="Before | After", url="https://claude.ai/public/artifacts/pipe1")
+        session_end.append_to_artifacts_note(tmp_path, [entry], "2026-09-05-x")
+        note = tmp_path / "Context/artifacts.md"
+        text = note.read_text()
+        assert "Before \\| After" in text  # escaped on write
+
+        # Round trip: re-running with the IDENTICAL entry must recognize it as the same
+        # row. If the escape were mishandled on read (e.g. the extra `|` split the row
+        # into the wrong number of cells), the title would fail to compare equal and this
+        # would report "updated" (or the row would be dropped as malformed) instead of
+        # "skipped".
+        r2 = session_end.append_to_artifacts_note(tmp_path, [entry], "2026-09-05-x")
+        assert r2[0].summary == ["skipped (already exists)"]
+
+        # A genuine update still renders the unescaped title correctly, as exactly one row.
+        entry2 = self._entry(
+            title="Before | After", url="https://claude.ai/public/artifacts/pipe1", date=Date(2026, 9, 7),
+        )
+        session_end.append_to_artifacts_note(tmp_path, [entry2], "2026-09-07-y")
+        final_text = note.read_text()
+        assert "Before \\| After" in final_text
+        assert final_text.count("Before") == 1
+
+    # -- U7: dry-run prints and writes nothing --
+
+    def test_dry_run_prints_and_writes_nothing(self, tmp_path, capsys):
+        manifest = session_end.SessionEndManifest(
+            date="2026-09-05", topic="dry", tags=["session"],
+            last_updated_slug="2026-09-05-dry", summary="Summary.",
+            projects_touched=[], streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x", learnings="x", files_modified=session_end.FilesModified(),
+            next_steps="x",
+            extractions=session_end.Extractions(artifacts=[self._entry()]),
+        )
+        vault = tmp_path / "vault"
+        shutil.copytree(Path(__file__).parent / "fixtures" / "vault", vault)
+        rc = session_end.run(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            dry_run=True, sections={"extractions"},
+        )
+        assert rc == 0
+        assert not (vault / "Context/artifacts.md").exists()
+        captured = capsys.readouterr()
+        assert "[dry-run]" in captured.out
+        assert "The nine-layers map" in captured.out
+
+    # -- U7 (cont.): dry-run decisions equal the real run's report summaries on the same
+    # fixture -- both paths now call the same planning function (Fix round 2, finding #4), so
+    # this proves they can't independently drift on what "would happen" means. Two separate
+    # entries (one new URL, one that upserts an existing row) so both an "appended"/"created"
+    # and an "updated" decision are covered, not just the single-append shape U7 itself uses.
+
+    ACTION_VERB = {
+        "created": "create", "appended": "append", "updated": "update",
+        "skipped (already exists)": "skip (already exists)",
+    }
+
+    def _dry_run_decisions(self, vault, entries, capsys):
+        manifest = session_end.SessionEndManifest(
+            date="2026-09-05", topic="dry", tags=["session"],
+            last_updated_slug="2026-09-05-dry", summary="Summary.",
+            projects_touched=[], streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x", learnings="x", files_modified=session_end.FilesModified(),
+            next_steps="x",
+            extractions=session_end.Extractions(artifacts=entries),
+        )
+        session_end.run(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            dry_run=True, sections={"extractions"},
+        )
+        out = capsys.readouterr().out
+        return re.findall(r"\[dry-run\] would (\w+(?: \([^)]*\))?) artifact row:", out)
+
+    def test_dry_run_decisions_match_real_run_summaries(self, tmp_path, capsys):
+        """Two states, each checked with a dry-run/real pair that starts from IDENTICAL
+        vault content: an empty vault (exercises "created"/"appended") and a vault already
+        holding one of the two URLs (exercises "updated"). A dry-run against a vault it never
+        writes to cannot be chained across calls the way real runs can, so each pair gets its
+        own freshly-copied vault rather than reusing one dry-run vault for both states."""
+        entries = [
+            self._entry(title="First", url="https://claude.ai/public/artifacts/first1"),
+            self._entry(title="Second v1", url="https://claude.ai/public/artifacts/second1"),
+        ]
+        fixtures_vault = Path(__file__).parent / "fixtures" / "vault"
+
+        # State 1: empty vault -> both entries are new URLs written into the note the same
+        # call creates, so both are "created" (the writer's created_now check applies to
+        # every entry in the batch, not just the first).
+        empty_dry, empty_real = tmp_path / "empty_dry", tmp_path / "empty_real"
+        shutil.copytree(fixtures_vault, empty_dry)
+        shutil.copytree(fixtures_vault, empty_real)
+        assert not (empty_dry / "Context/artifacts.md").exists()  # premise: genuinely empty
+
+        dry_decisions = self._dry_run_decisions(empty_dry, entries, capsys)
+        real_reports = session_end.append_to_artifacts_note(empty_real, entries, "2026-09-05-dry")
+        real_summaries = [r.summary[0] for r in real_reports]
+        assert real_summaries == ["created", "created"]  # premise: this really is the writer's shape
+        assert dry_decisions == [self.ACTION_VERB[s] for s in real_summaries]
+
+        # State 2: a vault where "second1" already has a row (from State 1's real run) ->
+        # the follow-up publish is a genuine "updated", in both the dry-run preview and reality.
+        followup = [self._entry(title="Second v2", url="https://claude.ai/public/artifacts/second1")]
+        updated_dry, updated_real = tmp_path / "updated_dry", tmp_path / "updated_real"
+        shutil.copytree(empty_real, updated_dry)   # both start from State 1's real, post-write vault
+        shutil.copytree(empty_real, updated_real)
+
+        dry_decisions2 = self._dry_run_decisions(updated_dry, followup, capsys)
+        real_reports2 = session_end.append_to_artifacts_note(updated_real, followup, "2026-09-05-dry")
+        real_summaries2 = [r.summary[0] for r in real_reports2]
+        assert real_summaries2 == ["updated"]  # premise: this follow-up really does exercise "updated"
+        assert dry_decisions2 == [self.ACTION_VERB[s] for s in real_summaries2]
+
+    def test_dry_run_previews_migration_line(self, tmp_path, capsys):
+        old_fixture = Path(__file__).parent / "fixtures" / "artifacts_old_shape.md"
+        vault = tmp_path / "vault"
+        shutil.copytree(Path(__file__).parent / "fixtures" / "vault", vault)
+        note_path = vault / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text(old_fixture.read_text())
+        before = note_path.read_text()
+
+        manifest = session_end.SessionEndManifest(
+            date="2026-09-05", topic="dry", tags=["session"],
+            last_updated_slug="2026-09-05-dry", summary="Summary.",
+            projects_touched=[], streams=[session_end.Stream(title="S", body="B")],
+            key_decisions="x", learnings="x", files_modified=session_end.FilesModified(),
+            next_steps="x",
+            extractions=session_end.Extractions(artifacts=[self._entry()]),
+        )
+        rc = session_end.run(
+            manifest=manifest, vault=vault, org_name="Chalktalk",
+            dry_run=True, sections={"extractions"},
+        )
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "[dry-run] migrated Context/artifacts.md: 7 rows -> 2 artifacts" in captured.out
+        assert note_path.read_text() == before  # dry-run wrote nothing
+
+    # -- Fix round 1 (reviewer finding): the writer must not delete content it doesn't own --
+
+    # -- U8: content after the table survives an upsert byte-for-byte --
+
+    def test_upsert_preserves_footer_byte_for_byte(self, tmp_path):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        note_path = tmp_path / "Context/artifacts.md"
+        footer = (
+            "\n## Notes\n\nA human wrote this paragraph below the table.\n\n"
+            "And a second paragraph here.\n"
+        )
+        with note_path.open("a") as f:
+            f.write(footer)
+
+        # premise: the note really has a "## Notes" section with two paragraphs after the
+        # table before the upsert under test
+        before = note_path.read_text()
+        assert "## Notes" in before
+        assert "A human wrote this paragraph below the table." in before
+        assert "And a second paragraph here." in before
+
+        session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="Second", url="https://claude.ai/public/artifacts/second1")],
+            "2026-09-06-y",
+        )
+        after = note_path.read_text()
+        # the footer, byte-for-byte, unchanged by an upsert that touched the table above it
+        assert after[after.index("## Notes"):] == before[before.index("## Notes"):]
+
+    # -- U9: a malformed row is kept verbatim, with a line-numbered warning --
+
+    def test_malformed_row_preserved_verbatim_with_warning(self, tmp_path, capsys):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        good_row = (
+            "| 2026-09-01 | Existing | https://claude.ai/public/artifacts/existing1 | "
+            "mohannad@chalktalk.academy | active | none | src.html | 1 | "
+            "[[Sessions/2026-09/2026-09-01-x]] |"
+        )
+        malformed_row = "| broken | row | only-four | cells |"
+        text = "\n".join(session_end.ARTIFACTS_NOTE_HEADER + [good_row, malformed_row]) + "\n"
+        note_path.write_text(text)
+        line_no = text.splitlines().index(malformed_row) + 1  # 1-indexed
+
+        # premise: the malformed row really has the wrong cell count for the new shape, and
+        # is really at the line number the assertion below checks
+        assert len(session_end._split_artifact_row(malformed_row)) != 9
+        assert text.splitlines()[line_no - 1] == malformed_row
+
+        capsys.readouterr()  # discard anything printed building the fixture
+        session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="New", url="https://claude.ai/public/artifacts/new1")], "2026-09-05-x",
+        )
+        captured = capsys.readouterr()
+        assert f"row {line_no} has 4 cells, expected 9; left as is" in captured.err
+
+        after_lines = note_path.read_text().splitlines()
+        assert malformed_row in after_lines  # preserved verbatim, not merged or reordered
+
+    # -- U10: migration of an old-shape note with a footer keeps the footer --
+
+    def test_migration_keeps_footer(self, tmp_path):
+        fixture = Path(__file__).parent / "fixtures" / "artifacts_old_shape_with_footer.md"
+        old_text = fixture.read_text()
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        note_path.write_text(old_text)
+
+        # premise: the fixture really has content after the table
+        assert "## Notes" in old_text
+        before_footer = old_text[old_text.index("## Notes"):]
+        assert before_footer.strip() != ""
+
+        session_end.append_to_artifacts_note(tmp_path, [], "2026-09-05-x")
+        after = note_path.read_text()
+        assert "| date | title | url | account | confidence |" in after  # migration did run
+        assert after[after.index("## Notes"):] == before_footer  # footer survived, byte-for-byte
+
+    # -- Fix round 2 (final whole-branch review) --
+
+    # -- U11: a column-aligned header (not byte-identical to the canonical line) still
+    # parses, and an upsert against it keeps every existing row and session link --
+
+    ALIGNED_NEW_HEADER = (
+        "| date       | title    | url                                            | "
+        "account                    | confidence | project | source  | republished | sessions |"
+    )
+
+    def test_aligned_header_parses_and_upsert_preserves_existing_rows(self, tmp_path):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        existing_row = (
+            "| 2026-09-01 | Existing | https://claude.ai/public/artifacts/existing1 | "
+            "mohannad@chalktalk.academy | active | none | src.html | 1 | "
+            "[[Sessions/2026-09/2026-09-01-x]] |"
+        )
+        # premise: this header is genuinely NOT byte-identical to the canonical line, but
+        # does carry the same nine column names once alignment padding is stripped
+        assert self.ALIGNED_NEW_HEADER != self.NEW_HEADER
+        assert session_end._normalize_header_cells(self.ALIGNED_NEW_HEADER) == \
+            session_end._normalize_header_cells(self.NEW_HEADER)
+        text = "\n".join([
+            "---", "type: index", "tags: [artifacts]", "---", "", "# Artifacts", "",
+            self.ALIGNED_NEW_HEADER, "|---|---|---|---|---|---|---|---|---|", existing_row,
+        ]) + "\n"
+        note_path.write_text(text)
+
+        reports = session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="New", url="https://claude.ai/public/artifacts/new1")], "2026-09-05-x",
+        )
+        after = note_path.read_text()
+        assert "Existing" in after  # the existing row was not dropped
+        assert "[[Sessions/2026-09/2026-09-01-x]]" in after  # nor was its session link
+        assert "New" in after  # and the new entry was genuinely appended, not refused
+        assert reports[0].summary == ["appended"]
+
+    # -- U12: a non-empty note with no recognisable header is refused, not rewritten --
+
+    def test_foreign_header_note_is_refused_not_rewritten(self, tmp_path, capsys):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        text = "\n".join([
+            "---", "type: index", "tags: [artifacts]", "---", "", "# Artifacts", "",
+            "| when | what | link |", "|---|---|---|",
+            "| 2026-01-01 | Some future shape | https://example.com/x |",
+        ]) + "\n"
+        note_path.write_text(text)
+        before = note_path.read_text()
+
+        reports = session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="New", url="https://claude.ai/public/artifacts/new1")], "2026-09-05-x",
+        )
+        captured = capsys.readouterr()
+        assert note_path.read_text() == before  # left untouched, byte-for-byte
+        assert "has no recognisable artifacts table header" in captured.err
+        assert "refusing to rewrite it" in captured.err
+        assert reports[0].summary == ["skipped (unrecognised note)"]
+
+    # -- U13: a hand-edited, non-integer `republished` cell is kept as an opaque line
+    # (with a warning) instead of raising and aborting the whole session-end run --
+
+    def test_non_integer_republished_cell_kept_opaque_not_raised(self, tmp_path, capsys):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        hand_edited_row = (
+            "| 2026-09-01 | Existing | https://claude.ai/public/artifacts/existing1 | "
+            "mohannad@chalktalk.academy | active | none | src.html | 3 (see note) | "
+            "[[Sessions/2026-09/2026-09-01-x]] |"
+        )
+        text = "\n".join(session_end.ARTIFACTS_NOTE_HEADER + [hand_edited_row]) + "\n"
+        note_path.write_text(text)
+        line_no = text.splitlines().index(hand_edited_row) + 1
+
+        # premise: `int()` genuinely raises on this cell -- the fixture actually exercises
+        # the branch under test, not some other malformed shape
+        with pytest.raises(ValueError):
+            int("3 (see note)")
+
+        reports = session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="New", url="https://claude.ai/public/artifacts/new1")], "2026-09-05-x",
+        )
+        captured = capsys.readouterr()
+        assert f"row {line_no} has a non-integer republished cell" in captured.err
+        assert "left as is" in captured.err
+
+        after_lines = note_path.read_text().splitlines()
+        assert hand_edited_row in after_lines  # preserved verbatim
+        assert "New" in note_path.read_text()  # and the rest of the run still completed
+        assert reports[0].summary == ["appended"]
+
+    # -- U14: the writer's note write is atomic -- no leftover temp file, content matches --
+
+    def test_atomic_write_leaves_no_temp_file(self, tmp_path):
+        path = tmp_path / "note.md"
+        path.write_text("old content")
+        session_end._atomic_write_text(path, "new content")
+        assert path.read_text() == "new content"
+        leftover = [p for p in tmp_path.iterdir() if p != path]
+        assert leftover == []  # no .tmp file left behind in the directory
+
+    def test_artifacts_note_write_leaves_no_temp_file(self, tmp_path):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        note_dir = tmp_path / "Context"
+        assert list(note_dir.iterdir()) == [note_dir / "artifacts.md"]
+        assert "The nine-layers map" in (note_dir / "artifacts.md").read_text()
+
+    # -- U15: migration backfills project via derive_project when the old row's project is
+    # literally "none" and the source derives (mirrors the real vault's "Core Rule Sort" row) --
+
+    def test_migration_backfills_project_from_derivable_source(self, tmp_path):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        old_row = (
+            "| 2026-09-09 | Core Rule Sort | https://claude.ai/public/artifacts/corerule1 | "
+            "mohannad(w) | none | 10-projects/2026-09-session-learnings/artifacts/x.html | "
+            "[[Sessions/2026-09/2026-09-09-x]] |"
+        )
+        text = "\n".join([
+            "---", "type: index", "tags: [artifacts]", "---", "", "# Artifacts", "",
+            self.OLD_HEADER, "|---|---|---|---|---|---|---|", old_row,
+        ]) + "\n"
+        note_path.write_text(text)
+
+        # premise: derive_project really resolves this source to a slug (the oracle is the
+        # function under test, not a retyped slug), and the fixture row's project really is
+        # the literal "none" the migration is supposed to fix
+        expected = session_end.derive_project("10-projects/2026-09-session-learnings/artifacts/x.html")
+        assert expected is not None
+        assert "| none |" in old_row
+
+        session_end.append_to_artifacts_note(tmp_path, [], "2026-09-10-x")
+        row = [ln for ln in note_path.read_text().splitlines() if "corerule1" in ln][0]
+        assert f"| {expected} |" in row
+
+    # -- Finding #6: an idempotent retry warns on stderr, alongside the report line --
+
+    def test_idempotent_retry_warns_on_stderr_alongside_report(self, tmp_path, capsys):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        capsys.readouterr()  # discard the first run's output
+
+        reports = session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        captured = capsys.readouterr()
+        assert reports[0].summary == ["skipped (already exists)"]
+        assert "warning: artifact row already present" in captured.err
+        assert "skipped (idempotent retry)" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# artifact-index-tidy Task 1: derive_project + ArtifactEntry.confidence
+# ---------------------------------------------------------------------------
+
+class TestDeriveProjectAndConfidence:
+    def _entry(self, **kw):
+        base = dict(
+            title="The nine-layers map",
+            url="https://claude.ai/public/artifacts/abc123",
+            date=Date(2026, 9, 5),
+            account="mohannad@chalktalk.academy",
+            project="memory-and-workspace-system",
+            source="10-projects/2026-09-memory-and-workspace-system/scratch/nine-layers-map.html",
+        )
+        base.update(kw)
+        return session_end.ArtifactEntry(**base)
+
+    # -- D1: both path shapes derive --------------------------------------
+
+    @pytest.mark.parametrize("source,expected_slug", [
+        ("10-projects/2026-09-memory-and-workspace-system/scratch/x.html", "memory-and-workspace-system"),
+        ("20-areas/outreach-playbook/runs/x.html", "outreach-playbook"),
+    ])
+    def test_derive_project_matches_shape(self, source, expected_slug):
+        assert session_end.derive_project(source) == expected_slug
+
+    @pytest.mark.parametrize("source", [
+        "10-projects/2026-09-memory-and-workspace-system/scratch/x.html",
+        "20-areas/outreach-playbook/runs/x.html",
+    ])
+    def test_wiring_fills_project_from_derivable_source(self, source):
+        """The model validator's wiring: an entry manifested with project="none" over a
+        derivable source ends up carrying whatever derive_project itself returns for that
+        source -- the oracle is the function under test, not a retyped slug."""
+        expected = session_end.derive_project(source)
+        assert expected is not None  # premise: this source IS derivable
+        entry = self._entry(project="none", source=source)
+        assert entry.project == expected
+
+    # -- D2: an unrelated path stays "none" --------------------------------
+
+    def test_unrelated_path_leaves_project_none(self):
+        source = "Personal/Journal/2026-09-10.md"
+        assert session_end.derive_project(source) is None
+        entry = self._entry(project="none", source=source)
+        assert entry.project == "none"
+
+    # -- D6: the shared 20-areas/artifacts/ folder is not itself a project --
+
+    def test_shared_artifacts_folder_leaves_project_none(self):
+        """20-areas/artifacts/ is the shared home for a published artifact's source HTML
+        when nothing else owns it (workspace contract), not a real project or area -- a
+        path under it must not derive a project slug of "artifacts" (artifact-index-tidy
+        Task 2, folded minor from Task 1)."""
+        source = "20-areas/artifacts/2026-09-10-some-artifact.html"
+        assert session_end.derive_project(source) is None
+        entry = self._entry(project="none", source=source)
+        assert entry.project == "none"
+
+    # -- D3: explicit project always wins ----------------------------------
+
+    def test_explicit_project_wins_over_derivable_source(self):
+        source = "10-projects/2026-09-memory-and-workspace-system/scratch/x.html"
+        # premise: the path alone would derive to a DIFFERENT slug than the explicit one
+        derivable = session_end.derive_project(source)
+        assert derivable is not None and derivable != "explicit-project"
+        entry = self._entry(project="explicit-project", source=source)
+        assert entry.project == "explicit-project"
+
+    # -- D4: confidence default + each allowed value -----------------------
+
+    def test_confidence_defaults_to_active(self):
+        assert self._entry().confidence == "active"
+
+    @pytest.mark.parametrize("value", ["active", "ambiguous", "unknown"])
+    def test_confidence_accepts_each_allowed_value(self, value):
+        assert self._entry(confidence=value).confidence == value
+
+    # -- D5: an invalid confidence is rejected -------------------------------
+
+    def test_invalid_confidence_rejected(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            self._entry(confidence="sure-why-not")
+        assert "confidence" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

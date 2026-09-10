@@ -46,6 +46,13 @@ extractions:
   brag:
     - date: 2026-05-09
       body: "did the thing"
+  artifacts:
+    - title: "Full manifest artifact"
+      url: "https://claude.ai/public/artifacts/full-example-1"
+      date: 2026-05-09
+      account: "mohannad@chalktalk.academy"
+      project: "none"
+      source: "10-projects/2026-05-full-example/scratch/deck.html"
 
 project_doc_updates:
   - slug: existing-project

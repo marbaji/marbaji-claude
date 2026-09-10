@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date as Date, timedelta
@@ -244,6 +245,31 @@ class KnowledgeNote(BaseModel):
     source_files: list[str] = Field(default_factory=list)
 
 
+ARTIFACT_PROJECT_RE = re.compile(r"(^|/)10-projects/\d{4}-\d{2}-([a-z0-9-]+)/")
+ARTIFACT_AREA_RE = re.compile(r"(^|/)20-areas/([a-z0-9-]+)/")
+
+
+def derive_project(source: str) -> Optional[str]:
+    """Recover a project/area slug from an artifact's source path.
+
+    Matches the dated project container (``10-projects/YYYY-MM-<slug>/``) or an area
+    container (``20-areas/<slug>/``) anywhere in the path; returns None when neither
+    shape is present. Used by ``ArtifactEntry`` to fill in ``project`` when the manifest
+    left it as the literal string "none" (artifact-index-tidy Task 1).
+
+    ``20-areas/artifacts/`` is the special case: it is the shared dumping ground for a
+    published Artifact's source HTML when nothing else owns it (workspace contract), not
+    a real project or area, so it must not derive a project slug of "artifacts" (folded
+    minor from Task 1, fixed in Task 2)."""
+    m = ARTIFACT_PROJECT_RE.search(source)
+    if m:
+        return m.group(2)
+    m = ARTIFACT_AREA_RE.search(source)
+    if m and m.group(2) != "artifacts":
+        return m.group(2)
+    return None
+
+
 class ArtifactEntry(BaseModel):
     """A published Artifact whose HTML source now lives with its owner (not the session
     scratchpad) and whose publish is logged, so a hosted page can be traced back to the
@@ -254,6 +280,15 @@ class ArtifactEntry(BaseModel):
     account: str
     project: str  # a project slug, or the literal string "none"
     source: str
+    confidence: Literal["active", "ambiguous", "unknown"] = "active"
+
+    @model_validator(mode="after")
+    def _derive_project_if_none(self) -> "ArtifactEntry":
+        if self.project == "none":
+            derived = derive_project(self.source)
+            if derived is not None:
+                self.project = derived
+        return self
 
 
 class Extractions(BaseModel):
@@ -1762,6 +1797,23 @@ def write_knowledge_notes(vault: Path, notes: list[KnowledgeNote], session_date:
     return reports
 
 
+# The explanatory paragraph the migration owns and may rewrite, identified by its first
+# words (``_ARTIFACTS_PARAGRAPH_PREFIX``) so the rewrite can find it wherever it sits in the
+# note's prefix without touching the frontmatter, the title, or any other line there.
+_ARTIFACTS_PARAGRAPH_PREFIX = "Every publish is logged here so a hosted Artifact can be traced back to"
+_ARTIFACTS_NEW_PARAGRAPH = (
+    "Every publish is logged here so a hosted Artifact can be traced back to its source and "
+    "session (Amendment 2026-09-06). One row per artifact URL: republishing updates that row "
+    "(see `republished` and `sessions`) instead of adding a duplicate."
+)
+# The nine-column table header this module writes, and the seven-column shape every note
+# predating the artifact-index-tidy Task 2 upsert carries (one row per publish rather than
+# one row per URL). Detecting the header line -- not the presence of the note -- is what
+# triggers the one-time migration below.
+_ARTIFACTS_NEW_HEADER_LINE = "| date | title | url | account | confidence | project | source | republished | sessions |"
+_ARTIFACTS_SEPARATOR_LINE = "|---|---|---|---|---|---|---|---|---|"
+_ARTIFACTS_OLD_HEADER_LINE = "| date | title | url | account | project | source | session |"
+
 ARTIFACTS_NOTE_HEADER = [
     "---",
     "type: index",
@@ -1770,22 +1822,395 @@ ARTIFACTS_NOTE_HEADER = [
     "",
     "# Artifacts",
     "",
-    "Every publish is logged here so a hosted Artifact can be traced back to the source file "
-    "and session that produced it (Amendment 2026-09-06): a source that lived only in a "
-    "session scratchpad dies with the session, while the hosted page stays bound to whichever "
-    "of Mo's accounts published it.",
+    _ARTIFACTS_NEW_PARAGRAPH,
     "",
-    "| date | title | url | account | project | source | session |",
-    "|---|---|---|---|---|---|---|",
+    _ARTIFACTS_NEW_HEADER_LINE,
+    _ARTIFACTS_SEPARATOR_LINE,
 ]
+# The lines a brand-new note starts with, before its (empty) table body.
+_ARTIFACTS_NOTE_PREFIX = ARTIFACTS_NOTE_HEADER[:-2]
 
 
-def _artifact_row(entry: ArtifactEntry, session_log_filename: str) -> str:
-    yyyy_mm = entry.date.strftime("%Y-%m")
-    sess_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
-    return (
-        f"| {entry.date.isoformat()} | {entry.title} | {entry.url} | {entry.account} | "
-        f"{entry.project} | {entry.source} | {sess_link} |"
+def _escape_artifact_cell(value: str) -> str:
+    """Escape a literal `|` so it survives a round trip through the markdown table."""
+    return str(value).replace("|", "\\|")
+
+
+def _split_artifact_row(line: str) -> list[str]:
+    """Split one markdown table row into cells, honoring `\\|` as an escaped literal pipe
+    (the inverse of ``_escape_artifact_cell``) rather than a column separator."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body) and body[i + 1] == "|":
+            current.append("|")
+            i += 2
+            continue
+        if ch == "|":
+            cells.append("".join(current).strip())
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    cells.append("".join(current).strip())
+    return cells
+
+
+@dataclass
+class _ArtifactRow:
+    """One in-memory row of Context/artifacts.md, keyed by URL by its caller. Fields other
+    than ``republished``/``sessions`` always hold the LATEST publish's values."""
+    date: str
+    title: str
+    url: str
+    account: str
+    confidence: str
+    project: str
+    source: str
+    republished: int
+    sessions: list[str]  # session wikilinks, oldest first, deduplicated
+
+    def to_line(self) -> str:
+        cells = [
+            self.date, self.title, self.url, self.account, self.confidence,
+            self.project, self.source, str(self.republished), ", ".join(self.sessions),
+        ]
+        return "| " + " | ".join(_escape_artifact_cell(c) for c in cells) + " |"
+
+
+@dataclass
+class _OpaqueArtifactLine:
+    """A table-body line this module could not parse (wrong cell count for its shape).
+    Kept verbatim, in its original position, on every re-render rather than dropped --
+    the writer is not the row's only owner (a hand-edited note, or a row from a future
+    schema version) and must not silently destroy content it does not understand."""
+    text: str
+
+
+def _render_artifacts_note(
+    prefix_lines: list[str],
+    items: list,  # list[_ArtifactRow | _OpaqueArtifactLine]
+    suffix_lines: list[str],
+) -> str:
+    """Rebuild the note as prefix + table (header, separator, one line per item) + suffix.
+    ``prefix_lines``/``suffix_lines`` are carried through byte-for-byte -- everything the
+    note's owner (a human, or another tool) put outside the table survives every write."""
+    lines = (
+        list(prefix_lines)
+        + [_ARTIFACTS_NEW_HEADER_LINE, _ARTIFACTS_SEPARATOR_LINE]
+        + [item.text if isinstance(item, _OpaqueArtifactLine) else item.to_line() for item in items]
+        + list(suffix_lines)
+    )
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def _read_table_rows(lines: list[str], header_idx: int) -> tuple[list[str], int]:
+    """Return (raw table-row lines, end index) for the table at ``header_idx``: the row
+    lines following the header + separator, and the index of the first line after them
+    (len(lines) at EOF) -- everything from there on is the note's suffix."""
+    i = header_idx + 2  # skip the header line itself and the |---|...| separator
+    rows: list[str] = []
+    while i < len(lines) and lines[i].strip().startswith("|"):
+        rows.append(lines[i])
+        i += 1
+    return rows, i
+
+
+def _replace_artifacts_paragraph(prefix_lines: list[str]) -> list[str]:
+    """Migration rewrites ONLY the explanatory paragraph it owns, identified by its first
+    words -- never the frontmatter, the title, or any other prefix line. If the paragraph
+    isn't found (a hand-edited note), the prefix is left untouched rather than guessed at."""
+    out = list(prefix_lines)
+    for i, ln in enumerate(out):
+        if ln.strip().startswith(_ARTIFACTS_PARAGRAPH_PREFIX):
+            out[i] = _ARTIFACTS_NEW_PARAGRAPH
+            break
+    return out
+
+
+def _normalize_header_cells(line: str) -> list[str]:
+    """Split a markdown table header line into stripped cell names, dropping the leading
+    and trailing ``|`` and any column-alignment padding around each cell. Used to
+    recognise a table header by its cell NAMES rather than by exact byte match, so a
+    hand-aligned header (``| date       | title     | ...``) is still the canonical shape
+    instead of reading as unrecognized (Fix round 2, finding #1)."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in body.split("|")]
+
+
+_ARTIFACTS_NEW_HEADER_CELLS = _normalize_header_cells(_ARTIFACTS_NEW_HEADER_LINE)
+_ARTIFACTS_OLD_HEADER_CELLS = _normalize_header_cells(_ARTIFACTS_OLD_HEADER_LINE)
+
+
+def _find_artifacts_header(lines: list[str], expected_cells: list[str]) -> Optional[int]:
+    """Return the index of the line whose normalized cell names equal ``expected_cells``,
+    or None. A plain ``in``/``==`` check against the canonical header line only matches a
+    byte-identical header; this tolerates column-alignment whitespace around each cell."""
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped.startswith("|") and _normalize_header_cells(stripped) == expected_cells:
+            return i
+    return None
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: write to a temp file in the same directory,
+    then ``os.replace`` it into place. A plain ``Path.write_text`` truncates the file
+    before writing, so a crash or a concurrent reader mid-write can observe (or the process
+    can leave behind) a half-written note; ``os.replace`` is a single filesystem rename, so
+    readers only ever see the old file or the new one, never a partial one (Fix round 2,
+    finding #3)."""
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(directory))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.remove(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _load_artifacts_table(
+    text: str, rel_path: str = "Context/artifacts.md",
+) -> tuple[list[str], list, dict[str, "_ArtifactRow"], list[str], bool, int, bool]:
+    """Parse a Context/artifacts.md body into (prefix_lines, items, by_url, suffix_lines,
+    migrated, old_row_count, unrecognized), migrating an old-shape (seven-column, one row
+    per publish) table in memory.
+
+    ``items`` is the table body in file order (a mix of ``_ArtifactRow`` and
+    ``_OpaqueArtifactLine`` for any row whose cell count doesn't match its shape); ``by_url``
+    indexes the same ``_ArtifactRow`` objects by URL for O(1) upsert lookup -- mutating a row
+    reached through ``by_url`` is reflected in ``items``' render since it's the same object.
+    ``prefix_lines``/``suffix_lines`` are everything outside the table, kept verbatim by the
+    caller. ``migrated`` is True iff the header found was the old shape; the caller logs and
+    persists the rewrite -- this function only computes it. Header shapes are recognised by
+    normalized cell name (``_find_artifacts_header``), not exact byte match, so a
+    column-aligned header still parses.
+
+    ``unrecognized`` is True iff the note is non-empty but neither header shape was found --
+    a genuinely empty file (nothing to lose) still returns ``unrecognized=False`` with empty
+    lists so a brand-new note keeps working, but a non-empty note whose header this module
+    can't identify is flagged so the caller refuses to rewrite it rather than silently
+    replacing it with an empty table (Fix round 2, finding #1: this used to return the same
+    empty tuple for both cases, and the writer then overwrote the file, discarding every row).
+    """
+    lines = text.splitlines()
+    header_idx = _find_artifacts_header(lines, _ARTIFACTS_NEW_HEADER_CELLS)
+    if header_idx is not None:
+        row_lines, end_idx = _read_table_rows(lines, header_idx)
+        items: list = []
+        by_url: dict[str, _ArtifactRow] = {}
+        for offset, line in enumerate(row_lines):
+            cells = _split_artifact_row(line)
+            if len(cells) != 9:
+                line_no = header_idx + 3 + offset  # 1-indexed file line number
+                print(
+                    f"warning: {rel_path} row {line_no} has {len(cells)} cells, expected 9; left as is",
+                    file=sys.stderr,
+                )
+                items.append(_OpaqueArtifactLine(text=line))
+                continue
+            date, title, url, account, confidence, project, source, republished, sessions = cells
+            session_links = [s.strip() for s in sessions.split(",") if s.strip()]
+            try:
+                republished_n = int(republished)
+            except ValueError:
+                line_no = header_idx + 3 + offset
+                print(
+                    f"warning: {rel_path} row {line_no} has a non-integer republished cell "
+                    f"({republished!r}); left as is",
+                    file=sys.stderr,
+                )
+                items.append(_OpaqueArtifactLine(text=line))
+                continue
+            row = _ArtifactRow(
+                date=date, title=title, url=url, account=account, confidence=confidence,
+                project=project, source=source, republished=republished_n, sessions=session_links,
+            )
+            items.append(row)
+            by_url[url] = row
+        return lines[:header_idx], items, by_url, lines[end_idx:], False, 0, False
+
+    header_idx = _find_artifacts_header(lines, _ARTIFACTS_OLD_HEADER_CELLS)
+    if header_idx is None:
+        return [], [], {}, [], False, 0, bool(text.strip())
+
+    old_rows, end_idx = _read_table_rows(lines, header_idx)
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    opaque: list[_OpaqueArtifactLine] = []
+    for offset, line in enumerate(old_rows):
+        cells = _split_artifact_row(line)
+        if len(cells) != 7:
+            line_no = header_idx + 3 + offset
+            print(
+                f"warning: {rel_path} row {line_no} has {len(cells)} cells, expected 7; left as is",
+                file=sys.stderr,
+            )
+            opaque.append(_OpaqueArtifactLine(text=line))
+            continue
+        date, title, url, account, project, source, session = cells
+        if url not in groups:
+            groups[url] = {"sessions": [], "count": 0}
+            order.append(url)
+        g = groups[url]
+        g.update(date=date, title=title, account=account, project=project, source=source)
+        g["count"] += 1
+        if session and session not in g["sessions"]:
+            g["sessions"].append(session)
+
+    items = []
+    by_url = {}
+    for url in order:  # preserve first-seen URL order, not dict/group iteration order
+        g = groups[url]
+        project = g["project"]
+        if project == "none":
+            # The old shape predates ArtifactEntry's derive-on-"none" validator (Task 1), so
+            # a migrated row with a derivable source would otherwise stay stuck at "none"
+            # forever -- the migration is the one chance to backfill it (Fix round 2, finding #5).
+            derived = derive_project(g["source"])
+            if derived is not None:
+                project = derived
+        row = _ArtifactRow(
+            date=g["date"], title=g["title"], url=url, account=g["account"], confidence="active",
+            project=project, source=g["source"], republished=g["count"], sessions=g["sessions"],
+        )
+        items.append(row)
+        by_url[url] = row
+    items.extend(opaque)  # malformed old rows: preserved, not merged, appended after the real ones
+
+    return lines[:header_idx], items, by_url, lines[end_idx:], True, len(old_rows), False
+
+
+def _merge_artifact_row(existing: _ArtifactRow, entry: ArtifactEntry, session_link: str) -> str:
+    """Merge one manifest entry into an existing row (mutated in place); return the action."""
+    same_fields = (
+        existing.date == entry.date.isoformat()
+        and existing.title == entry.title
+        and existing.account == entry.account
+        and existing.confidence == entry.confidence
+        and existing.project == entry.project
+        and existing.source == entry.source
+    )
+    session_known = session_link in existing.sessions
+    if same_fields and session_known:
+        return "skipped (already exists)"
+
+    existing.date = entry.date.isoformat()
+    existing.title = entry.title
+    existing.account = entry.account
+    existing.confidence = entry.confidence
+    existing.project = entry.project
+    existing.source = entry.source
+    if not session_known:
+        existing.sessions.append(session_link)
+        existing.republished += 1
+    return "updated"
+
+
+@dataclass
+class _ArtifactsPlan:
+    """Everything an artifacts-note upsert needs to do, computed without writing anything.
+    ``append_to_artifacts_note`` (the real path) and the ``run()`` dry-run preview both call
+    ``_plan_artifacts_upsert`` to build this and then only differ in what they do with it --
+    write, or print -- so the two can never independently drift on what "would happen" means
+    (Fix round 2, finding #4: they used to reimplement this decision separately)."""
+    rel_path: str
+    unrecognized: bool  # non-empty note, no recognisable header -- refuse to touch it
+    created_now: bool
+    migrated: bool
+    old_row_count: int
+    final_artifact_count: int  # len(by_url) right after migration, before new entries -- the migration log line's second number
+    decisions: list[str]  # one action per input entry, same order as `entries`
+    should_write: bool
+    rendered_text: str  # meaningful only when should_write is True
+
+
+def _plan_artifacts_upsert(
+    vault: Path,
+    entries: list[ArtifactEntry],
+    session_log_filename: str,
+) -> _ArtifactsPlan:
+    """Compute the upsert plan for Context/artifacts.md: one row per published artifact,
+    updated in place on republish rather than appended, with `republished` and `sessions`
+    tracking every publish merged into that row. A note in the pre-Task-2 seven-column shape
+    (one row per publish) is migrated in memory on first read. Everything outside the table
+    (frontmatter, title, a footer section a human added) and any row this module can't parse
+    are carried through verbatim in the rendered text. A non-empty note whose header this
+    module can't recognise is flagged (``unrecognized=True``) rather than planned as an
+    empty table -- the caller must refuse to write it."""
+    rel_path = "Context/artifacts.md"
+    path = vault / rel_path
+    created_now = not path.exists()
+
+    if created_now:
+        prefix_lines: list[str] = list(_ARTIFACTS_NOTE_PREFIX)
+        items: list = []
+        by_url: dict[str, _ArtifactRow] = {}
+        suffix_lines: list[str] = []
+        migrated, old_row_count, unrecognized = False, 0, False
+    else:
+        prefix_lines, items, by_url, suffix_lines, migrated, old_row_count, unrecognized = _load_artifacts_table(
+            path.read_text(), rel_path=rel_path,
+        )
+
+    if unrecognized:
+        return _ArtifactsPlan(
+            rel_path=rel_path, unrecognized=True, created_now=False, migrated=False,
+            old_row_count=0, final_artifact_count=0,
+            decisions=["skipped (unrecognised note)" for _ in entries],
+            should_write=False, rendered_text="",
+        )
+
+    if migrated:
+        prefix_lines = _replace_artifacts_paragraph(prefix_lines)
+    migrated_artifact_count = len(by_url)  # count right after migration, before new entries
+
+    decisions: list[str] = []
+    for entry in entries:
+        yyyy_mm = entry.date.strftime("%Y-%m")
+        session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
+        existing = by_url.get(entry.url)
+        if existing is None:
+            row = _ArtifactRow(
+                date=entry.date.isoformat(), title=entry.title, url=entry.url, account=entry.account,
+                confidence=entry.confidence, project=entry.project, source=entry.source,
+                republished=1, sessions=[session_link],
+            )
+            items.append(row)
+            by_url[entry.url] = row
+            action = "appended"
+        else:
+            action = _merge_artifact_row(existing, entry, session_link)
+        if created_now and action == "appended":
+            action = "created"
+        decisions.append(action)
+
+    should_write = created_now or migrated or bool(entries)
+    rendered_text = _render_artifacts_note(prefix_lines, items, suffix_lines) if should_write else ""
+    return _ArtifactsPlan(
+        rel_path=rel_path, unrecognized=False, created_now=created_now, migrated=migrated,
+        old_row_count=old_row_count, final_artifact_count=migrated_artifact_count, decisions=decisions,
+        should_write=should_write, rendered_text=rendered_text,
     )
 
 
@@ -1794,33 +2219,36 @@ def append_to_artifacts_note(
     entries: list[ArtifactEntry],
     session_log_filename: str,
 ) -> list[ChangeReport]:
-    """Append one row per artifact to Context/artifacts.md, creating the note (with a header
-    row) if it does not exist yet. Idempotent on the exact row: a second run with an
-    identical row appends nothing (checked against the row text, not any composite key)."""
-    rel_path = "Context/artifacts.md"
-    path = vault / rel_path
-    created_now = not path.exists()
-    if created_now:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(ARTIFACTS_NOTE_HEADER) + "\n")
+    """Upsert Context/artifacts.md by URL via ``_plan_artifacts_upsert``, then either write
+    the plan's rendered text (atomically) or, for a note this module can't recognise, refuse
+    to touch the file at all and report every entry as skipped."""
+    plan = _plan_artifacts_upsert(vault, entries, session_log_filename)
 
-    reports: list[ChangeReport] = []
-    for entry in entries:
-        row = _artifact_row(entry, session_log_filename)
-        lines = path.read_text().splitlines()
-        if row in lines:
+    if plan.unrecognized:
+        print(
+            f"error: {plan.rel_path} has no recognisable artifacts table header; "
+            "refusing to rewrite it",
+            file=sys.stderr,
+        )
+        return [ChangeReport(path=plan.rel_path, summary=[d]) for d in plan.decisions]
+
+    if plan.migrated:
+        print(f"migrated {plan.rel_path}: {plan.old_row_count} rows -> {plan.final_artifact_count} artifacts")
+
+    for entry, action in zip(entries, plan.decisions):
+        if action == "skipped (already exists)":
             print(
-                f"warning: artifact row already present at {path}; skipped (idempotent retry)",
+                f"warning: artifact row already present at {plan.rel_path} for {entry.url}; "
+                "skipped (idempotent retry)",
                 file=sys.stderr,
             )
-            reports.append(ChangeReport(path=rel_path, summary=["skipped (already exists)"]))
-            continue
-        text = path.read_text()
-        if not text.endswith("\n"):
-            text += "\n"
-        text += row + "\n"
-        path.write_text(text)
-        reports.append(ChangeReport(path=rel_path, summary=["created" if created_now else "appended"]))
+
+    reports = [ChangeReport(path=plan.rel_path, summary=[d]) for d in plan.decisions]
+
+    if plan.should_write:
+        path = vault / plan.rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(path, plan.rendered_text)
     return reports
 
 
@@ -2370,8 +2798,29 @@ def run(
 
             if manifest.extractions.artifacts:
                 if dry_run:
-                    for a in manifest.extractions.artifacts:
-                        print(f"[dry-run] would append artifact row: {a.title!r} -> {vault / 'Context/artifacts.md'}")
+                    plan = _plan_artifacts_upsert(
+                        vault=vault, entries=manifest.extractions.artifacts,
+                        session_log_filename=session_log_filename,
+                    )
+                    artifacts_path = vault / plan.rel_path
+                    if plan.unrecognized:
+                        print(
+                            f"[dry-run] error: {plan.rel_path} has no recognisable artifacts "
+                            "table header; refusing to rewrite it",
+                            file=sys.stderr,
+                        )
+                    elif plan.migrated:
+                        print(
+                            f"[dry-run] migrated {plan.rel_path}: "
+                            f"{plan.old_row_count} rows -> {plan.final_artifact_count} artifacts"
+                        )
+                    action_verb = {
+                        "created": "create", "appended": "append", "updated": "update",
+                        "skipped (already exists)": "skip (already exists)",
+                        "skipped (unrecognised note)": "skip (unrecognised note)",
+                    }
+                    for a, action in zip(manifest.extractions.artifacts, plan.decisions):
+                        print(f"[dry-run] would {action_verb[action]} artifact row: {a.title!r} -> {artifacts_path}")
                 else:
                     change_reports.extend(append_to_artifacts_note(
                         vault=vault, entries=manifest.extractions.artifacts,
