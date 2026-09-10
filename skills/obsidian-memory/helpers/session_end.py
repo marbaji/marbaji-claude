@@ -1796,6 +1796,23 @@ def write_knowledge_notes(vault: Path, notes: list[KnowledgeNote], session_date:
     return reports
 
 
+# The explanatory paragraph the migration owns and may rewrite, identified by its first
+# words (``_ARTIFACTS_PARAGRAPH_PREFIX``) so the rewrite can find it wherever it sits in the
+# note's prefix without touching the frontmatter, the title, or any other line there.
+_ARTIFACTS_PARAGRAPH_PREFIX = "Every publish is logged here so a hosted Artifact can be traced back to"
+_ARTIFACTS_NEW_PARAGRAPH = (
+    "Every publish is logged here so a hosted Artifact can be traced back to its source and "
+    "session (Amendment 2026-09-06). One row per artifact URL: republishing updates that row "
+    "(see `republished` and `sessions`) instead of adding a duplicate."
+)
+# The nine-column table header this module writes, and the seven-column shape every note
+# predating the artifact-index-tidy Task 2 upsert carries (one row per publish rather than
+# one row per URL). Detecting the header line -- not the presence of the note -- is what
+# triggers the one-time migration below.
+_ARTIFACTS_NEW_HEADER_LINE = "| date | title | url | account | confidence | project | source | republished | sessions |"
+_ARTIFACTS_SEPARATOR_LINE = "|---|---|---|---|---|---|---|---|---|"
+_ARTIFACTS_OLD_HEADER_LINE = "| date | title | url | account | project | source | session |"
+
 ARTIFACTS_NOTE_HEADER = [
     "---",
     "type: index",
@@ -1804,20 +1821,13 @@ ARTIFACTS_NOTE_HEADER = [
     "",
     "# Artifacts",
     "",
-    "Every publish is logged here so a hosted Artifact can be traced back to its source and "
-    "session (Amendment 2026-09-06). One row per artifact URL: republishing updates that row "
-    "(see `republished` and `sessions`) instead of adding a duplicate.",
+    _ARTIFACTS_NEW_PARAGRAPH,
     "",
-    "| date | title | url | account | confidence | project | source | republished | sessions |",
-    "|---|---|---|---|---|---|---|---|---|",
+    _ARTIFACTS_NEW_HEADER_LINE,
+    _ARTIFACTS_SEPARATOR_LINE,
 ]
-
-# The nine-column table header this module writes, and the seven-column shape every note
-# predating the artifact-index-tidy Task 2 upsert carries (one row per publish rather than
-# one row per URL). Detecting the header line -- not the presence of the note -- is what
-# triggers the one-time migration below.
-_ARTIFACTS_NEW_HEADER_LINE = ARTIFACTS_NOTE_HEADER[-2]
-_ARTIFACTS_OLD_HEADER_LINE = "| date | title | url | account | project | source | session |"
+# The lines a brand-new note starts with, before its (empty) table body.
+_ARTIFACTS_NOTE_PREFIX = ARTIFACTS_NOTE_HEADER[:-2]
 
 
 def _escape_artifact_cell(value: str) -> str:
@@ -1875,59 +1885,118 @@ class _ArtifactRow:
         return "| " + " | ".join(_escape_artifact_cell(c) for c in cells) + " |"
 
 
-def _render_artifacts_note(rows: dict[str, "_ArtifactRow"]) -> str:
-    lines = list(ARTIFACTS_NOTE_HEADER) + [row.to_line() for row in rows.values()]
+@dataclass
+class _OpaqueArtifactLine:
+    """A table-body line this module could not parse (wrong cell count for its shape).
+    Kept verbatim, in its original position, on every re-render rather than dropped --
+    the writer is not the row's only owner (a hand-edited note, or a row from a future
+    schema version) and must not silently destroy content it does not understand."""
+    text: str
+
+
+def _render_artifacts_note(
+    prefix_lines: list[str],
+    items: list,  # list[_ArtifactRow | _OpaqueArtifactLine]
+    suffix_lines: list[str],
+) -> str:
+    """Rebuild the note as prefix + table (header, separator, one line per item) + suffix.
+    ``prefix_lines``/``suffix_lines`` are carried through byte-for-byte -- everything the
+    note's owner (a human, or another tool) put outside the table survives every write."""
+    lines = (
+        list(prefix_lines)
+        + [_ARTIFACTS_NEW_HEADER_LINE, _ARTIFACTS_SEPARATOR_LINE]
+        + [item.text if isinstance(item, _OpaqueArtifactLine) else item.to_line() for item in items]
+        + list(suffix_lines)
+    )
     text = "\n".join(lines)
     if not text.endswith("\n"):
         text += "\n"
     return text
 
 
-def _read_table_rows(lines: list[str], header_idx: int) -> list[str]:
-    """Return the raw table-row lines following the header + separator at ``header_idx``."""
+def _read_table_rows(lines: list[str], header_idx: int) -> tuple[list[str], int]:
+    """Return (raw table-row lines, end index) for the table at ``header_idx``: the row
+    lines following the header + separator, and the index of the first line after them
+    (len(lines) at EOF) -- everything from there on is the note's suffix."""
     i = header_idx + 2  # skip the header line itself and the |---|...| separator
     rows: list[str] = []
     while i < len(lines) and lines[i].strip().startswith("|"):
         rows.append(lines[i])
         i += 1
-    return rows
+    return rows, i
 
 
-def _load_artifacts_table(text: str) -> tuple[dict[str, "_ArtifactRow"], bool, int]:
-    """Parse a Context/artifacts.md body into ``{url: _ArtifactRow}``, migrating an
-    old-shape (seven-column, one row per publish) table in memory.
+def _replace_artifacts_paragraph(prefix_lines: list[str]) -> list[str]:
+    """Migration rewrites ONLY the explanatory paragraph it owns, identified by its first
+    words -- never the frontmatter, the title, or any other prefix line. If the paragraph
+    isn't found (a hand-edited note), the prefix is left untouched rather than guessed at."""
+    out = list(prefix_lines)
+    for i, ln in enumerate(out):
+        if ln.strip().startswith(_ARTIFACTS_PARAGRAPH_PREFIX):
+            out[i] = _ARTIFACTS_NEW_PARAGRAPH
+            break
+    return out
 
-    Returns ``(rows, migrated, old_row_count)``. ``migrated`` is True iff the table header
-    found was the old shape; the caller is responsible for logging and persisting the
-    rewrite -- this function only computes it. When neither header shape is found (an empty
-    or unrecognized note), returns ``({}, False, 0)``.
+
+def _load_artifacts_table(
+    text: str, rel_path: str = "Context/artifacts.md",
+) -> tuple[list[str], list, dict[str, "_ArtifactRow"], list[str], bool, int]:
+    """Parse a Context/artifacts.md body into (prefix_lines, items, by_url, suffix_lines,
+    migrated, old_row_count), migrating an old-shape (seven-column, one row per publish)
+    table in memory.
+
+    ``items`` is the table body in file order (a mix of ``_ArtifactRow`` and
+    ``_OpaqueArtifactLine`` for any row whose cell count doesn't match its shape); ``by_url``
+    indexes the same ``_ArtifactRow`` objects by URL for O(1) upsert lookup -- mutating a row
+    reached through ``by_url`` is reflected in ``items``' render since it's the same object.
+    ``prefix_lines``/``suffix_lines`` are everything outside the table, kept verbatim by the
+    caller. ``migrated`` is True iff the header found was the old shape; the caller logs and
+    persists the rewrite -- this function only computes it. When neither header shape is
+    found (an empty or unrecognized note), returns ``([], [], {}, [], False, 0)``.
     """
     lines = text.splitlines()
     header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_NEW_HEADER_LINE), None)
     if header_idx is not None:
-        rows: dict[str, _ArtifactRow] = {}
-        for line in _read_table_rows(lines, header_idx):
+        row_lines, end_idx = _read_table_rows(lines, header_idx)
+        items: list = []
+        by_url: dict[str, _ArtifactRow] = {}
+        for offset, line in enumerate(row_lines):
             cells = _split_artifact_row(line)
             if len(cells) != 9:
-                continue  # malformed row: skip rather than crash on a hand-edited note
+                line_no = header_idx + 3 + offset  # 1-indexed file line number
+                print(
+                    f"warning: {rel_path} row {line_no} has {len(cells)} cells, expected 9; left as is",
+                    file=sys.stderr,
+                )
+                items.append(_OpaqueArtifactLine(text=line))
+                continue
             date, title, url, account, confidence, project, source, republished, sessions = cells
             session_links = [s.strip() for s in sessions.split(",") if s.strip()]
-            rows[url] = _ArtifactRow(
+            row = _ArtifactRow(
                 date=date, title=title, url=url, account=account, confidence=confidence,
                 project=project, source=source, republished=int(republished), sessions=session_links,
             )
-        return rows, False, 0
+            items.append(row)
+            by_url[url] = row
+        return lines[:header_idx], items, by_url, lines[end_idx:], False, 0
 
     header_idx = next((i for i, ln in enumerate(lines) if ln.strip() == _ARTIFACTS_OLD_HEADER_LINE), None)
     if header_idx is None:
-        return {}, False, 0
+        return [], [], {}, [], False, 0
 
-    old_rows = _read_table_rows(lines, header_idx)
+    old_rows, end_idx = _read_table_rows(lines, header_idx)
     groups: dict[str, dict] = {}
     order: list[str] = []
-    for line in old_rows:
+    opaque: list[_OpaqueArtifactLine] = []
+    for offset, line in enumerate(old_rows):
         cells = _split_artifact_row(line)
         if len(cells) != 7:
+            line_no = header_idx + 3 + offset
+            print(
+                f"warning: {rel_path} row {line_no} has {len(cells)} cells, expected 7; left as is",
+                file=sys.stderr,
+            )
+            opaque.append(_OpaqueArtifactLine(text=line))
             continue
         date, title, url, account, project, source, session = cells
         if url not in groups:
@@ -1939,29 +2008,23 @@ def _load_artifacts_table(text: str) -> tuple[dict[str, "_ArtifactRow"], bool, i
         if session and session not in g["sessions"]:
             g["sessions"].append(session)
 
-    migrated_rows = {
-        url: _ArtifactRow(
-            date=groups[url]["date"], title=groups[url]["title"], url=url,
-            account=groups[url]["account"], confidence="active", project=groups[url]["project"],
-            source=groups[url]["source"], republished=groups[url]["count"],
-            sessions=groups[url]["sessions"],
+    items = []
+    by_url = {}
+    for url in order:  # preserve first-seen URL order, not dict/group iteration order
+        g = groups[url]
+        row = _ArtifactRow(
+            date=g["date"], title=g["title"], url=url, account=g["account"], confidence="active",
+            project=g["project"], source=g["source"], republished=g["count"], sessions=g["sessions"],
         )
-        for url in order  # preserve first-seen URL order, not dict/group iteration order
-    }
-    return migrated_rows, True, len(old_rows)
+        items.append(row)
+        by_url[url] = row
+    items.extend(opaque)  # malformed old rows: preserved, not merged, appended after the real ones
+
+    return lines[:header_idx], items, by_url, lines[end_idx:], True, len(old_rows)
 
 
-def _upsert_artifact_row(rows: dict[str, "_ArtifactRow"], entry: ArtifactEntry, session_link: str) -> str:
-    """Mutate ``rows`` in place for one manifest entry; return the action taken."""
-    existing = rows.get(entry.url)
-    if existing is None:
-        rows[entry.url] = _ArtifactRow(
-            date=entry.date.isoformat(), title=entry.title, url=entry.url, account=entry.account,
-            confidence=entry.confidence, project=entry.project, source=entry.source,
-            republished=1, sessions=[session_link],
-        )
-        return "appended"
-
+def _merge_artifact_row(existing: _ArtifactRow, entry: ArtifactEntry, session_link: str) -> str:
+    """Merge one manifest entry into an existing row (mutated in place); return the action."""
     same_fields = (
         existing.date == entry.date.isoformat()
         and existing.title == entry.title
@@ -1995,31 +2058,52 @@ def append_to_artifacts_note(
     on republish rather than appended, with `republished` and `sessions` tracking every
     publish merged into that row. Creates the note (with the nine-column header) if it does
     not exist yet. A note in the pre-Task-2 seven-column shape (one row per publish) is
-    migrated in memory on first read and the migration is logged to stdout exactly once."""
+    migrated in memory on first read and the migration is logged to stdout exactly once.
+    Everything outside the table (frontmatter, title, a footer section a human added) and
+    any row this module can't parse are carried through verbatim -- this writer only ever
+    owns the table body's well-formed rows and the explanatory paragraph above it."""
     rel_path = "Context/artifacts.md"
     path = vault / rel_path
     created_now = not path.exists()
 
     if created_now:
-        rows, migrated, old_row_count = {}, False, 0
+        prefix_lines: list[str] = list(_ARTIFACTS_NOTE_PREFIX)
+        items: list = []
+        by_url: dict[str, _ArtifactRow] = {}
+        suffix_lines: list[str] = []
+        migrated, old_row_count = False, 0
     else:
-        rows, migrated, old_row_count = _load_artifacts_table(path.read_text())
+        prefix_lines, items, by_url, suffix_lines, migrated, old_row_count = _load_artifacts_table(
+            path.read_text(), rel_path=rel_path,
+        )
 
     if migrated:
-        print(f"migrated {rel_path}: {old_row_count} rows -> {len(rows)} artifacts")
+        print(f"migrated {rel_path}: {old_row_count} rows -> {len(by_url)} artifacts")
+        prefix_lines = _replace_artifacts_paragraph(prefix_lines)
 
     reports: list[ChangeReport] = []
     for entry in entries:
         yyyy_mm = entry.date.strftime("%Y-%m")
         session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
-        action = _upsert_artifact_row(rows, entry, session_link)
+        existing = by_url.get(entry.url)
+        if existing is None:
+            row = _ArtifactRow(
+                date=entry.date.isoformat(), title=entry.title, url=entry.url, account=entry.account,
+                confidence=entry.confidence, project=entry.project, source=entry.source,
+                republished=1, sessions=[session_link],
+            )
+            items.append(row)
+            by_url[entry.url] = row
+            action = "appended"
+        else:
+            action = _merge_artifact_row(existing, entry, session_link)
         if created_now and action == "appended":
             action = "created"
         reports.append(ChangeReport(path=rel_path, summary=[action]))
 
     if created_now or migrated or entries:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render_artifacts_note(rows))
+        path.write_text(_render_artifacts_note(prefix_lines, items, suffix_lines))
     return reports
 
 
@@ -2570,13 +2654,16 @@ def run(
             if manifest.extractions.artifacts:
                 if dry_run:
                     artifacts_path = vault / "Context/artifacts.md"
-                    dr_rows, dr_migrated, dr_old_count = (
-                        _load_artifacts_table(artifacts_path.read_text())
-                        if artifacts_path.exists() else ({}, False, 0)
-                    )
-                    if dr_migrated:
-                        print(f"[dry-run] migrated Context/artifacts.md: {dr_old_count} rows -> {len(dr_rows)} artifacts")
                     dr_created_now = not artifacts_path.exists()
+                    if dr_created_now:
+                        dr_by_url: dict[str, _ArtifactRow] = {}
+                        dr_migrated, dr_old_count = False, 0
+                    else:
+                        _, _, dr_by_url, _, dr_migrated, dr_old_count = _load_artifacts_table(
+                            artifacts_path.read_text(), rel_path="Context/artifacts.md",
+                        )
+                    if dr_migrated:
+                        print(f"[dry-run] migrated Context/artifacts.md: {dr_old_count} rows -> {len(dr_by_url)} artifacts")
                     action_verb = {
                         "created": "create", "appended": "append", "updated": "update",
                         "skipped (already exists)": "skip (already exists)",
@@ -2584,7 +2671,16 @@ def run(
                     for a in manifest.extractions.artifacts:
                         yyyy_mm = a.date.strftime("%Y-%m")
                         session_link = f"[[Sessions/{yyyy_mm}/{session_log_filename}]]"
-                        action = _upsert_artifact_row(dr_rows, a, session_link)
+                        existing = dr_by_url.get(a.url)
+                        if existing is None:
+                            dr_by_url[a.url] = _ArtifactRow(
+                                date=a.date.isoformat(), title=a.title, url=a.url, account=a.account,
+                                confidence=a.confidence, project=a.project, source=a.source,
+                                republished=1, sessions=[session_link],
+                            )
+                            action = "appended"
+                        else:
+                            action = _merge_artifact_row(existing, a, session_link)
                         if dr_created_now and action == "appended":
                             action = "created"
                         print(f"[dry-run] would {action_verb[action]} artifact row: {a.title!r} -> {artifacts_path}")

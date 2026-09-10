@@ -3460,6 +3460,84 @@ class TestArtifactsBucket:
         assert "[dry-run] migrated Context/artifacts.md: 7 rows -> 2 artifacts" in captured.out
         assert note_path.read_text() == before  # dry-run wrote nothing
 
+    # -- Fix round 1 (reviewer finding): the writer must not delete content it doesn't own --
+
+    # -- U8: content after the table survives an upsert byte-for-byte --
+
+    def test_upsert_preserves_footer_byte_for_byte(self, tmp_path):
+        session_end.append_to_artifacts_note(tmp_path, [self._entry()], "2026-09-05-x")
+        note_path = tmp_path / "Context/artifacts.md"
+        footer = (
+            "\n## Notes\n\nA human wrote this paragraph below the table.\n\n"
+            "And a second paragraph here.\n"
+        )
+        with note_path.open("a") as f:
+            f.write(footer)
+
+        # premise: the note really has a "## Notes" section with two paragraphs after the
+        # table before the upsert under test
+        before = note_path.read_text()
+        assert "## Notes" in before
+        assert "A human wrote this paragraph below the table." in before
+        assert "And a second paragraph here." in before
+
+        session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="Second", url="https://claude.ai/public/artifacts/second1")],
+            "2026-09-06-y",
+        )
+        after = note_path.read_text()
+        # the footer, byte-for-byte, unchanged by an upsert that touched the table above it
+        assert after[after.index("## Notes"):] == before[before.index("## Notes"):]
+
+    # -- U9: a malformed row is kept verbatim, with a line-numbered warning --
+
+    def test_malformed_row_preserved_verbatim_with_warning(self, tmp_path, capsys):
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        good_row = (
+            "| 2026-09-01 | Existing | https://claude.ai/public/artifacts/existing1 | "
+            "mohannad@chalktalk.academy | active | none | src.html | 1 | "
+            "[[Sessions/2026-09/2026-09-01-x]] |"
+        )
+        malformed_row = "| broken | row | only-four | cells |"
+        text = "\n".join(session_end.ARTIFACTS_NOTE_HEADER + [good_row, malformed_row]) + "\n"
+        note_path.write_text(text)
+        line_no = text.splitlines().index(malformed_row) + 1  # 1-indexed
+
+        # premise: the malformed row really has the wrong cell count for the new shape, and
+        # is really at the line number the assertion below checks
+        assert len(session_end._split_artifact_row(malformed_row)) != 9
+        assert text.splitlines()[line_no - 1] == malformed_row
+
+        capsys.readouterr()  # discard anything printed building the fixture
+        session_end.append_to_artifacts_note(
+            tmp_path, [self._entry(title="New", url="https://claude.ai/public/artifacts/new1")], "2026-09-05-x",
+        )
+        captured = capsys.readouterr()
+        assert f"row {line_no} has 4 cells, expected 9; left as is" in captured.err
+
+        after_lines = note_path.read_text().splitlines()
+        assert malformed_row in after_lines  # preserved verbatim, not merged or reordered
+
+    # -- U10: migration of an old-shape note with a footer keeps the footer --
+
+    def test_migration_keeps_footer(self, tmp_path):
+        fixture = Path(__file__).parent / "fixtures" / "artifacts_old_shape_with_footer.md"
+        old_text = fixture.read_text()
+        note_path = tmp_path / "Context/artifacts.md"
+        note_path.parent.mkdir(parents=True)
+        note_path.write_text(old_text)
+
+        # premise: the fixture really has content after the table
+        assert "## Notes" in old_text
+        before_footer = old_text[old_text.index("## Notes"):]
+        assert before_footer.strip() != ""
+
+        session_end.append_to_artifacts_note(tmp_path, [], "2026-09-05-x")
+        after = note_path.read_text()
+        assert "| date | title | url | account | confidence |" in after  # migration did run
+        assert after[after.index("## Notes"):] == before_footer  # footer survived, byte-for-byte
+
 
 # ---------------------------------------------------------------------------
 # artifact-index-tidy Task 1: derive_project + ArtifactEntry.confidence
