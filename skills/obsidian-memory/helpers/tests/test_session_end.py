@@ -3272,7 +3272,11 @@ class TestArtifactsBucket:
         assert r2[0].summary == ["skipped (already exists)"]
 
     def test_project_none_renders(self, tmp_path):
-        session_end.append_to_artifacts_note(tmp_path, [self._entry(project="none")], "2026-09-05-x")
+        # source deliberately outside 10-projects/20-areas: artifact-index-tidy Task 1 made
+        # ArtifactEntry derive project from a "none" + derivable source, so this genuine-none
+        # case needs a source the derivation can't resolve.
+        entry = self._entry(project="none", source="Personal/Journal/2026-09-05.md")
+        session_end.append_to_artifacts_note(tmp_path, [entry], "2026-09-05-x")
         text = (tmp_path / "Context/artifacts.md").read_text()
         assert "| none |" in text
 
@@ -3290,6 +3294,81 @@ class TestArtifactsBucket:
         assert "First artifact" in text
         assert "Second artifact" in text
         assert r2[0].summary == ["appended"]
+
+
+# ---------------------------------------------------------------------------
+# artifact-index-tidy Task 1: derive_project + ArtifactEntry.confidence
+# ---------------------------------------------------------------------------
+
+class TestDeriveProjectAndConfidence:
+    def _entry(self, **kw):
+        base = dict(
+            title="The nine-layers map",
+            url="https://claude.ai/public/artifacts/abc123",
+            date=Date(2026, 9, 5),
+            account="mohannad@chalktalk.academy",
+            project="memory-and-workspace-system",
+            source="10-projects/2026-09-memory-and-workspace-system/scratch/nine-layers-map.html",
+        )
+        base.update(kw)
+        return session_end.ArtifactEntry(**base)
+
+    # -- D1: both path shapes derive --------------------------------------
+
+    @pytest.mark.parametrize("source,expected_slug", [
+        ("10-projects/2026-09-memory-and-workspace-system/scratch/x.html", "memory-and-workspace-system"),
+        ("20-areas/outreach-playbook/runs/x.html", "outreach-playbook"),
+    ])
+    def test_derive_project_matches_shape(self, source, expected_slug):
+        assert session_end.derive_project(source) == expected_slug
+
+    @pytest.mark.parametrize("source", [
+        "10-projects/2026-09-memory-and-workspace-system/scratch/x.html",
+        "20-areas/outreach-playbook/runs/x.html",
+    ])
+    def test_wiring_fills_project_from_derivable_source(self, source):
+        """The model validator's wiring: an entry manifested with project="none" over a
+        derivable source ends up carrying whatever derive_project itself returns for that
+        source -- the oracle is the function under test, not a retyped slug."""
+        expected = session_end.derive_project(source)
+        assert expected is not None  # premise: this source IS derivable
+        entry = self._entry(project="none", source=source)
+        assert entry.project == expected
+
+    # -- D2: an unrelated path stays "none" --------------------------------
+
+    def test_unrelated_path_leaves_project_none(self):
+        source = "Personal/Journal/2026-09-10.md"
+        assert session_end.derive_project(source) is None
+        entry = self._entry(project="none", source=source)
+        assert entry.project == "none"
+
+    # -- D3: explicit project always wins ----------------------------------
+
+    def test_explicit_project_wins_over_derivable_source(self):
+        source = "10-projects/2026-09-memory-and-workspace-system/scratch/x.html"
+        # premise: the path alone would derive to a DIFFERENT slug than the explicit one
+        derivable = session_end.derive_project(source)
+        assert derivable is not None and derivable != "explicit-project"
+        entry = self._entry(project="explicit-project", source=source)
+        assert entry.project == "explicit-project"
+
+    # -- D4: confidence default + each allowed value -----------------------
+
+    def test_confidence_defaults_to_active(self):
+        assert self._entry().confidence == "active"
+
+    @pytest.mark.parametrize("value", ["active", "ambiguous", "unknown"])
+    def test_confidence_accepts_each_allowed_value(self, value):
+        assert self._entry(confidence=value).confidence == value
+
+    # -- D5: an invalid confidence is rejected -------------------------------
+
+    def test_invalid_confidence_rejected(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError) as exc:
+            self._entry(confidence="sure-why-not")
+        assert "confidence" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

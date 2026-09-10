@@ -244,6 +244,26 @@ class KnowledgeNote(BaseModel):
     source_files: list[str] = Field(default_factory=list)
 
 
+ARTIFACT_PROJECT_RE = re.compile(r"(^|/)10-projects/\d{4}-\d{2}-([a-z0-9-]+)/")
+ARTIFACT_AREA_RE = re.compile(r"(^|/)20-areas/([a-z0-9-]+)/")
+
+
+def derive_project(source: str) -> Optional[str]:
+    """Recover a project/area slug from an artifact's source path.
+
+    Matches the dated project container (``10-projects/YYYY-MM-<slug>/``) or an area
+    container (``20-areas/<slug>/``) anywhere in the path; returns None when neither
+    shape is present. Used by ``ArtifactEntry`` to fill in ``project`` when the manifest
+    left it as the literal string "none" (artifact-index-tidy Task 1)."""
+    m = ARTIFACT_PROJECT_RE.search(source)
+    if m:
+        return m.group(2)
+    m = ARTIFACT_AREA_RE.search(source)
+    if m:
+        return m.group(2)
+    return None
+
+
 class ArtifactEntry(BaseModel):
     """A published Artifact whose HTML source now lives with its owner (not the session
     scratchpad) and whose publish is logged, so a hosted page can be traced back to the
@@ -254,6 +274,15 @@ class ArtifactEntry(BaseModel):
     account: str
     project: str  # a project slug, or the literal string "none"
     source: str
+    confidence: Literal["active", "ambiguous", "unknown"] = "active"
+
+    @model_validator(mode="after")
+    def _derive_project_if_none(self) -> "ArtifactEntry":
+        if self.project == "none":
+            derived = derive_project(self.source)
+            if derived is not None:
+                self.project = derived
+        return self
 
 
 class Extractions(BaseModel):
