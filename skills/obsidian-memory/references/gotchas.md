@@ -16,6 +16,16 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
 
 ---
 
+## Before guessing which account or org owns a published Artifact, read the ledger
+
+Mo publishes Artifacts from three accounts, each in its own org: `mo.claude(w)` (that email's own org), `mohannad(w)` (the ChalkTalk org), and `mohannad(p)` (his personal org). An Artifact is visible only from the org that published it: from any other org the Artifact tool returns "not found" or "in another of the user's organizations," and that error reads the same whether the account is wrong or the artifact genuinely does not exist.
+
+**The incident (2026-09-10, session "replit-brandon-jeff"):** three account switches and two dead ends happened before the ledger was read. Mo: "don't I have all my artifacts documented with a ledger somewhere so you should know who is owner?"
+
+**Before switching accounts or orgs to find an Artifact:** read the vault ledger `Context/artifacts.md` first. Every row records the publishing account, so the right account is a lookup, not a guess.
+
+---
+
 ## Common Mistakes — Read Before Using This Skill
 
 1. **`obsidian update` does not exist.** There is no update command. To overwrite an existing file, use the **Write tool** targeting the full filesystem path (e.g. `~/Documents/<VAULT_NAME>/Context/current-focus.md`). Using `obsidian update` will fail silently or error out.
