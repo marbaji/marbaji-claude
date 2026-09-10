@@ -18,7 +18,7 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
 
 ## Before guessing which account or org owns a published Artifact, read the ledger
 
-Mo publishes Artifacts from three accounts across two orgs: `mo.claude(w)` and `mohannad(w)` both publish to the ChalkTalk org, `mohannad(p)` publishes to his personal org. An Artifact is visible only from the org that published it: from any other org the Artifact tool returns "not found" or "in another of the user's organizations," and that error reads the same whether the account is wrong or the artifact genuinely does not exist.
+Mo publishes Artifacts from three accounts, each in its own org: `mo.claude(w)` (that email's own org), `mohannad(w)` (the ChalkTalk org), and `mohannad(p)` (his personal org). An Artifact is visible only from the org that published it: from any other org the Artifact tool returns "not found" or "in another of the user's organizations," and that error reads the same whether the account is wrong or the artifact genuinely does not exist.
 
 **The incident (2026-09-10, session "replit-brandon-jeff"):** three account switches and two dead ends happened before the ledger was read. Mo: "don't I have all my artifacts documented with a ledger somewhere so you should know who is owner?"
 
