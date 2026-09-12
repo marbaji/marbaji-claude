@@ -41,8 +41,8 @@ Structures exploratory technical work (SQL, data analysis, algorithm validation)
 ### /inventory-checker
 Displays a complete inventory of all installed Claude Code components — MCP servers (local and cloud, with status), plugin marketplaces, available skills (grouped by marketplace), npm/Python/Homebrew packages, and CLI tools.
 
-### /instagram-transcribe
-Transcribes Instagram Reels (or any yt-dlp-supported URL) using yt-dlp and Whisper locally. Downloads audio, transcribes, generates a summary, and saves to a descriptive folder.
+### /watch-video-url
+Watches a video from a URL (Instagram Reel, TikTok, YouTube Short, X, anything yt-dlp supports): downloads it with yt-dlp without browser cookies, so no Keychain prompt, then runs the claude-video-vision `video_watch` tool for frames plus a timestamped transcript. Saves transcript, on-screen notes and summary to `20-areas/video-transcriptions/<title>/transcript.md`. Renamed from `instagram-transcribe` on 2026-09-11.
 
 ### /skill-inventory-checker
 Compares all skills across GitHub repos (`ChalkTalk/claude`, `marbaji/marbaji-claude`), Desktop folders, and `~/.claude/skills/`. Detects broken symlinks, missing skills, standalone copies that should be symlinks, and untracked skills. Offers concrete fix commands.
