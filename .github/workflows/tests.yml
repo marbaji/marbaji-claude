@@ -1,0 +1,22 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest pyyaml pydantic
+      # Paths named on purpose: tests/ci_coverage.py reads this line.
+      - run: python3 -m pytest skills tests -q
+        env:
+          HOME: ${{ runner.temp }}/home
+          CLAUDE_WORKSPACE: ${{ runner.temp }}/ws
