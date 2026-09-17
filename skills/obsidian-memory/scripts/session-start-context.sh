@@ -201,6 +201,28 @@ fi
 # A third copy bought nothing and cost a `git log` subprocess on the session-start
 # critical path. If you need more git detail, ask for it — don't preload it.
 
+# Principles file left uncommitted — the one dirty state the git hooks never see, because the
+# file is a symlink into a repo that is rarely the session's cwd (three sessions on 2026-09-17
+# each routed a rule there; none committed). Compared against origin/<default> (no fetch here:
+# whatever the last fetch left), so an edit already merged by commit-principles.sh is clean even
+# when the checkout sits on a feature branch. Silent when clean. No network, ~60 ms.
+PRINCIPLES_FILE="${PRINCIPLES_FILE:-$HOME/.claude/work-principles.md}"
+if _pt="$(readlink -f "$PRINCIPLES_FILE" 2>/dev/null)" && [[ -f "$_pt" ]]; then
+    _pr="$(git -C "$(dirname "$_pt")" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$_pr" ]]; then
+        _rel="${_pt#"$_pr"/}"
+        _def="$(git -C "$_pr" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+        _ref="origin/${_def:-main}"
+        git -C "$_pr" rev-parse --verify --quiet "$_ref^{commit}" >/dev/null 2>&1 || _ref=HEAD
+        if ! git -C "$_pr" diff --quiet "$_ref" -- "$_rel" 2>/dev/null; then
+            echo "### ⚠ Uncommitted principle edit"
+            echo ""
+            echo "\`$_rel\` in \`$_pr\` differs from \`$_ref\` ($(git -C "$_pr" diff --numstat "$_ref" -- "$_rel" | awk '{print "+"$1"/-"$2}') lines). A past session routed a rule and never committed it. Run \`$(dirname "${BASH_SOURCE[0]}")/commit-principles.sh\` (session-end Step 8a)."
+            echo ""
+        fi
+    fi
+fi
+
 # Operating reminders
 echo "### Reminders"
 echo ""

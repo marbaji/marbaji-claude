@@ -16,6 +16,12 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
 
 ---
 
+## A rule routed into `work-principles.md` is live the moment it is written, so nothing forces the commit
+
+The file is a symlink into a git checkout. The edit loads in every session from the symlink whether or not it is committed, so the ritual's Step 8 "write it into work-principles.md" felt complete and the commit never happened: on 2026-09-17 three sessions had each routed one rule and all three sat as one uncommitted diff in the shared checkout (and PR #80 in that repo, 2026-09-15, was the same cleanup two days earlier). Step 8a and `scripts/commit-principles.sh` now do the commit; the session-start hook warns when the file is dirty. If you see that warning, run the script before anything else.
+
+---
+
 ## Before guessing which account or org owns a published Artifact, read the ledger
 
 Mo publishes Artifacts from three accounts, each in its own org: `mo.claude(w)` (that email's own org), `mohannad(w)` (the ChalkTalk org), and `mohannad(p)` (his personal org). An Artifact is visible only from the org that published it: from any other org the Artifact tool returns "not found" or "in another of the user's organizations," and that error reads the same whether the account is wrong or the artifact genuinely does not exist.
