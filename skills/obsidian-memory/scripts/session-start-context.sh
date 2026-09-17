@@ -201,6 +201,20 @@ fi
 # A third copy bought nothing and cost a `git log` subprocess on the session-start
 # critical path. If you need more git detail, ask for it — don't preload it.
 
+# Principles file left uncommitted — the one dirty state the git hooks never see, because the
+# file is a symlink into a repo that is rarely the session's cwd (three sessions on 2026-09-17
+# each routed a rule there; none committed). Silent when clean.
+PRINCIPLES_FILE="${PRINCIPLES_FILE:-$HOME/.claude/work-principles.md}"
+if _pt="$(readlink -f "$PRINCIPLES_FILE" 2>/dev/null)" && [[ -f "$_pt" ]]; then
+    _pr="$(git -C "$(dirname "$_pt")" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$_pr" ]] && ! git -C "$_pr" diff --quiet -- "${_pt#"$_pr"/}" 2>/dev/null; then
+        echo "### ⚠ Uncommitted principle edit"
+        echo ""
+        echo "\`${_pt#"$_pr"/}\` in \`$_pr\` has uncommitted changes ($(git -C "$_pr" diff --numstat -- "${_pt#"$_pr"/}" | awk '{print "+"$1"/-"$2}') lines). A past session routed a rule and never committed it. Run \`skills/obsidian-memory/scripts/commit-principles.sh\` (session-end Step 8a)."
+        echo ""
+    fi
+fi
+
 # Operating reminders
 echo "### Reminders"
 echo ""

@@ -374,11 +374,21 @@ Immediately after Step 7's change report, surface EACH queued repo-rule / gotcha
 ```
 Route the learning "<one-line lesson>"?
   1. Open the PR now (Recommended) — write the rule into .claude/rules/<area>.md (with source citation), branch, PR. Rules are single-sourced: CodeRabbit ingests the same file via code_guidelines.filePatterns — no .coderabbit.yaml edit.
-  2. `~/.claude/work-principles.md` instead — a cross-project habit rather than a repo standard (never the project memory dir, which is frozen)
+  2. `~/.claude/work-principles.md` instead — a cross-project habit rather than a repo standard (never the project memory dir, which is frozen). Then COMMIT it: run `scripts/commit-principles.sh` (Step 8a) in the same breath.
   3. Vault-only — session log already captured it
 ```
 
 On "Open the PR now": do the work in the same session — write the rule with its source citation, update the cited anchor doc in the same PR if the substance is new, open the PR. Docs-only diffs merge immediately per the standing docs-only rule; config-touching diffs follow the standing CR-poll-then-admin-merge workflow. If the session ends mid-poll, the OPEN PR is the durable artifact — visible on GitHub, nagged by CodeRabbit — which is the point: an open PR survives forgetting; a `next_steps` bullet does not.
+
+### Step 8a: Commit the principle edit — MANDATORY after any write to `work-principles.md`
+
+`~/.claude/work-principles.md` is a symlink into a git checkout, so an edit there loads in every session whether or not it is committed, and nothing ever forced the commit: on 2026-09-17 three sessions had each routed a rule into it and all three sat as one uncommitted diff (PR #80 in that repo two days earlier was the same cleanup). Right after writing the rule, run:
+
+```bash
+~/.claude/plugins/marketplaces/marbaji-claude/skills/obsidian-memory/scripts/commit-principles.sh
+```
+
+It is silent when the file is clean; otherwise it branches from the default branch, commits only that file, pushes, opens the PR, squash-merges it (a docs-only diff merges immediately per the standing rule) and pulls. It refuses when the checkout is on a feature branch, because a principles branch cut from there would carry the feature's commits: in that case commit the edit into the feature branch's own PR with `git commit --only`. The session-start hook prints a warning whenever the file is dirty, so a session that died before this step is caught by the next one.
 
 **CodeRabbit Learnings get a ledger entry in the same breath.** Whenever a `@coderabbitai add a learning: ...` comment is posted (in Step 8 or anywhere in the session), append the learning verbatim to the vault ledger at `Work/Chalktalk/Knowledge/coderabbit-learnings-ledger.md` (date + source PR) before the session ends. The ledger is the portable backup: it survives a CR data wipe and seeds CR setup on personal repos.
 
