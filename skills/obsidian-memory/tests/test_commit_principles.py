@@ -22,12 +22,16 @@ COMMIT = SCRIPTS / "commit-principles.sh"
 AUTO = SCRIPTS / "principles-autocommit.sh"
 
 FAKE_GH = """#!/bin/bash
-# fake gh: `pr create` prints a URL; `pr merge <url>` pushes the current branch to main.
-# It ignores the URL and --squash, so a regression in those arguments is not caught here;
-# the merge-retry loop and its 4x-failure path are likewise untested (20 s of sleeps).
+# fake gh: `pr create` prints a URL; `pr merge` pushes the current branch to main.
+# Every call's argv is appended to $FAKE_GH_CALLS so tests can check the URL and --squash.
+# FAKE_GH_MERGE_FAILS=N makes the first N `pr merge` calls fail (GitHub's async-mergeability 405).
+[ -n "${FAKE_GH_CALLS:-}" ] && printf '%s\\n' "$*" >> "$FAKE_GH_CALLS"
 case "$1 $2" in
   "pr create") echo "https://example.invalid/pr/1" ;;
-  "pr merge")  git push -q origin "HEAD:main" ;;
+  "pr merge")
+    n=$(grep -c '^pr merge' "${FAKE_GH_CALLS:-/dev/null}" 2>/dev/null || echo 0)
+    if [ "$n" -le "${FAKE_GH_MERGE_FAILS:-0}" ]; then echo "GraphQL: Pull request is not mergeable (405)" >&2; exit 1; fi
+    git push -q origin "HEAD:main" ;;
   *) echo "fake gh: unsupported $*" >&2; exit 1 ;;
 esac
 """
@@ -65,7 +69,8 @@ def world(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
     env = {**git_env, "PATH": f"{bindir}:{os.environ['PATH']}", "PRINCIPLES_FILE": str(link),
-           "COMMIT_PRINCIPLES_STATE": str(state), "TMPDIR": str(tmp_path / "tmp")}
+           "COMMIT_PRINCIPLES_STATE": str(state), "TMPDIR": str(tmp_path / "tmp"),
+           "FAKE_GH_CALLS": str(tmp_path / "gh-calls"), "COMMIT_PRINCIPLES_RETRY_S": "0.05"}
     (tmp_path / "tmp").mkdir()
     return {"origin": origin, "clone": clone, "file": principles, "link": link, "env": env, "state": state}
 
@@ -78,10 +83,18 @@ def dirty(w, line="- rule two\n"):
     w["file"].write_text(w["file"].read_text() + line)
 
 
+def gh_calls(w):
+    p = Path(w["env"]["FAKE_GH_CALLS"])
+    return p.read_text().splitlines() if p.exists() else []
+
+
 def test_happy_path_merges_and_leaves_the_file_clean(world):
     dirty(world)
     r = run([str(COMMIT)], env=world["env"])
     assert "merged" in r.stdout, r.stdout
+    calls = gh_calls(world)
+    assert [c for c in calls if c.startswith("pr create")]
+    assert calls[-1] == "pr merge https://example.invalid/pr/1 --squash"   # the URL gh printed, squash-merged
     assert origin_main_text(world) == "# rules\n\n- rule one\n- rule two\n"
     assert world["file"].read_text() == origin_main_text(world)
     status = run(["git", "status", "--porcelain"], cwd=world["clone"], env=world["env"]).stdout
@@ -132,6 +145,32 @@ def test_file_edited_mid_run_is_not_overwritten_by_the_restore(world):
     gh.write_text(FAKE_GH)
     run([str(COMMIT)], env=world["env"])
     assert origin_main_text(world) == world["file"].read_text()
+
+
+def test_merge_that_fails_once_is_retried(world):
+    """GitHub computes mergeability asynchronously; the first merge can 405."""
+    dirty(world)
+    r = run([str(COMMIT)], env={**world["env"], "FAKE_GH_MERGE_FAILS": "1"})
+    assert "merged" in r.stdout
+    assert len([c for c in gh_calls(world) if c.startswith("pr merge")]) == 2
+    assert origin_main_text(world) == "# rules\n\n- rule one\n- rule two\n"
+
+
+def test_merge_that_keeps_failing_leaves_the_pr_open_and_the_file_dirty(world):
+    dirty(world)
+    env = {**world["env"], "FAKE_GH_MERGE_FAILS": "99"}
+    r = run([str(COMMIT)], env=env, check=False)
+    assert r.returncode == 1
+    assert len([c for c in gh_calls(world) if c.startswith("pr merge")]) == 4      # four attempts, then stop
+    assert "stays open" in r.stdout and "405" in r.stdout                         # gh's reason is surfaced
+    assert origin_main_text(world) == "# rules\n\n- rule one\n"                # nothing merged
+    assert world["file"].read_text().endswith("- rule two\n")                    # the rule stays loaded
+    heads = run(["git", "ls-remote", "--heads", "origin"], cwd=world["clone"], env=env).stdout
+    assert heads.count("principles/") == 1                                        # the PR's branch stays for a human
+    assert not (world["state"] / "commit-principles.lock").exists()               # lock released on the failure path
+    # and the next run does not stack a second PR on it
+    r2 = run([str(COMMIT)], env=world["env"], check=False)
+    assert r2.returncode == 1 and "earlier run left" in r2.stdout
 
 
 def test_leftover_remote_branch_blocks_a_second_pr(world):
