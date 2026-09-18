@@ -25,6 +25,11 @@
 #   - a restore guard: the working file is hashed when copied into the worktree and again before
 #     the restore; a file that changed in between (a session writing a rule mid-run) is left alone,
 #     still dirty, and the next run commits the newer text.
+#   Both are mkdir/hash checks, not flock: a write landing in the few ms between the final hash and
+#   the restore, or two runs breaking one stale lock together, can still race. Accepted: the loser
+#   loses gracefully (mkdir) or the next run recommits (hash).
+#   - and no second cycle while an earlier run's principles/* branch exists on origin (an open PR
+#     whose merge failed, or a run killed after its push): unattended runs must not pile up PRs.
 # PRINCIPLES_FILE overrides the file (default ~/.claude/work-principles.md);
 # COMMIT_PRINCIPLES_STATE the lock's folder (default ~/.claude/state).
 set -u
@@ -44,11 +49,16 @@ default="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/n
 
 # Compare against origin/<default>, refreshed: an edit merged by an earlier run is clean.
 if ! git -C "$repo" fetch -q origin "$default" 2>/dev/null; then
-    echo "commit-principles: could not fetch origin/$default (offline?); nothing committed, the edit stays in place and the session-start hook will warn again."
+    echo "commit-principles: could not fetch origin/$default (offline?); nothing committed, the edit stays in place and the next hook run retries."
     exit 1
 fi
 if git -C "$repo" diff --quiet "origin/$default" -- "$rel"; then
     exit 0   # identical to what is merged: the common case, say nothing
+fi
+leftover="$(git -C "$repo" ls-remote --heads origin 'principles/*' 2>/dev/null | awk '{print $2}' | sed 's|refs/heads/||' | head -3 | tr '\n' ' ')"
+if [ -n "$leftover" ]; then
+    echo "commit-principles: an earlier run left ${leftover}on origin (an open PR whose merge failed, or a run that died after pushing). Not opening another PR: merge or delete it (gh pr list --head <branch>; git push origin --delete <branch>), then this runs again."
+    exit 1
 fi
 added=$(git -C "$repo" diff --numstat "origin/$default" -- "$rel" | awk '{print $1}')
 removed=$(git -C "$repo" diff --numstat "origin/$default" -- "$rel" | awk '{print $2}')
@@ -66,7 +76,10 @@ mkdir -p "$STATE"
 if ! mkdir "$LOCK" 2>/dev/null; then
     # mkdir is atomic, so whoever made the directory owns the run. A lock older than
     # LOCK_STALE_S is a run that died without cleaning up; break it and take over.
-    lock_age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    # GNU stat first: BSD stat rejects -c cleanly (stderr only), while GNU stat reads -f as
+    # "filesystem status" and prints a report to STDOUT before failing, which would poison $(( )).
+    lock_mtime="$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || echo 0)"
+    lock_age=$(( $(date +%s) - lock_mtime ))
     if [ "$lock_age" -gt "$LOCK_STALE_S" ] && rmdir "$LOCK" 2>/dev/null && mkdir "$LOCK" 2>/dev/null; then
         echo "commit-principles: broke a stale lock (${lock_age}s old)"
     else
@@ -82,13 +95,14 @@ cleanup() {
     git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
     git -C "$repo" branch -q -D "$branch" >/dev/null 2>&1 || true
 }
-fail() {   # $1 = message. The working file was never touched, so the rule is still loaded and the hook still warns.
+fail() {   # $1 = message. The working file was never touched, so the rule is still loaded and the next hook run retries.
     echo "commit-principles: $1"
     [ -n "$pushed" ] && git -C "$repo" push -q origin --delete "$branch" >/dev/null 2>&1 || true
     cleanup
     exit 1
 }
 
+git -C "$repo" worktree prune 2>/dev/null || true   # a run killed mid-way leaves a registration behind
 git -C "$repo" worktree add -q --detach "$tmp" "origin/$default" 2>/dev/null || fail "could not create a worktree from origin/$default"
 cp "$target" "$tmp/$rel" || fail "could not copy $rel into the worktree"
 copied_hash="$(git hash-object "$target")"   # what this run commits; compared before the restore
@@ -112,7 +126,7 @@ if [ -z "$merged" ]; then
     cleanup
     echo "commit-principles: merge failed after 4 attempts; the PR stays open: $url"
     echo "  gh said: $err"
-    echo "  $rel keeps the edit and the session-start hook will warn until the PR is merged and the file restored."
+    echo "  $rel keeps the edit. Later runs will NOT open a second PR while $branch exists on origin: merge or delete it."
     exit 1
 fi
 git -C "$repo" push -q origin --delete "$branch" >/dev/null 2>&1 || true

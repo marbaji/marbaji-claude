@@ -23,6 +23,8 @@ AUTO = SCRIPTS / "principles-autocommit.sh"
 
 FAKE_GH = """#!/bin/bash
 # fake gh: `pr create` prints a URL; `pr merge <url>` pushes the current branch to main.
+# It ignores the URL and --squash, so a regression in those arguments is not caught here;
+# the merge-retry loop and its 4x-failure path are likewise untested (20 s of sleeps).
 case "$1 $2" in
   "pr create") echo "https://example.invalid/pr/1" ;;
   "pr merge")  git push -q origin "HEAD:main" ;;
@@ -132,6 +134,19 @@ def test_file_edited_mid_run_is_not_overwritten_by_the_restore(world):
     assert origin_main_text(world) == world["file"].read_text()
 
 
+def test_leftover_remote_branch_blocks_a_second_pr(world):
+    """An earlier run's merge failed (open PR) or it died after pushing: unattended runs must not
+    open a new PR every session boundary on top of it."""
+    dirty(world)
+    run(["git", "push", "-q", "origin", "main:refs/heads/principles/20260918-000000"], cwd=world["clone"], env=world["env"])
+    r = run([str(COMMIT)], env=world["env"], check=False)
+    assert r.returncode == 1
+    assert "principles/20260918-000000" in r.stdout
+    assert origin_main_text(world) == "# rules\n\n- rule one\n"      # nothing new pushed
+    heads = run(["git", "ls-remote", "--heads", "origin"], cwd=world["clone"], env=world["env"]).stdout
+    assert heads.count("principles/") == 1                               # no second branch
+
+
 def test_autocommit_is_silent_when_clean(world):
     r = run([str(AUTO)], env={**world["env"], "PRINCIPLES_AUTOCOMMIT_SYNC": "1"})
     assert r.stdout == "" and r.returncode == 0
@@ -149,10 +164,14 @@ def test_autocommit_runs_the_commit_when_dirty(world, tmp_path):
 
 def test_autocommit_detached_returns_at_once_and_still_commits(world, tmp_path):
     dirty(world)
+    # A merge that takes 4 s: a detached launch returns well inside that, a foreground run cannot.
+    gh = Path(world["env"]["PATH"].split(":")[0]) / "gh"
+    gh.write_text(FAKE_GH.replace('git push -q origin "HEAD:main"', 'sleep 4; git push -q origin "HEAD:main"'))
     log = tmp_path / "log" / "commit-principles.log"
     env = {**world["env"], "COMMIT_PRINCIPLES_LOG": str(log)}
     t0 = time.time()
     r = run([str(AUTO)], env=env)
+    assert time.time() - t0 < 3, "the hook side must return before the commit finishes"
     assert r.returncode == 0 and "principles" in r.stdout
     for _ in range(100):                               # the detached run finishes on its own
         if world["file"].read_text() == "# rules\n\n- rule one\n- rule two\n" and \
