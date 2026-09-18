@@ -18,7 +18,7 @@ Failure points accumulated from real runs of the `obsidian-memory` skill. Add an
 
 ## A rule routed into `work-principles.md` is live the moment it is written, so nothing forces the commit
 
-The file is a symlink into a git checkout. The edit loads in every session from the symlink whether or not it is committed, so the ritual's Step 8 "write it into work-principles.md" felt complete and the commit never happened: on 2026-09-17 three sessions had each routed one rule and all three sat as one uncommitted diff in the shared checkout (and PR #80 in that repo, 2026-09-15, was the same cleanup two days earlier). Step 8a and `scripts/commit-principles.sh` now do the commit; the session-start hook warns when the file is dirty. If you see that warning, run the script before anything else.
+The file is a symlink into a git checkout. The edit loads in every session from the symlink whether or not it is committed, so the ritual's Step 8 "write it into work-principles.md" felt complete and the commit never happened: on 2026-09-17 three sessions had each routed one rule and all three sat as one uncommitted diff in the shared checkout (and PR #80 in that repo, 2026-09-15, was the same cleanup two days earlier). Step 8a and `scripts/commit-principles.sh` now do the commit. The warn-only session-start check that followed was itself missed on 2026-09-18 (it sat at line 167 of a 14.5 KB hook output, of which the harness shows about 2 KB inline), so since then the SessionStart and SessionEnd hooks run `scripts/principles-autocommit.sh`, which commits without a model: the notice is the first line of the session-start output and says the commit was launched, not that you should run something.
 
 ---
 
