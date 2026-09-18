@@ -118,13 +118,14 @@ echo "commit-principles: opened $url"
 
 # GitHub computes mergeability asynchronously; an immediate merge can 405 once or twice.
 merged=""
-for attempt in 1 2 3 4; do
+MERGE_ATTEMPTS=4
+for attempt in $(seq 1 "$MERGE_ATTEMPTS"); do
     if err="$(cd "$tmp" && gh pr merge "$url" --squash 2>&1)"; then merged=1; break; fi
-    sleep 5
+    sleep "${COMMIT_PRINCIPLES_RETRY_S:-5}"   # env so the tests can run the failure path in ms
 done
 if [ -z "$merged" ]; then
     cleanup
-    echo "commit-principles: merge failed after 4 attempts; the PR stays open: $url"
+    echo "commit-principles: merge failed after $MERGE_ATTEMPTS attempts; the PR stays open: $url"
     echo "  gh said: $err"
     echo "  $rel keeps the edit. Later runs will NOT open a second PR while $branch exists on origin: merge or delete it."
     exit 1
