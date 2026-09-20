@@ -98,6 +98,8 @@ codex exec -s read-only --skip-git-repo-check --json \
 (`--skip-git-repo-check` is a no-op inside a trusted git checkout and required outside one; see Prerequisites.)
 Parse `thread_id` from the `{"type":"thread.started","thread_id":"..."}` line → that is `THREAD_ID`. The critique text lands in `/tmp/codex-verdict.txt` (Codex's last message). Read that file.
 
+> **Delete `/tmp/codex-verdict.txt` before EVERY round, resumes included.** A `codex exec resume` can fail silently (no `thread.started`, nothing on stdout) and then the `-o` file still holds the PREVIOUS round's critique, which reads as this round's verdict. `rm -f /tmp/codex-verdict.txt` before the call and, after it, check the file exists and is newer than the call; a missing file is a failed run, not an approval. (2026-09-20: round 2 of a plan review re-read round 1's verdict until the file's mtime gave it away.)
+>
 > Note: stderr carries cosmetic MCP/auth noise on some setups — `2>/dev/null` is intentional. Confirm success by the presence of the verdict file + a `thread.started` line. If neither appears, the run failed (auth/model) — stop and tell the user.
 >
 > **`< /dev/null` is mandatory:** `codex exec` reads stdin *in addition to* the prompt arg, so under a non-interactive driver (Claude Code's Bash tool, CI, any non-TTY pipeline) it blocks forever waiting on stdin EOF — a silent ~0% CPU hang. The redirect gives it immediate EOF. Required on the resume call below too.
