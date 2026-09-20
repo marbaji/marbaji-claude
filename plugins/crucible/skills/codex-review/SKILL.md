@@ -87,6 +87,7 @@ Maintain `ROUND` (start 1) and `THREAD_ID` (empty until round 1 returns).
 
 ```bash
 PROMPT_FILE="${TMPDIR:-/tmp}/codex-review-prompt.txt"
+rm -f /tmp/codex-verdict.txt   # a leftover verdict file would read as this round's
 cat > "$PROMPT_FILE" <<'EOF'
 <the review prompt above, with the plan's absolute path filled in>
 EOF
@@ -98,6 +99,8 @@ codex exec -s read-only --skip-git-repo-check --json \
 (`--skip-git-repo-check` is a no-op inside a trusted git checkout and required outside one; see Prerequisites.)
 Parse `thread_id` from the `{"type":"thread.started","thread_id":"..."}` line → that is `THREAD_ID`. The critique text lands in `/tmp/codex-verdict.txt` (Codex's last message). Read that file.
 
+> **Delete `/tmp/codex-verdict.txt` before EVERY round, resumes included.** A `codex exec resume` can fail silently (no `thread.started`, nothing on stdout) and then the `-o` file still holds the PREVIOUS round's critique, which reads as this round's verdict. `rm -f /tmp/codex-verdict.txt` before the call and, after it, check the file exists and is newer than the call; a missing file is a failed run, not an approval. (2026-09-20: round 2 of a plan review re-read round 1's verdict until the file's mtime gave it away.)
+>
 > Note: stderr carries cosmetic MCP/auth noise on some setups — `2>/dev/null` is intentional. Confirm success by the presence of the verdict file + a `thread.started` line. If neither appears, the run failed (auth/model) — stop and tell the user.
 >
 > **`< /dev/null` is mandatory:** `codex exec` reads stdin *in addition to* the prompt arg, so under a non-interactive driver (Claude Code's Bash tool, CI, any non-TTY pipeline) it blocks forever waiting on stdin EOF — a silent ~0% CPU hang. The redirect gives it immediate EOF. Required on the resume call below too.
@@ -109,6 +112,7 @@ Parse `thread_id` from the `{"type":"thread.started","thread_id":"..."}` line �
 ```bash
 # NOTE: resume rejects -s. Force read-only via -c sandbox_mode, or Codex
 # inherits config.toml (possibly danger-full-access) and could write files.
+rm -f /tmp/codex-verdict.txt   # a silently failed resume must not leave last round's verdict in place
 codex exec resume "$THREAD_ID" -c sandbox_mode="read-only" --json \
   -o /tmp/codex-verdict.txt \
   "I revised the plan. Re-review <absolute PLAN_FILE path>. Same rules. End with VERDICT: APPROVED or VERDICT: REVISE." \
@@ -118,6 +122,7 @@ codex exec resume "$THREAD_ID" -c sandbox_mode="read-only" --json \
 Both `codex exec` and `codex exec resume` support `--json` (stream → parse `thread_id` first round) and `-o/--output-last-message` (verdict capture).
 
 **Each round, after Codex returns:**
+0. Confirm `/tmp/codex-verdict.txt` exists and is newer than the call (`[ /tmp/codex-verdict.txt -nt "$PROMPT_FILE" ]`); if not, the run failed: stop and tell the user, do not read the file.
 1. Read `/tmp/codex-verdict.txt`. Append to `LOG_FILE`: `## Round <n> — Codex` + the full critique.
 2. Grep the last line for the verdict token.
    - `VERDICT: APPROVED` → break the loop, go to Step 3 (converged).
